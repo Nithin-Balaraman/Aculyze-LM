@@ -9,7 +9,7 @@ export default async function HighPriorityPage() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">High-Priority Leads</h1>
+        <h1 className="text-xl font-semibold text-brand-navy">High-Priority Leads</h1>
         <p className="text-sm text-slate-500">Open leads currently marked High priority.</p>
       </div>
       <LeadTable leads={highPriority} showFollowUp emptyMessage="No high-priority leads right now." />

@@ -34,7 +34,7 @@ export default async function LeadDetailPage({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-wide text-slate-400">{lead.leadId}</p>
-          <h1 className="text-xl font-semibold text-slate-900">{lead.companyName}</h1>
+          <h1 className="text-xl font-semibold text-brand-navy">{lead.companyName}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <StatusBadge status={lead.leadStatus} />
             <PriorityBadge priority={lead.priority} />
@@ -46,13 +46,13 @@ export default async function LeadDetailPage({
         <div className="flex gap-2">
           <Link
             href={`/activities/new?leadId=${lead.id}`}
-            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white"
+            className="rounded-md bg-brand-navy px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-navy-dark"
           >
             Log Activity
           </Link>
           <Link
             href={`/leads/${lead.id}/edit`}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700"
+            className="rounded-md border border-brand-cyan px-3 py-1.5 text-sm font-medium text-brand-cyan"
           >
             Edit Lead
           </Link>
@@ -71,7 +71,7 @@ export default async function LeadDetailPage({
       )}
 
       <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="mb-3 text-sm font-semibold text-slate-900">Latest activity summary</h2>
+        <h2 className="mb-3 text-sm font-semibold text-brand-navy">Latest activity summary</h2>
         <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Field
             label="Latest Call Outcome"
@@ -86,7 +86,7 @@ export default async function LeadDetailPage({
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="mb-3 text-sm font-semibold text-slate-900">Company details</h2>
+        <h2 className="mb-3 text-sm font-semibold text-brand-navy">Company details</h2>
         <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           <Field label="Industry" value={lead.industry} />
           <Field label="City" value={lead.city} />
@@ -102,7 +102,7 @@ export default async function LeadDetailPage({
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold text-slate-900">Activity History</h2>
+        <h2 className="mb-3 text-lg font-semibold text-brand-navy">Activity History</h2>
         <ActivityTimeline activities={lead.activities} />
       </section>
     </div>

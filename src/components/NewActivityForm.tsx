@@ -32,7 +32,7 @@ export function NewActivityForm({ preselected }: { preselected: CompanySearchRes
             <button
               type="button"
               onClick={() => setLead(null)}
-              className="text-sm text-slate-500 underline"
+              className="text-sm text-brand-cyan underline"
             >
               Change
             </button>
@@ -153,7 +153,7 @@ export function NewActivityForm({ preselected }: { preselected: CompanySearchRes
         <button
           type="submit"
           disabled={pending || !lead}
-          className="rounded-md bg-slate-900 px-4 py-2 text-base font-medium text-white disabled:opacity-60"
+          className="rounded-md bg-brand-navy px-4 py-2 text-base font-medium text-white hover:bg-brand-navy-dark disabled:opacity-60"
         >
           {pending ? "Saving..." : "Log Activity"}
         </button>

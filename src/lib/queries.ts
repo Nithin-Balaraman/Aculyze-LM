@@ -63,6 +63,35 @@ export async function getTotalActivityCount(): Promise<number> {
   return prisma.activity.count();
 }
 
+export type DailyActivityCount = { date: string; count: number };
+
+// Activities logged per calendar day (UTC) for the last `days` days,
+// including days with zero activity so the trend chart's x-axis is
+// continuous rather than skipping quiet days.
+export async function getActivityCountsByDay(days = 30): Promise<DailyActivityCount[]> {
+  const since = new Date();
+  since.setUTCHours(0, 0, 0, 0);
+  since.setUTCDate(since.getUTCDate() - (days - 1));
+
+  const activities = await prisma.activity.findMany({
+    where: { activityDate: { gte: since } },
+    select: { activityDate: true },
+  });
+
+  const counts = new Map<string, number>();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(since);
+    d.setUTCDate(d.getUTCDate() + i);
+    counts.set(d.toISOString().slice(0, 10), 0);
+  }
+  for (const activity of activities) {
+    const key = activity.activityDate.toISOString().slice(0, 10);
+    if (counts.has(key)) counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  return [...counts.entries()].map(([date, count]) => ({ date, count }));
+}
+
 export async function getAllLeadsWithDerived(): Promise<LeadWithDerived[]> {
   const leads = await prisma.lead.findMany({
     orderBy: { companyName: "asc" },

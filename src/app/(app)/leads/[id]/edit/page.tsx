@@ -16,7 +16,7 @@ export default async function EditLeadPage({
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-xl font-semibold text-slate-900">Edit {lead.companyName}</h1>
+      <h1 className="text-xl font-semibold text-brand-navy">Edit {lead.companyName}</h1>
       <EditLeadForm lead={lead} />
     </div>
   );

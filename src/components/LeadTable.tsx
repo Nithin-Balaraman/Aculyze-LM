@@ -47,7 +47,10 @@ export function LeadTable({
             return (
               <tr key={lead.id} className="hover:bg-slate-50">
                 <td className="px-3 py-2">
-                  <Link href={`/leads/${lead.id}`} className="font-medium text-slate-900 hover:underline">
+                  <Link
+                    href={`/leads/${lead.id}`}
+                    className="font-medium text-slate-900 hover:text-brand-cyan hover:underline"
+                  >
                     {lead.companyName}
                   </Link>
                   <div className="text-xs text-slate-400">{lead.leadId}</div>

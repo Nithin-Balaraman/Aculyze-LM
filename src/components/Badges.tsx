@@ -21,7 +21,7 @@ const STATUS_STYLES: Record<LeadStatus, string> = {
   Working: "bg-purple-100 text-purple-700",
   Nurture: "bg-teal-100 text-teal-700",
   Won: "bg-green-100 text-green-700",
-  Lost: "bg-slate-200 text-slate-500",
+  Lost: "bg-rose-100 text-rose-700",
   Unassigned: "bg-orange-100 text-orange-700",
 };
 

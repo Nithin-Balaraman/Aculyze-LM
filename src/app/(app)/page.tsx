@@ -4,7 +4,9 @@ import {
   isUnansweredOutcome,
   needsAttentionToday,
 } from "@/lib/leads";
+import { countByPriority, countByStatus } from "@/lib/chart-data";
 import {
+  getActivityCountsByDay,
   getAllLeadsWithDerived,
   getTotalActivityCount,
   LeadWithDerived,
@@ -13,6 +15,10 @@ import {
 } from "@/lib/queries";
 import { LeadTable } from "@/components/LeadTable";
 import { StatCard } from "@/components/StatCard";
+import { ChartCard } from "@/components/charts/ChartCard";
+import { StatusDonutChart } from "@/components/charts/StatusDonutChart";
+import { PriorityBarChart } from "@/components/charts/PriorityBarChart";
+import { ActivityTrendChart } from "@/components/charts/ActivityTrendChart";
 
 function sortByUrgency(leads: LeadWithDerived[]): LeadWithDerived[] {
   const priorityRank: Record<Priority, number> = { High: 0, Medium: 1, Low: 2 };
@@ -30,6 +36,7 @@ function sortByUrgency(leads: LeadWithDerived[]): LeadWithDerived[] {
 export default async function DashboardPage() {
   const allLeads = await getAllLeadsWithDerived();
   const totalActivities = await getTotalActivityCount();
+  const activityTrend = await getActivityCountsByDay(30);
   const openLeads = openLeadsOnly(allLeads);
 
   const openFollowUps = openLeads.filter((l) => l.followUpDate !== null);
@@ -47,10 +54,13 @@ export default async function DashboardPage() {
     openLeads.filter((l) => needsAttentionToday(l, l.lastActivityDate))
   );
 
+  const statusCounts = countByStatus(allLeads);
+  const priorityCounts = countByPriority(openLeads);
+
   return (
     <div className="flex flex-col gap-8">
       <section>
-        <h1 className="mb-4 text-xl font-semibold text-slate-900">Dashboard</h1>
+        <h1 className="mb-4 text-xl font-semibold text-brand-navy">Dashboard</h1>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard label="Total Leads" value={allLeads.length} href="/leads" />
           <StatCard label="Activities Logged" value={totalActivities} />
@@ -73,7 +83,21 @@ export default async function DashboardPage() {
       </section>
 
       <section>
-        <h2 className="mb-1 text-lg font-semibold text-slate-900">Today&apos;s Actions</h2>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <ChartCard title="Leads by Status">
+            <StatusDonutChart data={statusCounts} />
+          </ChartCard>
+          <ChartCard title="Leads by Priority" subtitle="Open leads only">
+            <PriorityBarChart data={priorityCounts} />
+          </ChartCard>
+          <ChartCard title="Activities Logged (Last 30 Days)">
+            <ActivityTrendChart data={activityTrend} />
+          </ChartCard>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="mb-1 text-lg font-semibold text-brand-navy">Today&apos;s Actions</h2>
         <p className="mb-3 text-sm text-slate-500">
           Open leads with a follow-up due, High priority, or no activity in 7+ days with nothing
           planned next.

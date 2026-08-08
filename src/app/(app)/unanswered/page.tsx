@@ -11,7 +11,7 @@ export default async function UnansweredPage() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Unanswered Leads</h1>
+        <h1 className="text-xl font-semibold text-brand-navy">Unanswered Leads</h1>
         <p className="text-sm text-slate-500">
           Open leads whose latest call outcome is No Answer or Unreachable. &quot;Unanswered
           Attempts&quot; counts every matching activity ever logged for that lead — hitting{" "}

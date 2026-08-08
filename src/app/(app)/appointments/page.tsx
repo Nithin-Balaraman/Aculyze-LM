@@ -11,7 +11,7 @@ export default async function AppointmentsPage() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Appointments</h1>
+        <h1 className="text-xl font-semibold text-brand-navy">Appointments</h1>
         <p className="text-sm text-slate-500">
           Open leads whose latest activity outcome is Appointment Confirmed.
         </p>

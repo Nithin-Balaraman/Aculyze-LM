@@ -10,13 +10,13 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Aculyze brand palette. Deliberately not swapped for dark mode — the
+     brand is a light, white-background look with navy/cyan accents. */
+  --color-brand-navy: #0f3460;
+  --color-brand-navy-dark: #0a2a5e;
+  --color-brand-cyan: #1e88e5;
+  --color-brand-cyan-light: #29abe2;
 }
 
 body {

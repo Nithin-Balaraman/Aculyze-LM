@@ -13,7 +13,7 @@ export default async function NewActivityPage({
 
   return (
     <div className="flex max-w-3xl flex-col gap-4">
-      <h1 className="text-xl font-semibold text-slate-900">Log an Activity</h1>
+      <h1 className="text-xl font-semibold text-brand-navy">Log an Activity</h1>
       <NewActivityForm preselected={preselected} />
     </div>
   );

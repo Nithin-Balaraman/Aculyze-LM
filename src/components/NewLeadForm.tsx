@@ -130,7 +130,7 @@ export function NewLeadForm() {
         <button
           type="submit"
           disabled={pending}
-          className="rounded-md bg-slate-900 px-4 py-2 text-base font-medium text-white disabled:opacity-60"
+          className="rounded-md bg-brand-navy px-4 py-2 text-base font-medium text-white hover:bg-brand-navy-dark disabled:opacity-60"
         >
           {pending ? "Saving..." : "Add Lead"}
         </button>
@@ -169,7 +169,7 @@ function TextField({
         placeholder={placeholder}
         value={value}
         onChange={onChange}
-        className="rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+        className="rounded-md border border-slate-300 px-3 py-2 text-base focus:border-brand-cyan focus:outline-none"
       />
     </div>
   );

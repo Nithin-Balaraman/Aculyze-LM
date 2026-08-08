@@ -95,7 +95,7 @@ export function CompanySearch({
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         autoFocus={autoFocus}
-        className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+        className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-brand-cyan focus:outline-none"
       />
       {open && query.trim().length > 0 && results.length > 0 && (
         <ul className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-lg">
@@ -106,8 +106,8 @@ export function CompanySearch({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => select(result)}
                 className={`block w-full px-3 py-2 text-left text-sm ${
-                  i === highlighted ? "bg-slate-100" : "bg-white"
-                } hover:bg-slate-100`}
+                  i === highlighted ? "bg-brand-cyan/10" : "bg-white"
+                } hover:bg-brand-cyan/10`}
               >
                 <div className="font-medium text-slate-900">{result.companyName}</div>
                 <div className="text-xs text-slate-500">

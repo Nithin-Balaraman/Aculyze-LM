@@ -10,7 +10,7 @@ export default async function FollowUpsPage() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Follow-Ups</h1>
+        <h1 className="text-xl font-semibold text-brand-navy">Follow-Ups</h1>
         <p className="text-sm text-slate-500">
           Open leads with a pending follow-up date, soonest first. Overdue ones are flagged red.
         </p>

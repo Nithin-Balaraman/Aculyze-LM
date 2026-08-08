@@ -20,7 +20,7 @@ export function LoginForm() {
           type="text"
           autoComplete="username"
           required
-          className="rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+          className="rounded-md border border-slate-300 px-3 py-2 text-base focus:border-brand-cyan focus:outline-none"
         />
       </div>
       <div className="flex flex-col gap-1">
@@ -33,14 +33,14 @@ export function LoginForm() {
           type="password"
           autoComplete="current-password"
           required
-          className="rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+          className="rounded-md border border-slate-300 px-3 py-2 text-base focus:border-brand-cyan focus:outline-none"
         />
       </div>
       {state.error && <p className="text-sm text-red-600">{state.error}</p>}
       <button
         type="submit"
         disabled={pending}
-        className="rounded-md bg-slate-900 px-4 py-2 text-base font-medium text-white disabled:opacity-60"
+        className="rounded-md bg-brand-navy px-4 py-2 text-base font-medium text-white hover:bg-brand-navy-dark disabled:opacity-60"
       >
         {pending ? "Signing in..." : "Sign in"}
       </button>

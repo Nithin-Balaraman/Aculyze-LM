@@ -15,7 +15,7 @@ export default async function LeadsPage({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-slate-900">All Leads</h1>
+        <h1 className="text-xl font-semibold text-brand-navy">All Leads</h1>
         <p className="text-sm text-slate-500">{leads.length} total (includes Won/Lost)</p>
       </div>
 
@@ -25,7 +25,7 @@ export default async function LeadsPage({
           name="q"
           defaultValue={q}
           placeholder="Filter by company name..."
-          className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+          className="w-full rounded-md border border-slate-300 px-3 py-2 text-base focus:border-brand-cyan focus:outline-none"
         />
       </form>
 

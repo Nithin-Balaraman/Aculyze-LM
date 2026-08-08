@@ -36,7 +36,7 @@ Supabase/Neon project).
 npm install
 cp .env.example .env   # then fill in DATABASE_URL and SESSION_SECRET
 npm run db:migrate     # creates the database schema
-npm run db:seed        # loads a handful of realistic sample leads/activities
+npm run db:seed        # creates just the login account — no sample data
 npm run dev
 ```
 
@@ -47,9 +47,10 @@ Open http://localhost:3000 and log in with the seeded account:
 
 To add teammates or change this password, edit `prisma/seed.ts` (or use
 `npm run db:studio` to edit the `User` table directly) and re-run
-`npm run db:seed` — note that reseeding wipes and recreates all leads and
-activities, so only do this against a fresh/test database, not production
-data.
+`npm run db:seed`. **Reseeding wipes every Lead and Activity row** (not just
+Users) before recreating the login account, so only run it against a
+database you're happy to start over — never against production data you
+want to keep.
 
 `SESSION_SECRET` is used to sign login session cookies — generate a real
 one for any shared/deployed environment:
@@ -75,8 +76,10 @@ openssl rand -base64 32
    ```bash
    DATABASE_URL="<supabase-connection-string>" npm run db:seed
    ```
-   (Only do this once, on an empty database — reseeding later wipes
-   existing leads/activities.)
+   This only creates the login account — no sample leads/activities.
+   **Reseeding wipes every existing Lead and Activity row**, so only run
+   this against production when you actually intend to clear it out (e.g.
+   the very first time, or a deliberate reset).
 
 ## How the "live, no-refresh" behavior works
 
@@ -126,7 +129,7 @@ business rules ever need to change:
 
 ```
 prisma/schema.prisma        Database schema (Lead, Activity, User + enums)
-prisma/seed.ts               Sample data used to explore the app immediately
+prisma/seed.ts               Creates the login account (wipes leads/activities)
 src/lib/leads.ts             Pure business logic (no DB): derived fields,
                               staleness, escalation, data-quality checks
 src/lib/queries.ts           Read-side Prisma queries

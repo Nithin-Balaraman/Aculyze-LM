@@ -10,7 +10,7 @@ export default async function DataQualityPage() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Data Quality</h1>
+        <h1 className="text-xl font-semibold text-brand-navy">Data Quality</h1>
         <p className="text-sm text-slate-500">
           Every lead (including Won/Lost) with a missing contact person, no phone or mobile
           number, a malformed email, or a duplicate company name. One row per lead.
@@ -38,7 +38,10 @@ export default async function DataQualityPage() {
               {flagged.map((lead) => (
                 <tr key={lead.id} className="hover:bg-slate-50">
                   <td className="px-3 py-2">
-                    <Link href={`/leads/${lead.id}`} className="font-medium text-slate-900 hover:underline">
+                    <Link
+                      href={`/leads/${lead.id}`}
+                      className="font-medium text-slate-900 hover:text-brand-cyan hover:underline"
+                    >
                       {lead.companyName}
                     </Link>
                     <div className="text-xs text-slate-400">{lead.leadId}</div>
