@@ -1,0 +1,140 @@
+// Aculyze Lead Management System — database schema.
+//
+// One Postgres database, queried live by every page — there is no cache
+// layer and no sync step. See src/lib/leads.ts for how "derived" fields
+// (latest call outcome, data-quality flags, etc.) are computed on read
+// instead of being stored as columns that could drift out of sync.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// A team member who can log into the app.
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+enum LeadStatus {
+  New
+  Contacted
+  Qualified
+  Working
+  Nurture
+  Won
+  Lost
+  Unassigned
+}
+
+enum Priority {
+  High
+  Medium
+  Low
+}
+
+enum ActivityType {
+  ColdCall
+  FollowUp
+  Appointment
+  Email
+  WhatsApp
+  Other
+}
+
+enum ContactChannel {
+  Phone
+  Email
+  WhatsApp
+  InPerson
+  Other
+}
+
+enum CallOutcome {
+  Connected
+  NoAnswer
+  Unreachable
+  AppointmentConfirmed
+  NotInterested
+  CallbackRequested
+  Other
+}
+
+// The master record — one row per company. Fields like latestCallOutcome,
+// latestRemarks, lastActivityDate and actionStatus are NOT stored here:
+// they are always computed from the linked Activities at query time
+// (see src/lib/leads.ts), so they can never go stale or drift.
+model Lead {
+  id              Int      @id @default(autoincrement())
+  leadId          String   @unique // display code, e.g. "LD-0001"
+  companyName     String
+  industry        String?
+  city            String?
+  fullLocation    String?
+  contactNumber   String?
+  contactPerson   String?
+  email           String?
+  mobileNumber    String?
+  website         String?
+  sourceSheet     String?  @default("Lead Entry")
+
+  leadStatus      LeadStatus @default(New)
+  priority        Priority   @default(Medium)
+
+  // Manually editable, but also overwritten whenever a new Activity is
+  // logged with its own nextAction/followUpDate — whichever write happens
+  // last "wins", which is exactly the "whichever is more recent" rule
+  // from the spec.
+  nextAction      String?
+  followUpDate    DateTime?
+
+  assignedOwner   String?
+  dataQualityNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activities Activity[]
+
+  @@index([companyName])
+  @@index([leadStatus])
+  @@index([priority])
+  @@index([followUpDate])
+}
+
+// One row per interaction with a Lead.
+model Activity {
+  id             Int      @id @default(autoincrement())
+  activityId     String   @unique // display code, e.g. "ACT-0001"
+
+  leadId         Int
+  lead           Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  activityDate   DateTime @default(now())
+  activityType   ActivityType
+  contactChannel ContactChannel
+  callOutcome    CallOutcome
+  detailsRemarks String?
+
+  nextAction     String?
+  followUpDate   DateTime?
+
+  // The lead's status as of this activity. Saving an Activity with this
+  // set updates the parent Lead's leadStatus — see logActivity() in
+  // src/lib/actions.ts.
+  leadStatus     LeadStatus
+
+  assignedOwner  String?
+  sourceSheet    String?  @default("Lead Entry")
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId, activityDate])
+  @@index([callOutcome])
+}
