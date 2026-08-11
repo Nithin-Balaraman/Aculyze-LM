@@ -1,4 +1,12 @@
-# Aculyze Lead Management System
+# Aculyze Lead Management System (superseded prototype)
+
+> **This Next.js/Prisma app has been superseded.** Active development moved
+> to a Laravel + Filament + MySQL application in [`laravel-app/`](laravel-app/README.md),
+> which is now the real Aculyze-LM system — see that folder's README for
+> setup, workflow, and current status. This prototype is kept only for
+> reference and is no longer being developed.
+
+---
 
 An internal lead management web app for Aculyze Solutions LLP, replacing the
 old Excel + VBA sheet. One Postgres database, queried live on every page —
