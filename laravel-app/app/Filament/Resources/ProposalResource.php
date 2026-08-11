@@ -115,7 +115,7 @@ class ProposalResource extends Resource
                     ->label('Stale')
                     ->boolean()
                     ->getStateUsing(fn (Proposal $record) => $record->isStale())
-                    ->trueColor('danger')
+                    ->trueColor('coral')
                     ->trueIcon('heroicon-o-exclamation-triangle')
                     ->falseIcon('heroicon-o-check-circle')
                     ->falseColor('gray'),
@@ -156,7 +156,10 @@ class ProposalResource extends Resource
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ])
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('created_at', 'desc')
+            ->emptyStateHeading('No proposals in motion.')
+            ->emptyStateDescription('Once a Lead is validated, send it to Proposal from its "Create Proposal" action.')
+            ->emptyStateIcon('heroicon-o-document-text');
     }
 
     public static function getPages(): array

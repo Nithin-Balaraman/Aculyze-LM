@@ -21,12 +21,19 @@ enum LeadTemperature: string implements HasColor, HasIcon, HasLabel
         };
     }
 
+    /**
+     * Each temperature gets its own named color registered in
+     * AdminPanelProvider (coral/gold/slateblue) rather than reusing
+     * Filament's generic danger/warning/info palette — see that class for
+     * why `coral` in particular is reserved for Hot leads and stale
+     * alerts only.
+     */
     public function getColor(): string|array|null
     {
         return match ($this) {
-            self::Hot => 'danger',
-            self::Warm => 'warning',
-            self::Cold => 'info',
+            self::Hot => 'coral',
+            self::Warm => 'gold',
+            self::Cold => 'slateblue',
         };
     }
 

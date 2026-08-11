@@ -93,7 +93,20 @@ reuse this password anywhere real.** Login credentials:
 | Employee | `kural@aculyze.test` | `password` |
 | Employee | `ilaya@aculyze.test` | `password` |
 
-### 1.5 Start the app
+### 1.5 Build the front-end assets
+
+The panel's custom theme (fonts, brand colors, the Pipeline Pulse widget's
+styling) is compiled by Vite and isn't checked into the repo:
+
+```bash
+npm run build
+```
+
+Re-run this any time you change something under `resources/css/` or
+`resources/views/filament/`. For active front-end work, `npm run dev` runs
+Vite in watch mode instead.
+
+### 1.6 Start the app
 
 ```bash
 php artisan serve
@@ -102,7 +115,7 @@ php artisan serve
 Open **http://127.0.0.1:8000/admin** and log in with one of the accounts
 above.
 
-### 1.6 Common first-run problems
+### 1.7 Common first-run problems
 
 - **`SQLSTATE[HY000] [2002] Connection refused`** — MySQL isn't running, or
   the host/port in `.env` is wrong. Start MySQL (`sudo service mysql
@@ -116,7 +129,7 @@ above.
 - **"No application encryption key has been specified"** — you skipped
   `php artisan key:generate`.
 
-### 1.7 Running the tests
+### 1.8 Running the tests
 
 ```bash
 cp .env.testing.example .env.testing   # if you don't already have one
@@ -277,12 +290,55 @@ Custom Range / All Time) via Filament's `HasFiltersForm`, centralized in
 `App\Support\DashboardPeriod`.
 
 **"Company growth" on the Main Dashboard is an open business question**
-(§7 below) — rather than invent a revenue formula, it currently shows a
+(§8 below) — rather than invent a revenue formula, it currently shows a
 clearly-labeled Leads/Proposals *activity* trend, not a financial metric.
 
 ---
 
-## 6. Stale-record alerts
+## 6. Visual design system
+
+Aculyze-LM intentionally doesn't look like a stock Filament install. The
+whole system lives in `resources/css/filament/admin/theme.css` (compiled
+via `->viteTheme()` in `AdminPanelProvider`) plus
+`resources/css/filament/admin/tailwind.config.js`:
+
+- **Colors** — brand blue (`#4174B9`), deep navy (`#0E1131`), and cyan
+  (`#2DC4ED`) registered as the panel's `primary`/`navy`/`info` colors in
+  `AdminPanelProvider`. A fourth accent, **coral** (`#F0653C`), is
+  deliberately restrained: it appears *only* for Hot leads and stale-record
+  alerts (`App\Enums\LeadTemperature`, the `is_stale` icon column on Leads/
+  Proposals, and the Pipeline Pulse widget below) — never as general UI
+  chrome — so it keeps its meaning as "this needs attention." Warm/Cold
+  lead badges get their own `gold`/`slateblue` colors rather than
+  Filament's generic warning/info palette.
+- **Fonts** — Space Grotesk for headings/brand, IBM Plex Sans for body
+  text, IBM Plex Mono specifically for KPI numbers (every stat card value
+  across the dashboards). All three are bundled locally via the
+  `@fontsource/*` npm packages and `@import`-ed at the top of `theme.css`
+  — no Google Fonts CDN dependency, so the app never depends on an
+  external font request succeeding.
+- **Pipeline Pulse** (`app/Filament/Widgets/PipelinePulse.php` +
+  `resources/views/filament/widgets/pipeline-pulse.blade.php`) — the Main
+  Dashboard's opening widget: a live, six-stage flow visualization
+  (Database → Call Record → Follow-Up/Appointment → Lead → Proposal → Won)
+  where each node's count and each connector's thickness come from real
+  queries, not placeholder data. A node glows coral when it contains a Hot
+  lead or a stale record. The connecting "flow" animation is CSS-only
+  (an animated repeating gradient) and respects
+  `prefers-reduced-motion: reduce`. It's the one deliberately animated
+  element in the app — everywhere else uses standard, brief transitions.
+- **Avatars** — `app/Filament/AvatarProviders/InitialsAvatarProvider.php`
+  renders a navy initials avatar as an inline SVG data URI instead of
+  Filament's default (a request to ui-avatars.com), so the topbar has no
+  external image dependency either.
+- **Empty states** — each resource table has a short, direct, in-voice
+  empty-state message (e.g. Follow-Ups: "Nothing waiting on you.") set via
+  `->emptyStateHeading()`/`->emptyStateDescription()` in that resource's
+  `table()` method, instead of Filament's generic "No records found."
+
+---
+
+## 7. Stale-record alerts
 
 - **Lead**: stale at **30+ days** with no `stage` movement
   (`Lead::isStale()` / `Lead::scopeStale()`), except Leads already in a
@@ -300,7 +356,7 @@ on the Main Dashboard.
 
 ---
 
-## 7. Open business TODOs (need stakeholder confirmation)
+## 8. Open business TODOs (need stakeholder confirmation)
 
 These are intentionally left flexible rather than guessed at — see
 `AGENTS.md` §61 for the original brief:
@@ -322,7 +378,7 @@ These are intentionally left flexible rather than guessed at — see
 
 ---
 
-## 8. Project structure
+## 9. Project structure
 
 ```
 app/Enums/                  Centralized workflow values (CallOutcome, stages, etc.)
@@ -333,9 +389,12 @@ app/Observers/CallRecordObserver.php  Wires routing into the create event
 app/Filament/Resources/     CRUD screens (Database, Activity Log, Follow-Ups,
                               Appointments, Leads, Proposals, Employees)
 app/Filament/Pages/          MyDashboard, MainDashboard, EmployeeDashboard
-app/Filament/Widgets/        Reusable stat/table/chart widgets
+app/Filament/Widgets/        Reusable stat/table/chart widgets, incl. PipelinePulse.php
+app/Filament/AvatarProviders/ Local (no external request) initials avatar
 app/Support/DashboardPeriod.php   Shared date-range filter logic
 config/aculyze.php           Stale thresholds + the Hold config flag
+resources/css/filament/admin/theme.css   Fonts, brand colors, Pipeline Pulse animation
+resources/views/filament/widgets/pipeline-pulse.blade.php   Pipeline Pulse markup
 database/migrations/         Schema
 database/seeders/DatabaseSeeder.php   Dev users + sample workflow data
 tests/Feature/               Authorization, routing, staleness, dashboard tests
@@ -343,7 +402,7 @@ tests/Feature/               Authorization, routing, staleness, dashboard tests
 
 ---
 
-## 9. Testing
+## 10. Testing
 
 `tests/Feature/` covers the behaviors called out as critical in the
 original brief:

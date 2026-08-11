@@ -96,7 +96,10 @@ class UserResource extends Resource
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->emptyStateHeading('No employees yet.')
+            ->emptyStateDescription('Add your team so they can start logging calls and get their own dashboard.')
+            ->emptyStateIcon('heroicon-o-users');
     }
 
     public static function getPages(): array

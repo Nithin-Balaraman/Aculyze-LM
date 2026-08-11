@@ -132,7 +132,10 @@ class CallRecordResource extends Resource
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ])
-            ->defaultSort('called_at', 'desc');
+            ->defaultSort('called_at', 'desc')
+            ->emptyStateHeading('No calls logged yet.')
+            ->emptyStateDescription('Every call you make against a prospect shows up here — successful or not.')
+            ->emptyStateIcon('heroicon-o-phone');
     }
 
     public static function getPages(): array

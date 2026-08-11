@@ -161,7 +161,10 @@ class ProspectResource extends Resource
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ])
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('created_at', 'desc')
+            ->emptyStateHeading('No prospects yet.')
+            ->emptyStateDescription('Add a company to start the pipeline — every call starts here.')
+            ->emptyStateIcon('heroicon-o-building-office-2');
     }
 
     public static function getRelations(): array

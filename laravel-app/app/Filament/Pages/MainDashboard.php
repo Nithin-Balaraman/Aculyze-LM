@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Filament\Widgets\GrowthTrendChart;
 use App\Filament\Widgets\LeadsByTemperatureChart;
 use App\Filament\Widgets\OrgStatsOverview;
+use App\Filament\Widgets\PipelinePulse;
 use App\Filament\Widgets\StaleLeadsTable;
 use App\Filament\Widgets\StaleProposalsTable;
 use App\Support\DashboardPeriod;
@@ -67,6 +68,7 @@ class MainDashboard extends BaseDashboard
     public function getWidgets(): array
     {
         return [
+            PipelinePulse::class,
             OrgStatsOverview::class,
             LeadsByTemperatureChart::class,
             GrowthTrendChart::class,

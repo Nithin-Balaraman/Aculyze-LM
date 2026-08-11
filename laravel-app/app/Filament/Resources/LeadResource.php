@@ -101,7 +101,7 @@ class LeadResource extends Resource
                     ->label('Stale')
                     ->boolean()
                     ->getStateUsing(fn (Lead $record) => $record->isStale())
-                    ->trueColor('danger')
+                    ->trueColor('coral')
                     ->trueIcon('heroicon-o-exclamation-triangle')
                     ->falseIcon('heroicon-o-check-circle')
                     ->falseColor('gray'),
@@ -148,7 +148,10 @@ class LeadResource extends Resource
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ])
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('created_at', 'desc')
+            ->emptyStateHeading('No leads right now.')
+            ->emptyStateDescription('A "Requirement Identified" call turns into a Lead here automatically.')
+            ->emptyStateIcon('heroicon-o-fire');
     }
 
     public static function getPages(): array

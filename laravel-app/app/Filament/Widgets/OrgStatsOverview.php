@@ -46,9 +46,12 @@ class OrgStatsOverview extends BaseWidget
             Stat::make('Total Calls', $calls)->icon('heroicon-o-phone'),
             Stat::make('Total Appointments', $appointments)->icon('heroicon-o-calendar-days'),
             Stat::make('Total Leads', $totalLeads)->icon('heroicon-o-fire'),
-            Stat::make('Hot Leads', $hotLeads)->color('danger')->icon('heroicon-o-fire'),
-            Stat::make('Warm Leads', $warmLeads)->color('warning')->icon('heroicon-o-sun'),
-            Stat::make('Cold Leads', $coldLeads)->color('info')->icon('heroicon-o-cloud'),
+            // Kept deliberately neutral, not coral/gold/slateblue — those
+            // colors are reserved for the Lead temperature badges and the
+            // Pipeline Pulse widget so they keep their meaning.
+            Stat::make('Hot Leads', $hotLeads)->icon('heroicon-o-fire'),
+            Stat::make('Warm Leads', $warmLeads)->icon('heroicon-o-sun'),
+            Stat::make('Cold Leads', $coldLeads)->icon('heroicon-o-cloud'),
             Stat::make('Total Proposals', $proposals)->icon('heroicon-o-document-text'),
         ];
     }

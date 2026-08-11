@@ -126,7 +126,10 @@ class AppointmentResource extends Resource
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ])
-            ->defaultSort('appointment_at', 'asc');
+            ->defaultSort('appointment_at', 'asc')
+            ->emptyStateHeading('Nothing on the calendar.')
+            ->emptyStateDescription('Appointments appear here once a call sets one up.')
+            ->emptyStateIcon('heroicon-o-calendar-days');
     }
 
     public static function getPages(): array

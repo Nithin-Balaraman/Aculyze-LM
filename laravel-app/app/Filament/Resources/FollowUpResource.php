@@ -101,7 +101,10 @@ class FollowUpResource extends Resource
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ])
-            ->defaultSort('follow_up_at', 'asc');
+            ->defaultSort('follow_up_at', 'asc')
+            ->emptyStateHeading('Nothing waiting on you.')
+            ->emptyStateDescription('Follow-ups land here automatically when a call needs one.')
+            ->emptyStateIcon('heroicon-o-arrow-path');
     }
 
     public static function getPages(): array
