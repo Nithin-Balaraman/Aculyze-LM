@@ -12,12 +12,13 @@ use Livewire\WithFileUploads;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 /**
- * Admin-only Excel (.xlsx) -> Prospect (Database) import wizard. Change
- * Request "Decision 5". Built as a plain custom Livewire flow rather than
- * Filament's declarative Form/Wizard components, because the column-
- * mapping step has to be generated dynamically from whatever headers the
- * uploaded file actually has, and the duplicate-resolution step is an
- * interactive per-row review — neither fits a static form schema well.
+ * Excel (.xlsx) -> Prospect (Database) import wizard, open to both Admin
+ * and Employee (Import Access + Export Approval batch, Section 1). Built
+ * as a plain custom Livewire flow rather than Filament's declarative
+ * Form/Wizard components, because the column-mapping step has to be
+ * generated dynamically from whatever headers the uploaded file actually
+ * has, and the duplicate-resolution step is an interactive per-row review
+ * — neither fits a static form schema well.
  *
  * Despite the source data being called "Lead ID" etc. in the legacy sheet,
  * this imports into Prospect (the Database/master list) — see AGENTS.md
@@ -118,12 +119,16 @@ class ImportProspects extends Page
 
     public function mount(): void
     {
-        abort_unless(auth()->user()?->isAdmin(), 403);
+        // Any authenticated user (Admin or Employee) may import — this page
+        // is standalone (not nested under ProspectResource's own admin-only
+        // policies/authorization), so opening it here doesn't widen any
+        // other Prospect permission.
+        abort_unless(auth()->check(), 403);
     }
 
     public static function canAccess(): bool
     {
-        return auth()->user()?->isAdmin() ?? false;
+        return auth()->check();
     }
 
     public function processUpload(): void
@@ -287,7 +292,13 @@ class ImportProspects extends Page
             $warnings = [];
             $assignedTo = null;
 
-            if ($assignedOwnerRaw) {
+            // Employee imports always attribute to the importing employee —
+            // the sheet's Assigned Owner column (effectively untrusted
+            // input, just like a hidden form field) must never be able to
+            // hand a newly created Prospect to someone else. Admin behavior
+            // is unchanged: honor a matched Assigned Owner name, falling
+            // back to the importing admin.
+            if ($assignedOwnerRaw && auth()->user()->isAdmin()) {
                 $match = $usersByName->get(Str::lower(trim($assignedOwnerRaw)));
 
                 if ($match) {
@@ -295,6 +306,8 @@ class ImportProspects extends Page
                 } else {
                     $warnings[] = "Assigned Owner \"{$assignedOwnerRaw}\" did not match any employee — defaulted to you; reassign later if needed.";
                 }
+            } elseif ($assignedOwnerRaw) {
+                $warnings[] = "Assigned Owner \"{$assignedOwnerRaw}\" was ignored — imports you perform are always assigned to you.";
             }
 
             $assignedTo ??= auth()->id();

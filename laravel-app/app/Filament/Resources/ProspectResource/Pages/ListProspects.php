@@ -18,7 +18,6 @@ class ListProspects extends ListRecords
                 ->label('Import from Excel')
                 ->icon('heroicon-o-arrow-up-tray')
                 ->color('gray')
-                ->visible(fn () => auth()->user()->isAdmin())
                 ->url(fn () => ImportProspects::getUrl()),
             Actions\CreateAction::make(),
         ];

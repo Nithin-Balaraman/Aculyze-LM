@@ -2,16 +2,21 @@
 
 namespace Tests\Feature;
 
+use App\Enums\ExportableResource;
+use App\Enums\ExportRequestStatus;
 use App\Enums\FollowUpStatus;
 use App\Filament\Resources\AppointmentResource\Pages\ListAppointments;
 use App\Filament\Resources\FollowUpResource\Pages\ListFollowUps;
 use App\Filament\Resources\LeadResource\Pages\ListLeads;
 use App\Filament\Resources\ProposalResource\Pages\ListProposals;
+use App\Models\ExportRequest;
 use App\Models\FollowUp;
 use App\Models\Prospect;
 use App\Models\User;
+use App\Support\Exports\FollowUpExporter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Tests\TestCase;
 
 /**
@@ -103,35 +108,46 @@ class FollowUpTabsAndExportTest extends TestCase
             ->assertCanSeeTableRecords([$kuralHistory]);
     }
 
-    public function test_employee_can_export_their_own_follow_ups_as_csv(): void
+    /**
+     * Import Access + Export Approval batch, Section 2.5: employees no
+     * longer get an immediate download here — they submit a Pending
+     * ExportRequest via requestExport, and exportCsv (admin-immediate)
+     * must stay hidden from them (covered below in the visibility test).
+     */
+    public function test_employee_can_request_export_of_their_own_follow_ups(): void
     {
         $employee = User::factory()->create();
         $this->makeFollowUp($employee, FollowUpStatus::Pending, 'Call back Tuesday');
 
         $this->actingAs($employee);
 
-        $test = Livewire::test(ListFollowUps::class)
-            ->callAction('exportCsv', data: ['scope' => 'pending']);
+        Livewire::test(ListFollowUps::class)
+            ->callAction('requestExport', data: ['scope' => 'pending']);
 
-        $test->assertFileDownloaded();
-
-        $content = base64_decode($test->effects['download']['content']);
-        $this->assertStringContainsString('Call back Tuesday', $content);
+        $this->assertDatabaseCount('export_requests', 1);
+        $request = ExportRequest::first();
+        $this->assertSame($employee->id, $request->user_id);
+        $this->assertSame(ExportableResource::FollowUp, $request->resource);
+        $this->assertSame(ExportRequestStatus::Pending, $request->status);
+        $this->assertSame(['scope' => 'pending'], $request->filters);
     }
 
-    public function test_employee_csv_export_cannot_contain_another_employees_follow_ups(): void
+    /**
+     * The privacy guarantee itself lives in FollowUpExporter::scopedQuery()
+     * (via visibleTo()), which is shared verbatim by the admin-immediate
+     * export and the employee approved-request download — exercising it
+     * directly here covers both paths without needing the download route.
+     */
+    public function test_follow_up_export_cannot_contain_another_employees_follow_ups(): void
     {
         $owner = User::factory()->create();
         $intruder = User::factory()->create();
         $this->makeFollowUp($owner, FollowUpStatus::Pending, 'Owners private reason');
         $this->makeFollowUp($intruder, FollowUpStatus::Pending, 'Intruders own reason');
 
-        $this->actingAs($intruder);
+        $response = (new FollowUpExporter)->stream($intruder, ['scope' => 'all']);
 
-        $test = Livewire::test(ListFollowUps::class)
-            ->callAction('exportCsv', data: ['scope' => 'all']);
-
-        $content = base64_decode($test->effects['download']['content']);
+        $content = $this->streamedContent($response);
         $this->assertStringContainsString('Intruders own reason', $content);
         $this->assertStringNotContainsString('Owners private reason', $content);
     }
@@ -160,17 +176,13 @@ class FollowUpTabsAndExportTest extends TestCase
         $this->makeFollowUp($employee, FollowUpStatus::Pending, 'Still pending');
         $this->makeFollowUp($employee, FollowUpStatus::Completed, 'All done');
 
-        $this->actingAs($employee);
+        $exporter = new FollowUpExporter;
 
-        $pendingOnly = Livewire::test(ListFollowUps::class)
-            ->callAction('exportCsv', data: ['scope' => 'pending']);
-        $pendingContent = base64_decode($pendingOnly->effects['download']['content']);
+        $pendingContent = $this->streamedContent($exporter->stream($employee, ['scope' => 'pending']));
         $this->assertStringContainsString('Still pending', $pendingContent);
         $this->assertStringNotContainsString('All done', $pendingContent);
 
-        $historyOnly = Livewire::test(ListFollowUps::class)
-            ->callAction('exportCsv', data: ['scope' => 'history']);
-        $historyContent = base64_decode($historyOnly->effects['download']['content']);
+        $historyContent = $this->streamedContent($exporter->stream($employee, ['scope' => 'history']));
         $this->assertStringContainsString('All done', $historyContent);
         $this->assertStringNotContainsString('Still pending', $historyContent);
     }
@@ -181,13 +193,40 @@ class FollowUpTabsAndExportTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(ListLeads::class)
-            ->assertActionHidden('exportCsv');
+            ->assertActionHidden('exportCsv')
+            ->assertActionVisible('requestExport');
 
         Livewire::test(ListAppointments::class)
-            ->assertActionHidden('exportCsv');
+            ->assertActionHidden('exportCsv')
+            ->assertActionVisible('requestExport');
 
         Livewire::test(ListProposals::class)
-            ->assertActionHidden('exportCsv');
+            ->assertActionHidden('exportCsv')
+            ->assertActionVisible('requestExport');
+    }
+
+    public function test_follow_up_export_action_visibility_is_role_based(): void
+    {
+        $employee = User::factory()->create();
+        $admin = User::factory()->admin()->create();
+
+        $this->actingAs($employee);
+        Livewire::test(ListFollowUps::class)
+            ->assertActionHidden('exportCsv')
+            ->assertActionVisible('requestExport');
+
+        $this->actingAs($admin);
+        Livewire::test(ListFollowUps::class)
+            ->assertActionVisible('exportCsv')
+            ->assertActionHidden('requestExport');
+    }
+
+    private function streamedContent(StreamedResponse $response): string
+    {
+        ob_start();
+        $response->sendContent();
+
+        return ob_get_clean();
     }
 
     public function test_existing_follow_up_actions_still_function_alongside_tabs(): void

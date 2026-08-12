@@ -33,4 +33,17 @@ return [
 
     'hold_is_terminal_for_staleness' => env('ACULYZE_HOLD_IS_TERMINAL', false),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Employee export request validity
+    |--------------------------------------------------------------------------
+    |
+    | Number of days an Approved employee export request stays downloadable
+    | before it expires. Import Access + Export Approval batch, Pre-Answered
+    | Question 1.
+    |
+    */
+
+    'export_request_validity_days' => env('ACULYZE_EXPORT_REQUEST_VALIDITY_DAYS', 7),
+
 ];

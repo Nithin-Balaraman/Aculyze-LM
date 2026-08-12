@@ -95,11 +95,18 @@ class ImportProspectsTest extends TestCase
         return array_map(fn (string $header) => $row[$header], self::LEGACY_HEADERS);
     }
 
-    public function test_import_page_is_admin_only(): void
+    public function test_import_page_is_available_to_both_admin_and_employee(): void
     {
+        $admin = User::factory()->admin()->create();
         $employee = User::factory()->create();
 
-        $this->actingAs($employee)->get('/admin/import-prospects')->assertForbidden();
+        $this->actingAs($admin)->get('/admin/import-prospects')->assertOk();
+        $this->actingAs($employee)->get('/admin/import-prospects')->assertOk();
+    }
+
+    public function test_import_page_requires_authentication(): void
+    {
+        $this->get('/admin/import-prospects')->assertRedirect();
     }
 
     public function test_non_xlsx_file_is_rejected(): void
@@ -471,5 +478,107 @@ class ImportProspectsTest extends TestCase
 
         $test->set('mapping.Company Name', 'ignore');
         $this->assertFalse($test->instance()->isCompanyNameMapped());
+    }
+
+    // --- Import Access + Export Approval batch: employee import ownership ---
+
+    public function test_employee_import_creates_prospects_owned_by_that_employee(): void
+    {
+        $employee = User::factory()->create();
+        $this->actingAs($employee);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => ''])]))
+            ->call('processUpload')
+            ->call('processMapping')
+            ->assertSet('summary.imported', 1);
+
+        $prospect = Prospect::sole();
+        $this->assertSame($employee->id, $prospect->created_by);
+        $this->assertSame($employee->id, $prospect->assigned_to);
+    }
+
+    public function test_employee_cannot_use_the_assigned_owner_column_to_hand_ownership_to_someone_else(): void
+    {
+        $employee = User::factory()->create();
+        $otherEmployee = User::factory()->create(['name' => 'Ilaya Bharathi']);
+        $this->actingAs($employee);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => 'Ilaya Bharathi'])]))
+            ->call('processUpload')
+            ->call('processMapping')
+            ->assertSet('summary.imported', 1);
+
+        $prospect = Prospect::sole();
+        // Not $otherEmployee->id, even though the sheet named them explicitly.
+        $this->assertSame($employee->id, $prospect->assigned_to);
+        $this->assertSame($employee->id, $prospect->created_by);
+        $this->assertNotSame($otherEmployee->id, $prospect->assigned_to);
+    }
+
+    public function test_admin_import_ownership_behavior_is_unchanged_by_this_batch(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $owner = User::factory()->create(['name' => 'Ilaya Bharathi']);
+        $this->actingAs($admin);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => 'Ilaya Bharathi'])]))
+            ->call('processUpload')
+            ->call('processMapping')
+            ->assertSet('summary.imported', 1);
+
+        $prospect = Prospect::sole();
+        // Admin behavior is unchanged: a matched Assigned Owner name still wins.
+        $this->assertSame($owner->id, $prospect->assigned_to);
+        $this->assertSame($admin->id, $prospect->created_by);
+    }
+
+    public function test_employee_duplicate_update_resolution_does_not_transfer_ownership(): void
+    {
+        $employee = User::factory()->create();
+        $originalOwner = User::factory()->create();
+        $existing = Prospect::factory()->create([
+            'company_name' => 'Sunrise Plastics',
+            'phone_primary' => '+91 98765 43210',
+            'assigned_to' => $originalOwner->id,
+            'created_by' => $originalOwner->id,
+        ]);
+        $this->actingAs($employee);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => ''])]))
+            ->call('processUpload')
+            ->call('processMapping')
+            ->assertSet('step', 'duplicates')
+            ->set('duplicateResolutions.0', 'update')
+            ->call('completeImport')
+            ->assertSet('summary.updated', 1);
+
+        $existing->refresh();
+        $this->assertSame($originalOwner->id, $existing->assigned_to);
+        $this->assertSame($originalOwner->id, $existing->created_by);
+    }
+
+    public function test_employee_duplicate_detection_finds_prospects_owned_by_other_employees(): void
+    {
+        $employee = User::factory()->create();
+        $otherEmployee = User::factory()->create();
+        Prospect::factory()->create([
+            'company_name' => 'Sunrise Plastics',
+            'phone_primary' => '+91 98765 43210',
+            'assigned_to' => $otherEmployee->id,
+            'created_by' => $otherEmployee->id,
+        ]);
+        $this->actingAs($employee);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow()]))
+            ->call('processUpload')
+            ->call('processMapping')
+            ->assertSet('step', 'duplicates');
+
+        $this->assertSame(1, Prospect::count());
     }
 }
