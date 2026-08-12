@@ -60,10 +60,10 @@ class ExportActions
                 }
 
                 $filters = $exporter->normalizeCriteria($data);
-                $existing = ExportRequest::findEquivalentPendingOrApproved($user, $resource, $filters);
+                $existing = ExportRequest::findEquivalentPending($user, $resource, $filters);
 
                 if ($existing) {
-                    self::notifyDuplicate($existing);
+                    self::notifyDuplicatePending();
 
                     return;
                 }
@@ -83,21 +83,16 @@ class ExportActions
             });
     }
 
-    private static function notifyDuplicate(ExportRequest $existing): void
+    /**
+     * Only a Pending duplicate is ever blocked (see
+     * ExportRequest::findEquivalentPending()) — an existing Approved
+     * request is never a reason to refuse a new one.
+     */
+    private static function notifyDuplicatePending(): void
     {
-        if ($existing->status === ExportRequestStatus::Pending) {
-            Notification::make()
-                ->title('You already have a pending request for this export.')
-                ->body('Wait for an admin to review it, or check My Export Requests.')
-                ->warning()
-                ->send();
-
-            return;
-        }
-
         Notification::make()
-            ->title('You already have an approved export for this.')
-            ->body('Go to My Export Requests to download it — no need to request again.')
+            ->title('You already have a pending request for this export.')
+            ->body('Wait for an admin to review it, or check My Export Requests.')
             ->warning()
             ->send();
     }

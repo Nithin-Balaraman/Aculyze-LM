@@ -108,6 +108,89 @@ class FollowUpTabsAndExportTest extends TestCase
             ->assertCanSeeTableRecords([$kuralHistory]);
     }
 
+    // --- Follow-Up Lost tab batch: a third tab showing Cancelled Follow-Ups
+    // only. Cancelled Follow-Ups intentionally still appear in History too
+    // — the two tabs are allowed to overlap. ---
+
+    public function test_lost_tab_shows_only_cancelled_follow_ups(): void
+    {
+        $employee = User::factory()->create();
+        $pending = $this->makeFollowUp($employee, FollowUpStatus::Pending);
+        $completed = $this->makeFollowUp($employee, FollowUpStatus::Completed);
+        $cancelled = $this->makeFollowUp($employee, FollowUpStatus::Cancelled);
+
+        $this->actingAs($employee);
+
+        Livewire::test(ListFollowUps::class)
+            ->set('activeTab', 'lost')
+            ->assertCanSeeTableRecords([$cancelled])
+            ->assertCanNotSeeTableRecords([$pending, $completed]);
+    }
+
+    public function test_cancelled_follow_up_appears_in_both_history_and_lost_without_being_removed_from_history(): void
+    {
+        $employee = User::factory()->create();
+        $cancelled = $this->makeFollowUp($employee, FollowUpStatus::Cancelled);
+        $completed = $this->makeFollowUp($employee, FollowUpStatus::Completed);
+
+        $this->actingAs($employee);
+
+        Livewire::test(ListFollowUps::class)
+            ->set('activeTab', 'history')
+            ->assertCanSeeTableRecords([$cancelled, $completed]);
+
+        Livewire::test(ListFollowUps::class)
+            ->set('activeTab', 'lost')
+            ->assertCanSeeTableRecords([$cancelled])
+            ->assertCanNotSeeTableRecords([$completed]);
+
+        // Re-confirm History still has it afterward — adding Lost must not
+        // have removed Cancelled records from History.
+        Livewire::test(ListFollowUps::class)
+            ->set('activeTab', 'history')
+            ->assertCanSeeTableRecords([$cancelled, $completed]);
+    }
+
+    public function test_employee_a_sees_their_own_cancelled_follow_up_in_lost(): void
+    {
+        $employeeA = User::factory()->create();
+        $cancelled = $this->makeFollowUp($employeeA, FollowUpStatus::Cancelled);
+
+        $this->actingAs($employeeA);
+
+        Livewire::test(ListFollowUps::class)
+            ->set('activeTab', 'lost')
+            ->assertCanSeeTableRecords([$cancelled]);
+    }
+
+    public function test_employee_a_does_not_see_employee_bs_cancelled_follow_up_in_lost(): void
+    {
+        $employeeA = User::factory()->create();
+        $employeeB = User::factory()->create();
+        $bsCancelled = $this->makeFollowUp($employeeB, FollowUpStatus::Cancelled);
+
+        $this->actingAs($employeeA);
+
+        Livewire::test(ListFollowUps::class)
+            ->set('activeTab', 'lost')
+            ->assertCanNotSeeTableRecords([$bsCancelled]);
+    }
+
+    public function test_admin_sees_organization_wide_cancelled_follow_ups_in_lost(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $nithin = User::factory()->create();
+        $kural = User::factory()->create();
+        $nithinLost = $this->makeFollowUp($nithin, FollowUpStatus::Cancelled);
+        $kuralLost = $this->makeFollowUp($kural, FollowUpStatus::Cancelled);
+
+        $this->actingAs($admin);
+
+        Livewire::test(ListFollowUps::class)
+            ->set('activeTab', 'lost')
+            ->assertCanSeeTableRecords([$nithinLost, $kuralLost]);
+    }
+
     /**
      * Import Access + Export Approval batch, Section 2.5: employees no
      * longer get an immediate download here — they submit a Pending

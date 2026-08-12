@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Filament\Pages\ImportProspects;
+use App\Filament\Resources\ProspectResource\Pages\ListProspects;
 use App\Models\Prospect;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -580,5 +581,94 @@ class ImportProspectsTest extends TestCase
             ->assertSet('step', 'duplicates');
 
         $this->assertSame(1, Prospect::count());
+    }
+
+    // --- Employee Prospect Visibility batch: the imported Prospect must be
+    // visible through the *real* Filament List page query, not just as raw
+    // Prospect model attributes (Section 1.6/1.7). ---
+
+    public function test_employee_a_sees_their_own_imported_prospect_in_the_database_list(): void
+    {
+        $employeeA = User::factory()->create(['name' => 'Nithin']);
+        $this->actingAs($employeeA);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => ''])]))
+            ->call('processUpload')
+            ->call('processMapping')
+            ->assertSet('summary.imported', 1);
+
+        $prospect = Prospect::sole();
+
+        Livewire::test(ListProspects::class)
+            ->assertCanSeeTableRecords([$prospect]);
+    }
+
+    public function test_employee_b_does_not_see_employee_as_imported_prospect_in_the_database_list(): void
+    {
+        $employeeA = User::factory()->create(['name' => 'Nithin']);
+        $employeeB = User::factory()->create(['name' => 'Kural']);
+        $this->actingAs($employeeA);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => ''])]))
+            ->call('processUpload')
+            ->call('processMapping')
+            ->assertSet('summary.imported', 1);
+
+        $prospect = Prospect::sole();
+
+        $this->actingAs($employeeB);
+
+        Livewire::test(ListProspects::class)
+            ->assertCanNotSeeTableRecords([$prospect]);
+    }
+
+    public function test_admin_sees_employee_as_imported_prospect_in_the_database_list(): void
+    {
+        $employeeA = User::factory()->create(['name' => 'Nithin']);
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($employeeA);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => ''])]))
+            ->call('processUpload')
+            ->call('processMapping')
+            ->assertSet('summary.imported', 1);
+
+        $prospect = Prospect::sole();
+
+        $this->actingAs($admin);
+
+        Livewire::test(ListProspects::class)
+            ->assertCanSeeTableRecords([$prospect]);
+    }
+
+    public function test_existing_manually_created_employee_owned_prospect_remains_visible_in_the_list(): void
+    {
+        $employee = User::factory()->create();
+        $prospect = Prospect::factory()->create(['assigned_to' => $employee->id, 'created_by' => $employee->id]);
+        $this->actingAs($employee);
+
+        Livewire::test(ListProspects::class)
+            ->assertCanSeeTableRecords([$prospect]);
+    }
+
+    public function test_soft_deleted_imported_prospect_is_excluded_from_the_employees_database_list(): void
+    {
+        $employee = User::factory()->create(['name' => 'Nithin']);
+        $this->actingAs($employee);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => ''])]))
+            ->call('processUpload')
+            ->call('processMapping')
+            ->assertSet('summary.imported', 1);
+
+        $prospect = Prospect::sole();
+        $prospect->delete();
+
+        Livewire::test(ListProspects::class)
+            ->assertCanNotSeeTableRecords([$prospect]);
     }
 }

@@ -125,6 +125,26 @@ class MyExportRequestsTest extends TestCase
         $this->assertSame(ExportRequestStatus::Approved, $request->fresh()->status);
     }
 
+    /**
+     * Export Dedup batch, Section 2.5: multiple Approved requests with
+     * identical resource/filters must remain distinct rows — the page
+     * must never group or overwrite them just because the criteria match.
+     */
+    public function test_multiple_approved_requests_with_identical_criteria_appear_as_distinct_rows(): void
+    {
+        $employee = User::factory()->create();
+        $first = $this->makeLeadRequest($employee, ExportRequestStatus::Approved, ['stage' => null]);
+        $first->forceFill(['expires_at' => now()->addDays(7)])->save();
+        $second = $this->makeLeadRequest($employee, ExportRequestStatus::Approved, ['stage' => null]);
+        $second->forceFill(['expires_at' => now()->addDays(7)])->save();
+
+        $this->actingAs($employee);
+
+        Livewire::test(MyExportRequests::class)
+            ->assertCanSeeTableRecords([$first, $second])
+            ->assertCountTableRecords(2);
+    }
+
     public function test_employee_cannot_download_another_employees_approved_request(): void
     {
         $owner = User::factory()->create();

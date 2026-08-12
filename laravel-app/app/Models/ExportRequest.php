@@ -133,28 +133,30 @@ class ExportRequest extends Model
     }
 
     /**
-     * An existing Pending request, or an Approved-and-unexpired one, for
-     * the exact same user/resource/filters (Section 2.19). Compared in PHP
-     * rather than as a raw JSON-column equality query, since key ordering
-     * inside the stored JSON must never produce a false "different"
-     * result — normalizeCriteria() on each Exporter already guarantees a
-     * consistent key set, but comparing the decoded arrays here is the
-     * simplest way to also be resilient to ordering.
+     * An existing Pending request for the exact same user/resource/filters
+     * (Section 2.19). Only Pending requests are deduplicated — an Approved
+     * request (even unexpired) never blocks a new one, since approved CSVs
+     * are generated from live data at download time (Section 2.4 of the
+     * "Employee Prospect Visibility, Export Request Deduplication, and
+     * Follow-Up Lost Tab" batch): an employee may legitimately want a fresh
+     * export after new records have been created since the last approval.
+     * Denied and Expired requests never block a new one either, and were
+     * never included here.
+     *
+     * Compared in PHP rather than as a raw JSON-column equality query,
+     * since key ordering inside the stored JSON must never produce a false
+     * "different" result — normalizeCriteria() on each Exporter already
+     * guarantees a consistent key set, but comparing the decoded arrays
+     * here is the simplest way to also be resilient to ordering.
      *
      * @param  array<string, mixed>  $filters
      */
-    public static function findEquivalentPendingOrApproved(User $user, ExportableResource $resource, array $filters): ?self
+    public static function findEquivalentPending(User $user, ExportableResource $resource, array $filters): ?self
     {
         return static::query()
             ->where('user_id', $user->id)
             ->where('resource', $resource)
-            ->where(fn (Builder $query) => $query
-                ->where('status', ExportRequestStatus::Pending)
-                ->orWhere(fn (Builder $q) => $q
-                    ->where('status', ExportRequestStatus::Approved)
-                    ->where(fn (Builder $q2) => $q2->whereNull('expires_at')->orWhere('expires_at', '>', now()))
-                )
-            )
+            ->where('status', ExportRequestStatus::Pending)
             ->get()
             ->first(fn (self $request) => $request->filters === $filters);
     }

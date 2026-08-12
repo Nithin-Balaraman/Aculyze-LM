@@ -24,6 +24,15 @@ use Illuminate\Database\Eloquent\Builder;
  * export that used to be open to every authenticated user is admin-only
  * again — employees now go through Request Export like every other
  * resource, via the shared ExportActions/FollowUpExporter.
+ *
+ * Employee Prospect Visibility / Export Dedup / Follow-Up Lost batch,
+ * Section 3: a third "Lost" tab — Cancelled Follow-Ups only, using the
+ * existing FollowUpStatus::Cancelled value (no new status/column). Lost
+ * intentionally overlaps with History: a Cancelled Follow-Up is expected
+ * to appear in both, since "Lost" is just a narrower view of the same
+ * underlying Cancelled records, not a mutually-exclusive bucket. No badge
+ * is added here since History — the other pre-existing overlapping tab —
+ * doesn't have one either; adding one only to Lost would be inconsistent.
  */
 class ListFollowUps extends ListRecords
 {
@@ -37,6 +46,8 @@ class ListFollowUps extends ListRecords
                 ->badge(fn () => FollowUp::query()->visibleTo(auth()->user())->where('status', FollowUpStatus::Pending)->count()),
             'history' => Tab::make('History')
                 ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', [FollowUpStatus::Completed, FollowUpStatus::Cancelled])),
+            'lost' => Tab::make('Lost')
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', FollowUpStatus::Cancelled)),
         ];
     }
 

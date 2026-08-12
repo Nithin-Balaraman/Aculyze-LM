@@ -152,12 +152,16 @@ class FollowUpResource extends Resource
                 ]),
             ])
             ->defaultSort('follow_up_at', 'asc')
-            ->emptyStateHeading(fn ($livewire) => ($livewire->activeTab ?? 'pending') === 'history'
-                ? 'No follow-up history available.'
-                : 'No pending follow-ups.')
-            ->emptyStateDescription(fn ($livewire) => ($livewire->activeTab ?? 'pending') === 'history'
-                ? 'Completed and closed follow-ups will show up here.'
-                : 'Follow-ups land here automatically when a call needs one.')
+            ->emptyStateHeading(fn ($livewire) => match ($livewire->activeTab ?? 'pending') {
+                'history' => 'No follow-up history available.',
+                'lost' => 'No lost follow-ups.',
+                default => 'No pending follow-ups.',
+            })
+            ->emptyStateDescription(fn ($livewire) => match ($livewire->activeTab ?? 'pending') {
+                'history' => 'Completed and closed follow-ups will show up here.',
+                'lost' => 'Follow-ups closed without a positive outcome will show up here.',
+                default => 'Follow-ups land here automatically when a call needs one.',
+            })
             ->emptyStateIcon('heroicon-o-arrow-path');
     }
 

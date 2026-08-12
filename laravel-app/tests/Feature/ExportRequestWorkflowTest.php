@@ -22,9 +22,15 @@ use Tests\TestCase;
 /**
  * Import Access + Export Approval batch, Section 2: end-to-end coverage of
  * the "Request Export" flow across all four resources, plus the
- * duplicate-request rules from Pre-Answered Question 3 (Pending always
- * deduplicated; an existing Approved-and-unexpired request also blocks a
- * new one; Denied/Expired never block).
+ * duplicate-request rules.
+ *
+ * Employee Prospect Visibility / Export Dedup / Follow-Up Lost batch,
+ * Section 2: the duplicate-request rule changed — only an identical
+ * Pending request still blocks a new one. An existing Approved (even
+ * unexpired) request no longer blocks a new request, since approved CSVs
+ * are generated from live data at download time and an employee may
+ * legitimately want a fresh export after new records appear. Denied and
+ * Expired requests never blocked a new request either, and still don't.
  */
 class ExportRequestWorkflowTest extends TestCase
 {
@@ -120,7 +126,7 @@ class ExportRequestWorkflowTest extends TestCase
         $this->assertDatabaseCount('export_requests', 2);
     }
 
-    public function test_existing_approved_and_unexpired_request_blocks_a_duplicate_new_request(): void
+    public function test_existing_approved_and_unexpired_request_does_not_block_a_new_request(): void
     {
         $employee = User::factory()->create();
         $admin = User::factory()->admin()->create();
@@ -135,7 +141,110 @@ class ExportRequestWorkflowTest extends TestCase
         $this->actingAs($employee);
         Livewire::test(ListLeads::class)->callAction('requestExport', data: ['stage' => null]);
 
-        $this->assertDatabaseCount('export_requests', 1);
+        $this->assertDatabaseCount('export_requests', 2);
+    }
+
+    public function test_new_request_after_an_approved_request_starts_as_pending(): void
+    {
+        $employee = User::factory()->create();
+        $admin = User::factory()->admin()->create();
+        $existing = ExportRequest::create([
+            'user_id' => $employee->id,
+            'resource' => ExportableResource::Lead,
+            'filters' => ['stage' => null],
+            'status' => ExportRequestStatus::Pending,
+        ]);
+        $existing->approve($admin);
+
+        $this->actingAs($employee);
+        Livewire::test(ListLeads::class)->callAction('requestExport', data: ['stage' => null]);
+
+        $newRequest = ExportRequest::where('id', '!=', $existing->id)->sole();
+        $this->assertSame(ExportRequestStatus::Pending, $newRequest->status);
+        $this->assertNull($newRequest->decided_by);
+        $this->assertNull($newRequest->expires_at);
+    }
+
+    public function test_older_approved_request_is_untouched_by_a_new_pending_request(): void
+    {
+        $employee = User::factory()->create();
+        $admin = User::factory()->admin()->create();
+        $existing = ExportRequest::create([
+            'user_id' => $employee->id,
+            'resource' => ExportableResource::Lead,
+            'filters' => ['stage' => null],
+            'status' => ExportRequestStatus::Pending,
+        ]);
+        $existing->approve($admin);
+        $originalExpiresAt = $existing->expires_at;
+
+        $this->actingAs($employee);
+        Livewire::test(ListLeads::class)->callAction('requestExport', data: ['stage' => null]);
+
+        $existing->refresh();
+        $this->assertSame(ExportRequestStatus::Approved, $existing->status);
+        $this->assertTrue($existing->expires_at->equalTo($originalExpiresAt));
+        $this->assertTrue($existing->isDownloadable());
+    }
+
+    public function test_older_approved_request_remains_independently_downloadable_after_a_new_request_is_made(): void
+    {
+        $employee = User::factory()->create();
+        $admin = User::factory()->admin()->create();
+        $existing = ExportRequest::create([
+            'user_id' => $employee->id,
+            'resource' => ExportableResource::Lead,
+            'filters' => ['stage' => null],
+            'status' => ExportRequestStatus::Pending,
+        ]);
+        $existing->approve($admin);
+
+        $this->actingAs($employee);
+        Livewire::test(ListLeads::class)->callAction('requestExport', data: ['stage' => null]);
+
+        $this->assertTrue($employee->can('download', $existing->fresh()));
+    }
+
+    public function test_both_approved_requests_coexist_independently_once_the_second_is_approved(): void
+    {
+        $employee = User::factory()->create();
+        $admin = User::factory()->admin()->create();
+        $first = ExportRequest::create([
+            'user_id' => $employee->id,
+            'resource' => ExportableResource::Lead,
+            'filters' => ['stage' => null],
+            'status' => ExportRequestStatus::Pending,
+        ]);
+        $first->approve($admin);
+
+        $this->actingAs($employee);
+        Livewire::test(ListLeads::class)->callAction('requestExport', data: ['stage' => null]);
+        $second = ExportRequest::where('id', '!=', $first->id)->sole();
+        $second->approve($admin);
+
+        $first->refresh();
+        $second->refresh();
+        $this->assertSame(ExportRequestStatus::Approved, $first->status);
+        $this->assertSame(ExportRequestStatus::Approved, $second->status);
+        $this->assertTrue($first->isDownloadable());
+        $this->assertTrue($second->isDownloadable());
+        $this->assertNotSame($first->id, $second->id);
+    }
+
+    public function test_a_different_resource_does_not_count_as_a_duplicate(): void
+    {
+        $employee = User::factory()->create();
+        ExportRequest::create([
+            'user_id' => $employee->id,
+            'resource' => ExportableResource::Appointment,
+            'filters' => ['stage' => null],
+            'status' => ExportRequestStatus::Pending,
+        ]);
+
+        $this->actingAs($employee);
+        Livewire::test(ListLeads::class)->callAction('requestExport', data: ['stage' => null]);
+
+        $this->assertDatabaseCount('export_requests', 2);
     }
 
     public function test_denied_request_does_not_block_a_new_request(): void

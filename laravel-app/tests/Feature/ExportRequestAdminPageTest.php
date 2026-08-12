@@ -55,6 +55,30 @@ class ExportRequestAdminPageTest extends TestCase
             ->assertCanSeeTableRecords([$nithinRequest, $kuralRequest]);
     }
 
+    /**
+     * Export Dedup batch, Section 2.6: the admin must be able to see and
+     * decide each request independently — e.g. "Proposal / All / Approved
+     * / yesterday" and "Proposal / All / Pending / today" as two separate
+     * rows for the same employee, not merged just because the criteria
+     * match.
+     */
+    public function test_admin_sees_a_pending_and_an_approved_identical_request_as_two_independent_rows(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $employee = User::factory()->create();
+        $approved = $this->makeRequest($employee, ExportableResource::Proposal, ['stage' => null]);
+        $approved->approve($admin);
+        $pending = $this->makeRequest($employee, ExportableResource::Proposal, ['stage' => null]);
+
+        $this->actingAs($admin);
+
+        Livewire::test(ListExportRequests::class)
+            ->assertCanSeeTableRecords([$approved, $pending])
+            ->assertCountTableRecords(2)
+            ->assertTableActionHidden('approve', $approved)
+            ->assertTableActionVisible('approve', $pending);
+    }
+
     public function test_admin_can_approve_a_pending_request(): void
     {
         $admin = User::factory()->admin()->create();
