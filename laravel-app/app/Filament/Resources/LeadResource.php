@@ -7,12 +7,14 @@ use App\Enums\LeadTemperature;
 use App\Filament\Resources\LeadResource\Pages;
 use App\Models\Lead;
 use App\Models\User;
+use App\Support\DeletionGuard;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Lead Sheet (AGENTS.md sections 20-23, 43). Stage names/order are
@@ -151,7 +153,7 @@ class LeadResource extends Resource
                     ->icon('heroicon-o-document-text')
                     ->color('success')
                     ->visible(fn (Lead $record) => ! $record->is_lost && $record->stage->isEligibleForProposal() && $record->proposal === null)
-                    ->url(fn (Lead $record) => \App\Filament\Resources\ProposalResource::getUrl('create', ['lead_id' => $record->id])),
+                    ->url(fn (Lead $record) => ProposalResource::getUrl('create', ['lead_id' => $record->id])),
                 Tables\Actions\Action::make('markLost')
                     ->label('Mark Lost')
                     ->icon('heroicon-o-x-circle')
@@ -166,11 +168,13 @@ class LeadResource extends Resource
                             ->helperText('Required — why this Lead is being marked Lost.'),
                     ])
                     ->action(fn (Lead $record, array $data) => $record->markLost($data['reason'])),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\DeleteAction::make()
+                    ->before(fn (Lead $record) => DeletionGuard::guardRecord($record, 'lead')),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\DeleteBulkAction::make()
+                        ->before(fn (Collection $records) => DeletionGuard::guardRecords($records, 'leads', fn (Lead $lead) => $lead->prospect->company_name)),
                 ]),
             ])
             ->defaultSort('created_at', 'desc')

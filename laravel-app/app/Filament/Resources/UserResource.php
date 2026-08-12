@@ -3,13 +3,16 @@
 namespace App\Filament\Resources;
 
 use App\Enums\UserRole;
+use App\Filament\Pages\EmployeeDashboard;
 use App\Filament\Resources\UserResource\Pages;
 use App\Models\User;
+use App\Support\DeletionGuard;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Hash;
 
 /**
@@ -86,15 +89,17 @@ class UserResource extends Resource
                 Tables\Actions\Action::make('dashboard')
                     ->label('Dashboard')
                     ->icon('heroicon-o-chart-bar')
-                    ->url(fn (User $record) => \App\Filament\Pages\EmployeeDashboard::getUrl(['employee' => $record->id]))
+                    ->url(fn (User $record) => EmployeeDashboard::getUrl(['employee' => $record->id]))
                     ->color('gray'),
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\DeleteAction::make()
+                    ->before(fn (User $record) => DeletionGuard::guardRecord($record, 'employee')),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\DeleteBulkAction::make()
+                        ->before(fn (Collection $records) => DeletionGuard::guardRecords($records, 'employees', fn (User $user) => $user->name)),
                 ]),
             ])
             ->emptyStateHeading('No employees yet.')

@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 /**
  * The Call Record IS the Activity Log (AGENTS.md section 12/51) — there is
@@ -41,9 +42,14 @@ class CallRecord extends Model
         ];
     }
 
+    /**
+     * withoutGlobalScope(SoftDeletingScope) so a soft-deleted Prospect's
+     * company name still resolves in every module's history instead of
+     * silently going blank (Change Request Section 7).
+     */
     public function prospect(): BelongsTo
     {
-        return $this->belongsTo(Prospect::class);
+        return $this->belongsTo(Prospect::class)->withoutGlobalScope(SoftDeletingScope::class);
     }
 
     /** The employee who actually made this call. Never changes on reassignment. */
@@ -65,6 +71,23 @@ class CallRecord extends Model
     public function lead(): HasOne
     {
         return $this->hasOne(Lead::class);
+    }
+
+    /**
+     * A Call Record blocks deletion once routing has created a downstream
+     * Follow-Up/Appointment/Lead from it (Change Request Section 8) — those
+     * are real history that must not vanish just because the originating
+     * call is deleted.
+     *
+     * @return array<string, int>
+     */
+    public function deletionBlockers(): array
+    {
+        return [
+            'Follow-Up' => (int) $this->followUp()->exists(),
+            'Appointment' => (int) $this->appointment()->exists(),
+            'Lead' => (int) $this->lead()->exists(),
+        ];
     }
 
     /**

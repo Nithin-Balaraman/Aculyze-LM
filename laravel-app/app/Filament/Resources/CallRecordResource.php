@@ -5,13 +5,14 @@ namespace App\Filament\Resources;
 use App\Enums\CallOutcome;
 use App\Filament\Resources\CallRecordResource\Pages;
 use App\Models\CallRecord;
-use App\Models\Prospect;
+use App\Support\DeletionGuard;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Call Records = the Activity Log (AGENTS.md sections 12, 51). Every call,
@@ -125,11 +126,17 @@ class CallRecordResource extends Resource
             ->actions([
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\DeleteAction::make()
+                    ->before(fn (CallRecord $record) => DeletionGuard::guardRecord($record, 'call record')),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\DeleteBulkAction::make()
+                        ->before(fn (Collection $records) => DeletionGuard::guardRecords(
+                            $records,
+                            'call records',
+                            fn (CallRecord $call) => $call->called_at->format('d M Y').' — '.$call->prospect->company_name,
+                        )),
                 ]),
             ])
             ->defaultSort('called_at', 'desc')

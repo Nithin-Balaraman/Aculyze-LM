@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\Date;
 
 class Proposal extends Model
@@ -54,9 +55,14 @@ class Proposal extends Model
         return $this->belongsTo(Lead::class);
     }
 
+    /**
+     * withoutGlobalScope(SoftDeletingScope) so a soft-deleted Prospect's
+     * company name still resolves here instead of silently going blank
+     * (Change Request Section 7).
+     */
     public function prospect(): BelongsTo
     {
-        return $this->belongsTo(Prospect::class);
+        return $this->belongsTo(Prospect::class)->withoutGlobalScope(SoftDeletingScope::class);
     }
 
     public function assignedEmployee(): BelongsTo

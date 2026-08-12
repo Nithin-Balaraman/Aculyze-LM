@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\Date;
 
 class Lead extends Model
@@ -50,9 +51,14 @@ class Lead extends Model
         });
     }
 
+    /**
+     * withoutGlobalScope(SoftDeletingScope) so a soft-deleted Prospect's
+     * company name still resolves here instead of silently going blank
+     * (Change Request Section 7).
+     */
     public function prospect(): BelongsTo
     {
-        return $this->belongsTo(Prospect::class);
+        return $this->belongsTo(Prospect::class)->withoutGlobalScope(SoftDeletingScope::class);
     }
 
     public function callRecord(): BelongsTo
@@ -136,5 +142,19 @@ class Lead extends Model
     public function scopeLost(Builder $query): Builder
     {
         return $query->where('is_lost', true);
+    }
+
+    /**
+     * A Lead blocks deletion once it has a Proposal (Change Request Section
+     * 9, folded into the same blocking-delete fix as Sections 5 & 8) — the
+     * Proposal is real sales history that must not vanish with its Lead.
+     *
+     * @return array<string, int>
+     */
+    public function deletionBlockers(): array
+    {
+        return [
+            'Proposal' => (int) $this->proposal()->exists(),
+        ];
     }
 }

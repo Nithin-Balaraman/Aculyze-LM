@@ -3,6 +3,8 @@
 namespace App\Filament\Resources\LeadResource\Pages;
 
 use App\Filament\Resources\LeadResource;
+use App\Models\Lead;
+use App\Support\DeletionGuard;
 use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
 
@@ -14,7 +16,8 @@ class EditLead extends EditRecord
     {
         return [
             Actions\ViewAction::make(),
-            Actions\DeleteAction::make(),
+            Actions\DeleteAction::make()
+                ->before(fn (Lead $record) => DeletionGuard::guardRecord($record, 'lead')),
         ];
     }
 }
