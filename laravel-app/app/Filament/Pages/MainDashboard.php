@@ -4,11 +4,12 @@ namespace App\Filament\Pages;
 
 use App\Filament\Widgets\ConversionTrendChart;
 use App\Filament\Widgets\GrowthTrendChart;
+use App\Filament\Widgets\KpiBand;
 use App\Filament\Widgets\LeadsByStageChart;
 use App\Filament\Widgets\LeadsByTemperatureChart;
 use App\Filament\Widgets\LeadsLostByStageChart;
-use App\Filament\Widgets\OrgStatsOverview;
 use App\Filament\Widgets\PipelinePulse;
+use App\Filament\Widgets\ProposalOutcomeChart;
 use App\Filament\Widgets\StaleLeadsTable;
 use App\Filament\Widgets\StaleProposalsTable;
 use App\Support\DashboardPeriod;
@@ -16,8 +17,8 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
-use Filament\Pages\Dashboard\Concerns\HasFiltersForm;
 use Filament\Pages\Dashboard as BaseDashboard;
+use Filament\Pages\Dashboard\Concerns\HasFiltersForm;
 use Filament\Widgets\Widget;
 
 /**
@@ -72,8 +73,9 @@ class MainDashboard extends BaseDashboard
     {
         return [
             PipelinePulse::class,
-            OrgStatsOverview::class,
+            KpiBand::class,
             LeadsByTemperatureChart::class,
+            ProposalOutcomeChart::class,
             LeadsByStageChart::class,
             LeadsLostByStageChart::class,
             ConversionTrendChart::class,

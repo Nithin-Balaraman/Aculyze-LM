@@ -39,14 +39,14 @@ class GrowthTrendChart extends ChartWidget
                 [
                     'label' => 'Leads Created',
                     'data' => $leadCounts->values(),
-                    'borderColor' => '#0f766e',
-                    'backgroundColor' => 'rgba(15, 118, 110, 0.1)',
+                    'borderColor' => '#4174B9',
+                    'backgroundColor' => 'rgba(65, 116, 185, 0.1)',
                 ],
                 [
                     'label' => 'Proposals Created',
                     'data' => $proposalCounts->values(),
-                    'borderColor' => '#f59e0b',
-                    'backgroundColor' => 'rgba(245, 158, 11, 0.1)',
+                    'borderColor' => '#2DC4ED',
+                    'backgroundColor' => 'rgba(45, 196, 237, 0.1)',
                 ],
             ],
             'labels' => $weeks->map(fn ($weekStart) => $weekStart->format('d M'))->values(),

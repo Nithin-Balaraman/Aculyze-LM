@@ -3,7 +3,6 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\ProspectResource\Pages;
-use App\Filament\Resources\ProspectResource\RelationManagers;
 use App\Models\Prospect;
 use App\Models\User;
 use Filament\Forms;
@@ -12,7 +11,6 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Model;
 
 /**
  * The Database module (AGENTS.md section 10) — the master list of
@@ -116,12 +114,20 @@ class ProspectResource extends Resource
                 Tables\Columns\TextColumn::make('industry')
                     ->searchable()
                     ->toggleable(),
+                Tables\Columns\TextColumn::make('city')
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('address')
+                    ->searchable()
+                    ->limit(40)
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('locality')
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('assignedEmployee.name')
                     ->label('Assigned To')
                     ->badge()
+                    ->placeholder('Unassigned')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime('d M Y')

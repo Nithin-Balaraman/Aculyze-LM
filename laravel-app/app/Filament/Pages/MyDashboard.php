@@ -2,8 +2,9 @@
 
 namespace App\Filament\Pages;
 
-use App\Filament\Widgets\EmployeeStatsOverview;
+use App\Filament\Widgets\KpiBand;
 use App\Filament\Widgets\LeadsByStageChart;
+use App\Filament\Widgets\ProposalOutcomeChart;
 use App\Filament\Widgets\StaleLeadsTable;
 use App\Filament\Widgets\StaleProposalsTable;
 use App\Support\DashboardPeriod;
@@ -54,8 +55,9 @@ class MyDashboard extends BaseDashboard
     public function getWidgets(): array
     {
         return [
-            EmployeeStatsOverview::class,
+            KpiBand::class,
             LeadsByStageChart::class,
+            ProposalOutcomeChart::class,
             StaleLeadsTable::class,
             StaleProposalsTable::class,
         ];

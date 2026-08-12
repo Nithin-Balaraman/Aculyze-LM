@@ -32,6 +32,31 @@ class DashboardPeriod
     }
 
     /**
+     * The immediately-preceding period of the same length, for a real
+     * period-over-period trend comparison (UX Fixes Batch Issue 6 — "do not
+     * fabricate trend percentages"). Returns [null, null] when there's no
+     * well-defined previous period to compare against ("All Time", or a
+     * custom range missing either bound).
+     *
+     * @return array{0: ?Carbon, 1: ?Carbon}
+     */
+    public static function previous(?array $filters): array
+    {
+        [$from, $until] = self::resolve($filters);
+
+        if (! $from || ! $until) {
+            return [null, null];
+        }
+
+        $lengthInSeconds = $until->getTimestamp() - $from->getTimestamp();
+
+        return [
+            $from->copy()->subSeconds($lengthInSeconds + 1),
+            $from->copy()->subSecond(),
+        ];
+    }
+
+    /**
      * @return array<string, string>
      */
     public static function options(): array

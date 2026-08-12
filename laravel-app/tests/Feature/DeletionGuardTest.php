@@ -8,7 +8,6 @@ use App\Enums\ProposalStage;
 use App\Filament\Resources\CallRecordResource\Pages\ListCallRecords;
 use App\Filament\Resources\LeadResource\Pages\EditLead;
 use App\Filament\Resources\LeadResource\Pages\ListLeads;
-use App\Filament\Resources\UserResource\Pages\EditUser;
 use App\Filament\Resources\UserResource\Pages\ListUsers;
 use App\Models\CallRecord;
 use App\Models\Lead;
@@ -47,37 +46,9 @@ class DeletionGuardTest extends TestCase
         $this->assertDatabaseMissing('users', ['id' => $emptyUser->id]);
     }
 
-    public function test_deleting_a_user_with_related_records_is_blocked_with_a_friendly_notification(): void
-    {
-        $admin = User::factory()->admin()->create();
-        $employee = User::factory()->create();
-        Prospect::factory()->create(['assigned_to' => $employee->id, 'created_by' => $employee->id]);
-
-        $this->actingAs($admin);
-
-        Livewire::test(ListUsers::class)
-            ->callTableAction('delete', $employee)
-            ->assertTableActionHalted('delete')
-            ->assertNotified("Can't delete this employee");
-
-        $this->assertDatabaseHas('users', ['id' => $employee->id]);
-    }
-
-    public function test_user_delete_action_on_the_edit_page_is_also_blocked(): void
-    {
-        $admin = User::factory()->admin()->create();
-        $employee = User::factory()->create();
-        Prospect::factory()->create(['assigned_to' => $employee->id, 'created_by' => $employee->id]);
-
-        $this->actingAs($admin);
-
-        Livewire::test(EditUser::class, ['record' => $employee->getRouteKey()])
-            ->callAction('delete')
-            ->assertActionHalted('delete')
-            ->assertNotified("Can't delete this employee");
-
-        $this->assertDatabaseHas('users', ['id' => $employee->id]);
-    }
+    // A User with dependencies is no longer a dead-end block — deleting one
+    // now opens the guided reassignment/cleanup flow (UX Fixes Batch Issue
+    // 5). See tests/Feature/EmployeeDeletionTest.php for that coverage.
 
     public function test_bulk_deleting_users_is_blocked_entirely_if_any_selected_user_has_related_records(): void
     {

@@ -73,4 +73,39 @@ class StageDropoutReportTest extends TestCase
         $this->assertSame(3, $lead['Validated']['current']);
         $this->assertSame(0, $lead['Validated']['movedPast']);
     }
+
+    /**
+     * UX Fixes Batch Issue 4: the chart must be built from the exact same
+     * $stages array the table renders — this locks in that chartData()
+     * cannot drift from getFunnels() by construction (same input in, same
+     * numbers out), rather than running a second, separately-queried chart.
+     */
+    public function test_chart_data_reflects_the_exact_same_counts_as_the_table(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->makeLead(LeadStage::RequirementCollection);
+        $this->makeLead(LeadStage::Validated);
+        $this->actingAs($admin);
+
+        $report = new StageDropoutReport;
+        $stages = $report->getFunnels()['Lead'];
+        $chart = $report->chartData($stages);
+
+        $this->assertSame(array_column($stages, 'label'), $chart['labels']);
+        $this->assertSame(array_column($stages, 'current'), $chart['datasets'][0]['data']);
+        $this->assertSame(array_column($stages, 'movedPast'), $chart['datasets'][1]['data']);
+    }
+
+    public function test_has_any_data_is_false_when_every_stage_is_zero_and_true_otherwise(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $report = new StageDropoutReport;
+
+        $this->assertFalse($report->hasAnyData($report->getFunnels()['Proposal']));
+
+        $this->makeLead(LeadStage::RequirementCollection);
+        $this->assertTrue($report->hasAnyData($report->getFunnels()['Lead']));
+    }
 }

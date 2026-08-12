@@ -1,0 +1,244 @@
+<?php
+
+namespace App\Services;
+
+use App\Exceptions\EmployeeDeletionFailedException;
+use App\Models\Prospect;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
+
+/**
+ * UX Fixes Batch Issue 5: replaces the old dead-end User DeletionGuard with
+ * a guided cleanup/reassignment workflow. App\Support\DeletionGuard is
+ * unchanged and still used as-is for direct CallRecord/Lead deletion — this
+ * service is specifically for deleting a User.
+ *
+ * Ownership, everywhere in this service, means the genuine assignment/
+ * ownership field for that record type (assigned_to for Prospect/
+ * Appointment/Lead/Proposal, user_id for CallRecord/FollowUp) — never a
+ * broader relationship like "shares a Prospect" or "created from the same
+ * call". See dependencyBreakdown() and the regression test covering the
+ * reported "Jisha" scenario.
+ */
+class EmployeeDeletionService
+{
+    /**
+     * The itemized counts shown in the guided dialog before any option is
+     * chosen. Matches the six record types the batch's dialog example
+     * lists — this and every deletion below always reads live counts, never
+     * a snapshot passed in from the UI.
+     *
+     * @return array{prospects: int, callRecords: int, followUps: int, appointments: int, leads: int, proposals: int}
+     */
+    public function dependencyBreakdown(User $employee): array
+    {
+        return [
+            'prospects' => $employee->assignedProspects()->count(),
+            'callRecords' => $employee->callRecords()->count(),
+            'followUps' => $employee->followUps()->count(),
+            'appointments' => $employee->assignedAppointments()->count(),
+            'leads' => $employee->assignedLeads()->count(),
+            'proposals' => $employee->assignedProposals()->count(),
+        ];
+    }
+
+    public function hasDependencies(User $employee): bool
+    {
+        return array_sum($this->dependencyBreakdown($employee)) > 0;
+    }
+
+    /**
+     * A replacement owner must be chosen whenever the employee has Call
+     * Records (which must always be reassigned, never deleted) OR any
+     * record they merely *created* that is currently owned by someone else
+     * — that record isn't part of this employee's cleanup (it stays, it
+     * isn't theirs), but its created_by foreign key still points at this
+     * employee and would otherwise block deletion.
+     */
+    public function requiresReplacement(User $employee): bool
+    {
+        if ($employee->callRecords()->exists()) {
+            return true;
+        }
+
+        if ($employee->assignedProspects()->where('created_by', $employee->id)->exists()) {
+            return true;
+        }
+
+        foreach ($this->orphanedCreatorshipQueries($employee) as $query) {
+            if ($query->exists()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Records the employee merely *created* but that belong to someone
+     * else — not part of this employee's own cleanup (they're not deleted
+     * or touched otherwise), but their created_by FK still needs handing
+     * off. Appointment/Lead/Proposal rows the employee genuinely owns are
+     * excluded here because execute() hard-deletes those outright, taking
+     * their created_by with them; Prospect is excluded because a Prospect
+     * the employee owns is never hard-deleted (kept, unassigned or soft-
+     * deleted) and is handled separately in execute() for that reason.
+     *
+     * @return array<int, Builder>
+     */
+    private function orphanedCreatorshipQueries(User $employee): array
+    {
+        return [
+            $employee->createdProspects()->where('assigned_to', '!=', $employee->id),
+            $employee->createdAppointments()->where('assigned_to', '!=', $employee->id),
+            $employee->createdLeads()->where('assigned_to', '!=', $employee->id),
+            $employee->createdProposals()->where('assigned_to', '!=', $employee->id),
+        ];
+    }
+
+    /**
+     * The simple case (Section 5.7): nothing to clean up, so just delete.
+     * Still re-validated inside the transaction in case a dependency was
+     * created between the dialog opening and this being confirmed.
+     */
+    public function deleteWithoutDependencies(User $employee): void
+    {
+        DB::transaction(function () use ($employee) {
+            $fresh = User::query()->whereKey($employee->id)->lockForUpdate()->firstOrFail();
+
+            if ($this->hasDependencies($fresh)) {
+                throw new EmployeeDeletionFailedException(
+                    "{$fresh->name} now has related records that weren't there a moment ago. Please try again — you'll see the up-to-date breakdown."
+                );
+            }
+
+            $fresh->delete();
+        });
+    }
+
+    /**
+     * Option A — "Keep Companies (Reassign)": Prospects assigned to the
+     * employee are kept and unassigned; everything else genuinely owned by
+     * the employee is deleted.
+     */
+    public function reassignAndDelete(User $employee, ?User $replacement): void
+    {
+        $this->execute($employee, $replacement, deleteProspects: false);
+    }
+
+    /**
+     * Option B — "Delete Everything (Including Companies)": Prospects
+     * assigned to the employee are soft-deleted (never forceDelete — Pre-
+     * Answered Question 6) instead of unassigned; everything else is the
+     * same as Option A.
+     */
+    public function deleteEverything(User $employee, ?User $replacement): void
+    {
+        $this->execute($employee, $replacement, deleteProspects: true);
+    }
+
+    private function execute(User $employee, ?User $replacement, bool $deleteProspects): void
+    {
+        try {
+            DB::transaction(function () use ($employee, $replacement, $deleteProspects) {
+                $fresh = User::query()->whereKey($employee->id)->lockForUpdate()->firstOrFail();
+
+                $replacement = $this->validateReplacement($fresh, $replacement);
+
+                // 1. Call Records are permanent Activity Log history and
+                // are never deleted — only ever reassigned.
+                if ($replacement) {
+                    $fresh->callRecords()->update(['user_id' => $replacement->id]);
+                }
+
+                // 2. Records this employee merely created but that belong
+                // to someone else keep existing untouched — only their
+                // created_by authorship is handed to the replacement so
+                // the FK no longer points at a deleted user.
+                if ($replacement) {
+                    foreach ($this->orphanedCreatorshipQueries($fresh) as $query) {
+                        $query->update(['created_by' => $replacement->id]);
+                    }
+                }
+
+                // 3. Prospects genuinely assigned to this employee. These
+                // are the one record type that survives either option
+                // (soft-deleted, or just unassigned) rather than being
+                // hard-deleted, so — unlike step 4 below — a Prospect this
+                // employee also created needs its created_by reassigned
+                // too, or that FK would still block deleting the employee.
+                // Captured as plain IDs up front since both operations
+                // below would otherwise change what assignedProspects()
+                // itself matches on the next call.
+                $assignedProspectIds = $fresh->assignedProspects()->pluck('id');
+
+                if ($replacement) {
+                    Prospect::query()
+                        ->whereIn('id', $assignedProspectIds)
+                        ->where('created_by', $fresh->id)
+                        ->update(['created_by' => $replacement->id]);
+                }
+
+                // Unassigned either way: a soft-deleted row still
+                // physically exists (that's the whole point of
+                // SoftDeletes), so assigned_to must be cleared here too or
+                // it would keep pointing at the employee being deleted.
+                Prospect::query()->whereIn('id', $assignedProspectIds)->update(['assigned_to' => null]);
+
+                if ($deleteProspects) {
+                    Prospect::query()->whereIn('id', $assignedProspectIds)->get()->each->delete();
+                }
+
+                // 4. Everything else genuinely owned by this employee.
+                // Proposals before Leads: a Proposal's lead_id FK would
+                // otherwise block deleting its own Lead.
+                $fresh->assignedProposals()->delete();
+                $fresh->assignedLeads()->delete();
+                $fresh->assignedAppointments()->delete();
+                $fresh->followUps()->delete();
+
+                $fresh->delete();
+            });
+        } catch (EmployeeDeletionFailedException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            Log::error('Employee deletion failed', [
+                'employee_id' => $employee->id,
+                'exception' => $e,
+            ]);
+
+            throw new EmployeeDeletionFailedException(
+                "{$employee->name} could not be deleted — one of their records is still referenced by data outside their own ownership (for example, a Lead they own with a Proposal now owned by someone else). Nothing was changed. Reassign that record manually and try again."
+            );
+        }
+    }
+
+    /**
+     * @throws EmployeeDeletionFailedException
+     */
+    private function validateReplacement(User $employee, ?User $replacement): ?User
+    {
+        if (! $this->requiresReplacement($employee)) {
+            return null;
+        }
+
+        if (! $replacement) {
+            throw new EmployeeDeletionFailedException('Choose who should take over their Call Records before continuing.');
+        }
+
+        $fresh = User::query()->find($replacement->id);
+
+        if (! $fresh) {
+            throw new EmployeeDeletionFailedException('The selected replacement no longer exists. Choose another employee and try again.');
+        }
+
+        if ($fresh->is($employee)) {
+            throw new EmployeeDeletionFailedException('The employee being deleted cannot be their own replacement. Choose someone else.');
+        }
+
+        return $fresh;
+    }
+}

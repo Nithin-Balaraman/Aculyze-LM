@@ -36,23 +36,58 @@
     @if ($step === 'mapping')
         <x-filament::section heading="Map spreadsheet columns to Prospect fields">
             <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
-                {{ count($rows) }} data row(s) detected. Columns are pre-mapped where the header was recognized — review before continuing. Company Name is the only required field.
+                {{ count($rows) }} data row(s) detected. Each row below shows the original spreadsheet column on the left (read-only) and where it will be imported on the right. Columns are pre-mapped where the header was recognized — review before continuing.
             </p>
-            <div class="grid gap-3 sm:grid-cols-2">
+
+            <div class="mb-4 flex items-center gap-2 rounded-lg p-3 text-sm {{ $this->isCompanyNameMapped() ? 'bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-400' : 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400' }}">
+                <x-filament::icon :icon="$this->isCompanyNameMapped() ? 'heroicon-o-check-circle' : 'heroicon-o-exclamation-triangle'" class="h-5 w-5 shrink-0" />
+                @if ($this->isCompanyNameMapped())
+                    Company Name is mapped — it's the only required field.
+                @else
+                    Company Name is not yet mapped. Map one spreadsheet column to it before continuing.
+                @endif
+            </div>
+
+            @if (count($this->duplicateMappingWarnings()))
+                <div class="mb-4 flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
+                    <x-filament::icon icon="heroicon-o-exclamation-triangle" class="mt-0.5 h-5 w-5 shrink-0" />
+                    <span>More than one column is mapped to the same field, so only the last matching column's value will be kept for each row: <strong>{{ implode(', ', $this->duplicateMappingWarnings()) }}</strong>. Pick distinct fields below to avoid losing data.</span>
+                </div>
+            @endif
+
+            <div class="space-y-2">
                 @foreach ($headers as $header)
-                    <div class="flex items-center gap-3 rounded-lg border border-gray-200 p-3 dark:border-white/10">
-                        <div class="min-w-0 flex-1">
-                            <div class="truncate text-sm font-medium text-gray-950 dark:text-white">{{ $header }}</div>
-                            <div class="truncate text-xs text-gray-400">e.g. "{{ $rows[0][$header] ?? '' }}"</div>
+                    <div class="grid items-center gap-3 rounded-lg border border-gray-200 p-3 dark:border-white/10 sm:grid-cols-[1fr_auto_1fr]">
+                        {{-- Source: the original spreadsheet column, read-only --}}
+                        <div class="min-w-0">
+                            <div class="text-xs font-semibold uppercase tracking-wide text-gray-400">Spreadsheet column</div>
+                            <div class="truncate font-mono text-sm font-medium text-gray-950 dark:text-white" title="{{ $header }}">{{ $header }}</div>
+                            <div class="truncate text-xs text-gray-400" title="{{ $rows[0][$header] ?? '' }}">e.g. "{{ $rows[0][$header] ?? '—' }}"</div>
+                            @unless (in_array($header, $autoMatchedHeaders, true))
+                                <x-filament::badge color="gray" size="sm" class="mt-1">Not auto-matched — review destination</x-filament::badge>
+                            @endunless
                         </div>
-                        <select wire:model="mapping.{{ $header }}" class="{{ $inputClasses }} w-56 shrink-0">
-                            @foreach (\App\Filament\Pages\ImportProspects::TARGET_OPTIONS as $value => $label)
-                                <option value="{{ $value }}">{{ $label }}</option>
-                            @endforeach
-                        </select>
+
+                        <div class="hidden justify-center text-gray-300 dark:text-gray-600 sm:flex">
+                            <x-filament::icon icon="heroicon-o-arrow-right" class="h-5 w-5" />
+                        </div>
+
+                        {{-- Destination: the Prospect field this column will import into --}}
+                        <div class="min-w-0">
+                            <div class="text-xs font-semibold uppercase tracking-wide text-gray-400">Import into</div>
+                            <select wire:model="mapping.{{ $header }}" class="{{ $inputClasses }}">
+                                @foreach (\App\Filament\Pages\ImportProspects::TARGET_OPTIONS as $value => $label)
+                                    <option value="{{ $value }}">{{ $label }}</option>
+                                @endforeach
+                            </select>
+                            @if (($mapping[$header] ?? null) === 'company_name')
+                                <x-filament::badge color="success" size="sm" class="mt-1">Required field</x-filament::badge>
+                            @endif
+                        </div>
                     </div>
                 @endforeach
             </div>
+
             <div class="mt-4 flex gap-2">
                 <x-filament::button color="gray" wire:click="backToUpload">Back</x-filament::button>
                 <x-filament::button wire:click="processMapping" wire:loading.attr="disabled" wire:target="processMapping">
@@ -116,7 +151,8 @@
                 @endforeach
             </div>
 
-            <div class="mt-4">
+            <div class="mt-4 flex items-center gap-2">
+                <x-filament::button color="gray" wire:click="backToMapping">Back to Mapping</x-filament::button>
                 <x-filament::button
                     wire:click="completeImport"
                     wire:loading.attr="disabled"

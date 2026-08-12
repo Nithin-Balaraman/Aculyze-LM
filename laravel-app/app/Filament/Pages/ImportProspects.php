@@ -95,6 +95,9 @@ class ImportProspects extends Page
     /** @var array<string, string> header => target field */
     public array $mapping = [];
 
+    /** @var array<int, string> headers whose destination was confidently auto-recognized (not defaulted to Notes) */
+    public array $autoMatchedHeaders = [];
+
     /** @var array<int, array<string, mixed>> */
     public array $pendingDuplicates = [];
 
@@ -172,6 +175,17 @@ class ImportProspects extends Page
             return;
         }
 
+        // Two columns sharing an identical header (e.g. two "Notes" columns)
+        // would otherwise collide once used as array/mapping keys below,
+        // silently losing whichever column processed first. Disambiguate so
+        // every source column keeps its own row and its own data.
+        $seenHeaders = [];
+        $headerRow = array_map(function (string $header) use (&$seenHeaders) {
+            $seenHeaders[$header] = ($seenHeaders[$header] ?? 0) + 1;
+
+            return $seenHeaders[$header] > 1 ? "{$header} (#{$seenHeaders[$header]})" : $header;
+        }, $headerRow);
+
         $dataRows = array_filter($data, fn ($row) => collect($row)->contains(fn ($v) => trim((string) $v) !== ''));
 
         if ($dataRows === []) {
@@ -196,6 +210,14 @@ class ImportProspects extends Page
             return [$header => self::FIELD_SUGGESTIONS[$normalized] ?? 'notes'];
         })->all();
 
+        // Tracked separately from the mapping itself so the UI can badge
+        // "not auto-matched" columns without that badge disappearing the
+        // moment the admin manually maps one to Notes on purpose.
+        $this->autoMatchedHeaders = collect($headerRow)
+            ->filter(fn (string $header) => array_key_exists(Str::lower(trim($header)), self::FIELD_SUGGESTIONS))
+            ->values()
+            ->all();
+
         $this->step = 'mapping';
     }
 
@@ -206,6 +228,21 @@ class ImportProspects extends Page
         $this->headers = [];
         $this->rows = [];
         $this->mapping = [];
+        $this->autoMatchedHeaders = [];
+    }
+
+    /**
+     * Lets the admin return to Step 2 to correct a mapping mistake spotted
+     * while reviewing duplicates, without losing the uploaded workbook or
+     * re-triggering auto-mapping. Pending duplicate state is discarded since
+     * it must be recomputed against whatever mapping they land on next.
+     */
+    public function backToMapping(): void
+    {
+        $this->step = 'mapping';
+        $this->pendingDuplicates = [];
+        $this->duplicateResolutions = [];
+        $this->bulkResolution = '';
     }
 
     public function processMapping(): void
@@ -325,6 +362,32 @@ class ImportProspects extends Page
             ->first();
     }
 
+    public function isCompanyNameMapped(): bool
+    {
+        return in_array('company_name', $this->mapping, true);
+    }
+
+    /**
+     * Multiple source columns targeting the same real Prospect field is
+     * allowed (existing behavior — processMapping() simply keeps whichever
+     * one is processed last) but is genuinely ambiguous, so it's surfaced
+     * as a non-blocking warning rather than silently changing that
+     * behavior. "notes" is exempt since many columns legitimately combine
+     * there by design.
+     *
+     * @return array<int, string> Prospect field labels with more than one column mapped to them
+     */
+    public function duplicateMappingWarnings(): array
+    {
+        return collect($this->mapping)
+            ->reject(fn (string $target) => in_array($target, ['ignore', 'notes'], true))
+            ->countBy()
+            ->filter(fn (int $count) => $count > 1)
+            ->keys()
+            ->map(fn (string $target) => self::TARGET_OPTIONS[$target] ?? $target)
+            ->all();
+    }
+
     public function applyBulkResolution(): void
     {
         if (! in_array($this->bulkResolution, ['update', 'new'], true)) {
@@ -397,6 +460,7 @@ class ImportProspects extends Page
         $this->headers = [];
         $this->rows = [];
         $this->mapping = [];
+        $this->autoMatchedHeaders = [];
         $this->pendingDuplicates = [];
         $this->duplicateResolutions = [];
         $this->summary = ['total' => 0, 'imported' => 0, 'updated' => 0, 'addedDespiteDuplicate' => 0, 'failed' => [], 'warnings' => []];

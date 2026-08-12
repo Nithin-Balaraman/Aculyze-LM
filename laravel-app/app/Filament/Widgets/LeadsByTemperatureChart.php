@@ -25,7 +25,10 @@ class LeadsByTemperatureChart extends ChartWidget
                         $counts->get(LeadTemperature::Warm->value, 0),
                         $counts->get(LeadTemperature::Cold->value, 0),
                     ],
-                    'backgroundColor' => ['#ef4444', '#f59e0b', '#38bdf8'],
+                    // Hot uses the brand coral reserved for hot/urgent/
+                    // stale states; Warm/Cold stay on the brand blue/cyan
+                    // rather than an off-brand red/amber/sky palette.
+                    'backgroundColor' => ['#F0653C', '#4174B9', '#2DC4ED'],
                 ],
             ],
             'labels' => ['Hot', 'Warm', 'Cold'],

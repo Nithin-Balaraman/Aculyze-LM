@@ -303,4 +303,173 @@ class ImportProspectsTest extends TestCase
 
         $this->assertTrue($test->instance()->allDuplicatesResolved());
     }
+
+    /**
+     * UX Fixes Batch Issue 2: every real mapping destination — not just
+     * Company Name/Contact/Phone/Email checked above — must reach its
+     * intended Prospect attribute and survive to the saved record. This
+     * covers the specific "Location -> Address" case reported as broken.
+     */
+    public function test_every_mappable_field_persists_to_its_prospect_attribute(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow()]))
+            ->call('processUpload')
+            ->call('processMapping')
+            ->assertSet('summary.imported', 1);
+
+        $prospect = Prospect::sole();
+        $this->assertSame('Sunrise Plastics', $prospect->company_name);
+        $this->assertSame('Manufacturing', $prospect->industry);
+        $this->assertSame('Coimbatore', $prospect->city);
+        $this->assertSame('SIDCO Estate, Coimbatore', $prospect->address);
+        $this->assertSame('Ravi Kumar', $prospect->contact_person);
+        $this->assertSame('+91 98765 43210', $prospect->phone_primary);
+        $this->assertSame('+91 90000 11111', $prospect->phone_secondary);
+        $this->assertSame('ravi@sunriseplastics.test', $prospect->email);
+        $this->assertSame('sunriseplastics.test', $prospect->website);
+        $this->assertSame('Trade Fair 2024', $prospect->source);
+    }
+
+    /**
+     * Same audit as above, but through the duplicate-resolution "Update"
+     * path, since that transformation is a separate code path that could
+     * independently drop a mapped value.
+     */
+    public function test_every_mappable_field_persists_through_the_duplicate_update_path(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $existing = Prospect::factory()->create([
+            'company_name' => 'Sunrise Plastics',
+            'phone_primary' => '+91 98765 43210',
+            'address' => null,
+            'city' => null,
+            'website' => null,
+        ]);
+        $this->actingAs($admin);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow()]))
+            ->call('processUpload')
+            ->call('processMapping')
+            ->assertSet('step', 'duplicates')
+            ->set('duplicateResolutions.0', 'update')
+            ->call('completeImport')
+            ->assertSet('summary.updated', 1);
+
+        $existing->refresh();
+        $this->assertSame('SIDCO Estate, Coimbatore', $existing->address);
+        $this->assertSame('Coimbatore', $existing->city);
+        $this->assertSame('sunriseplastics.test', $existing->website);
+        $this->assertSame('Manufacturing', $existing->industry);
+    }
+
+    /**
+     * UX Fixes Batch Issue 1: two source columns sharing an identical
+     * header must not collide into a single mapping row — each keeps its
+     * own row and its own data reaches the import.
+     */
+    public function test_duplicate_header_names_are_disambiguated_and_both_columns_import(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $spreadsheet = new Spreadsheet;
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->fromArray(['Company Name', 'Notes', 'Notes'], null, 'A1');
+        $sheet->fromArray([['Acme Corp', 'First notes column', 'Second notes column']], null, 'A2');
+        $tmpPath = tempnam(sys_get_temp_dir(), 'import').'.xlsx';
+        (new Xlsx($spreadsheet))->save($tmpPath);
+        $contents = file_get_contents($tmpPath);
+        unlink($tmpPath);
+        $file = UploadedFile::fake()->createWithContent('dupe-headers.xlsx', $contents);
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $file)
+            ->call('processUpload')
+            ->assertSet('step', 'mapping');
+
+        $headers = $test->get('headers');
+        $this->assertCount(3, $headers);
+        $this->assertSame('Company Name', $headers[0]);
+        $this->assertSame('Notes', $headers[1]);
+        $this->assertSame('Notes (#2)', $headers[2]);
+
+        $rows = $test->get('rows');
+        $this->assertSame('First notes column', $rows[0]['Notes']);
+        $this->assertSame('Second notes column', $rows[0]['Notes (#2)']);
+    }
+
+    public function test_mapping_more_than_one_column_to_the_same_field_is_flagged_as_a_warning_not_blocked(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $spreadsheet = new Spreadsheet;
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->fromArray(['Company Name', 'Contact Number', 'Mobile Number'], null, 'A1');
+        $sheet->fromArray([['Acme Corp', '111', '222']], null, 'A2');
+        $tmpPath = tempnam(sys_get_temp_dir(), 'import').'.xlsx';
+        (new Xlsx($spreadsheet))->save($tmpPath);
+        $contents = file_get_contents($tmpPath);
+        unlink($tmpPath);
+        $file = UploadedFile::fake()->createWithContent('same-target.xlsx', $contents);
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $file)
+            ->call('processUpload')
+            ->assertSet('step', 'mapping');
+
+        $this->assertSame([], $test->instance()->duplicateMappingWarnings());
+
+        // Deliberately point both phone-ish columns at the same destination.
+        $test->set('mapping.Mobile Number', 'phone_primary');
+
+        $this->assertSame(['Phone (Primary)'], $test->instance()->duplicateMappingWarnings());
+
+        // Not blocked — the existing "last one wins" behavior is preserved,
+        // just surfaced instead of silently changed.
+        $test->call('processMapping')->assertSet('step', 'summary');
+        $this->assertSame(1, Prospect::count());
+    }
+
+    public function test_back_to_mapping_from_duplicates_preserves_the_workbook_and_mapping(): void
+    {
+        $admin = User::factory()->admin()->create();
+        Prospect::factory()->create(['company_name' => 'Sunrise Plastics', 'phone_primary' => '+91 98765 43210']);
+        $this->actingAs($admin);
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow()]))
+            ->call('processUpload')
+            ->call('processMapping')
+            ->assertSet('step', 'duplicates');
+
+        $test->call('backToMapping')
+            ->assertSet('step', 'mapping')
+            ->assertSet('mapping.Company Name', 'company_name')
+            ->assertSet('pendingDuplicates', []);
+
+        // The uploaded workbook itself is still intact, so re-processing
+        // without changes reaches the duplicate step again.
+        $test->call('processMapping')->assertSet('step', 'duplicates');
+    }
+
+    public function test_is_company_name_mapped_reflects_current_mapping_state(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow()]))
+            ->call('processUpload');
+
+        $this->assertTrue($test->instance()->isCompanyNameMapped());
+
+        $test->set('mapping.Company Name', 'ignore');
+        $this->assertFalse($test->instance()->isCompanyNameMapped());
+    }
 }

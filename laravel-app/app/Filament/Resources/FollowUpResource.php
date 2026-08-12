@@ -95,13 +95,9 @@ class FollowUpResource extends Resource
                     ->sortable(),
             ])
             ->filters([
-                // Defaults to Pending so closed/completed follow-ups drop
-                // out of the default view, but the filter can still be
-                // changed to look them up (AGENTS.md section 17 / CR
-                // Section 4).
-                Tables\Filters\SelectFilter::make('status')
-                    ->options(FollowUpStatus::class)
-                    ->default(FollowUpStatus::Pending->value),
+                // Pending vs. History is now owned by the page's tabs (UX
+                // Fixes Batch Issue 3) rather than this filter, so there is
+                // only ever one place that decides what "pending" means.
                 Tables\Filters\SelectFilter::make('user_id')
                     ->label('Employee')
                     ->relationship('responsibleEmployee', 'name')
@@ -156,8 +152,12 @@ class FollowUpResource extends Resource
                 ]),
             ])
             ->defaultSort('follow_up_at', 'asc')
-            ->emptyStateHeading('Nothing waiting on you.')
-            ->emptyStateDescription('Follow-ups land here automatically when a call needs one.')
+            ->emptyStateHeading(fn ($livewire) => ($livewire->activeTab ?? 'pending') === 'history'
+                ? 'No follow-up history available.'
+                : 'No pending follow-ups.')
+            ->emptyStateDescription(fn ($livewire) => ($livewire->activeTab ?? 'pending') === 'history'
+                ? 'Completed and closed follow-ups will show up here.'
+                : 'Follow-ups land here automatically when a call needs one.')
             ->emptyStateIcon('heroicon-o-arrow-path');
     }
 

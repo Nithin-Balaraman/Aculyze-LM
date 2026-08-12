@@ -72,4 +72,45 @@ class StageDropoutReport extends Page
             'Proposal' => $this->buildFunnel(ProposalStage::class, Proposal::query()),
         ];
     }
+
+    /**
+     * Chart.js data shaped directly from the same $stages array the table
+     * renders from (UX Fixes Batch Issue 4) — there is no second query or
+     * separate calculation, so the table and chart can never disagree.
+     *
+     * @param  array<int, array{label: string, current: int, movedPast: int}>  $stages
+     * @return array<string, mixed>
+     */
+    public function chartData(array $stages): array
+    {
+        return [
+            'labels' => array_column($stages, 'label'),
+            'datasets' => [
+                [
+                    'label' => 'Currently Here',
+                    'data' => array_column($stages, 'current'),
+                    'backgroundColor' => '#4174B9',
+                ],
+                [
+                    'label' => 'Moved Past',
+                    'data' => array_column($stages, 'movedPast'),
+                    'backgroundColor' => '#2DC4ED',
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * @param  array<int, array{label: string, current: int, movedPast: int}>  $stages
+     */
+    public function hasAnyData(array $stages): bool
+    {
+        foreach ($stages as $stage) {
+            if ($stage['current'] > 0 || $stage['movedPast'] > 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
