@@ -89,6 +89,12 @@ class LeadResource extends Resource
                 Tables\Columns\TextColumn::make('temperature')
                     ->badge()
                     ->sortable(),
+                Tables\Columns\TextColumn::make('is_lost')
+                    ->label('Lost')
+                    ->badge()
+                    ->formatStateUsing(fn (bool $state) => $state ? 'Lost' : 'Active')
+                    ->color(fn (bool $state) => $state ? 'coral' : 'gray')
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('assignedEmployee.name')
                     ->label('Assigned To')
                     ->badge()
@@ -118,6 +124,11 @@ class LeadResource extends Resource
                 Tables\Filters\Filter::make('stale')
                     ->label('Stale only (30+ days, no movement)')
                     ->query(fn (Builder $query) => $query->stale()),
+                Tables\Filters\TernaryFilter::make('is_lost')
+                    ->label('Lost')
+                    ->trueLabel('Lost only')
+                    ->falseLabel('Active only')
+                    ->placeholder('All leads'),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
@@ -139,8 +150,22 @@ class LeadResource extends Resource
                     ->label('Create Proposal')
                     ->icon('heroicon-o-document-text')
                     ->color('success')
-                    ->visible(fn (Lead $record) => $record->stage->isEligibleForProposal() && $record->proposal === null)
+                    ->visible(fn (Lead $record) => ! $record->is_lost && $record->stage->isEligibleForProposal() && $record->proposal === null)
                     ->url(fn (Lead $record) => \App\Filament\Resources\ProposalResource::getUrl('create', ['lead_id' => $record->id])),
+                Tables\Actions\Action::make('markLost')
+                    ->label('Mark Lost')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('coral')
+                    ->requiresConfirmation(false)
+                    ->visible(fn (Lead $record) => ! $record->is_lost && auth()->user()->can('update', $record))
+                    ->form([
+                        Forms\Components\Textarea::make('reason')
+                            ->label('Reason')
+                            ->required()
+                            ->rows(3)
+                            ->helperText('Required — why this Lead is being marked Lost.'),
+                    ])
+                    ->action(fn (Lead $record, array $data) => $record->markLost($data['reason'])),
                 Tables\Actions\DeleteAction::make(),
             ])
             ->bulkActions([

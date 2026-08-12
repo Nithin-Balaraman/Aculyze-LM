@@ -2,8 +2,10 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\CallOutcome;
 use App\Enums\FollowUpStatus;
 use App\Filament\Resources\FollowUpResource\Pages;
+use App\Models\CallRecord;
 use App\Models\FollowUp;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -11,11 +13,20 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Follow-Ups panel (AGENTS.md section 17). Mostly populated automatically
  * by App\Services\CallRoutingService from No Answer / Switched Off / Not
  * Reachable / Callback Requested calls, but can also be created directly.
+ *
+ * Two distinct resolutions, per the Change Request "Decisions 3 & 4":
+ * - Completed: the retry call finally reached the prospect. Logs a real
+ *   new Call Record and routes it through the exact same
+ *   App\Services\CallRoutingService every other call uses — no separate
+ *   routing path.
+ * - Close: giving up on this one. Just archives it (no new activity).
+ * Regular users no longer see Delete here at all (Admin still does).
  */
 class FollowUpResource extends Resource
 {
@@ -84,8 +95,13 @@ class FollowUpResource extends Resource
                     ->sortable(),
             ])
             ->filters([
+                // Defaults to Pending so closed/completed follow-ups drop
+                // out of the default view, but the filter can still be
+                // changed to look them up (AGENTS.md section 17 / CR
+                // Section 4).
                 Tables\Filters\SelectFilter::make('status')
-                    ->options(FollowUpStatus::class),
+                    ->options(FollowUpStatus::class)
+                    ->default(FollowUpStatus::Pending->value),
                 Tables\Filters\SelectFilter::make('user_id')
                     ->label('Employee')
                     ->relationship('responsibleEmployee', 'name')
@@ -94,11 +110,49 @@ class FollowUpResource extends Resource
             ->actions([
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\Action::make('completed')
+                    ->label('Completed')
+                    ->icon('heroicon-o-phone')
+                    ->color('success')
+                    ->visible(fn (FollowUp $record) => $record->status === FollowUpStatus::Pending && auth()->user()->can('update', $record))
+                    ->form([
+                        Forms\Components\Select::make('outcome')
+                            ->label('Call Outcome')
+                            ->options(CallOutcome::class)
+                            ->required()
+                            ->helperText('You reached them — log what happened on this call, same as logging any other call.'),
+                    ])
+                    ->action(function (FollowUp $record, array $data) {
+                        DB::transaction(function () use ($record, $data) {
+                            // A real new Call Record, routed by the exact
+                            // same CallRoutingService every other call
+                            // uses (via CallRecordObserver on `created`) —
+                            // not a parallel/duplicate routing path.
+                            CallRecord::create([
+                                'prospect_id' => $record->prospect_id,
+                                'user_id' => auth()->id(),
+                                'called_at' => now(),
+                                'outcome' => $data['outcome'],
+                            ]);
+
+                            $record->update(['status' => FollowUpStatus::Completed]);
+                        });
+                    }),
+                Tables\Actions\Action::make('close')
+                    ->label('Close')
+                    ->icon('heroicon-o-archive-box-x-mark')
+                    ->color('gray')
+                    ->requiresConfirmation()
+                    ->modalDescription('This follow-up will be archived and removed from your default list. It is not deleted — history is retained.')
+                    ->visible(fn (FollowUp $record) => $record->status === FollowUpStatus::Pending && auth()->user()->can('update', $record))
+                    ->action(fn (FollowUp $record) => $record->update(['status' => FollowUpStatus::Cancelled])),
+                Tables\Actions\DeleteAction::make()
+                    ->visible(fn () => auth()->user()->isAdmin()),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\DeleteBulkAction::make()
+                        ->visible(fn () => auth()->user()->isAdmin()),
                 ]),
             ])
             ->defaultSort('follow_up_at', 'asc')

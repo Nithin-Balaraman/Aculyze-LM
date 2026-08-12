@@ -69,6 +69,7 @@ class AdminPanelProvider extends PanelProvider
             ->widgets([])
             ->navigationGroups([
                 'Sales',
+                'Reports',
                 'Administration',
             ])
             ->middleware([

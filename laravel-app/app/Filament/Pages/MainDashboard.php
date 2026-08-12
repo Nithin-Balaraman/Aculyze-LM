@@ -2,8 +2,11 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Widgets\ConversionTrendChart;
 use App\Filament\Widgets\GrowthTrendChart;
+use App\Filament\Widgets\LeadsByStageChart;
 use App\Filament\Widgets\LeadsByTemperatureChart;
+use App\Filament\Widgets\LeadsLostByStageChart;
 use App\Filament\Widgets\OrgStatsOverview;
 use App\Filament\Widgets\PipelinePulse;
 use App\Filament\Widgets\StaleLeadsTable;
@@ -71,6 +74,9 @@ class MainDashboard extends BaseDashboard
             PipelinePulse::class,
             OrgStatsOverview::class,
             LeadsByTemperatureChart::class,
+            LeadsByStageChart::class,
+            LeadsLostByStageChart::class,
+            ConversionTrendChart::class,
             GrowthTrendChart::class,
             StaleLeadsTable::class,
             StaleProposalsTable::class,

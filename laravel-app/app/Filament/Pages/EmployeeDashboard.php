@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Widgets\EmployeeStatsOverview;
+use App\Filament\Widgets\LeadsByStageChart;
 use App\Filament\Widgets\StaleLeadsTable;
 use App\Filament\Widgets\StaleProposalsTable;
 use App\Models\User;
@@ -78,6 +79,7 @@ class EmployeeDashboard extends BaseDashboard
     {
         return [
             EmployeeStatsOverview::class,
+            LeadsByStageChart::class,
             StaleLeadsTable::class,
             StaleProposalsTable::class,
         ];
