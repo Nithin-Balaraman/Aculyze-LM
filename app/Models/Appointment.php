@@ -31,6 +31,9 @@ class Appointment extends Model
             'stage' => AppointmentStage::class,
             'appointment_at' => 'datetime',
             'stage_changed_at' => 'datetime',
+            'is_lost' => 'boolean',
+            'lost_at_stage' => AppointmentStage::class,
+            'lost_at' => 'datetime',
         ];
     }
 
@@ -70,8 +73,31 @@ class Appointment extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    /**
+     * Marks the Appointment Lost, capturing which stage it was sitting in at
+     * the moment of loss, without touching its normal `stage` field or stage
+     * history — mirrors Lead::markLost().
+     */
+    public function markLost(string $reason): void
+    {
+        $this->forceFill([
+            'is_lost' => true,
+            'lost_at_stage' => $this->stage,
+            'lost_reason' => $reason,
+            'lost_at' => Date::now(),
+        ])->save();
+    }
+
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         return $user->isAdmin() ? $query : $query->where('assigned_to', $user->id);
+    }
+
+    /**
+     * @param  Builder<Appointment>  $query
+     */
+    public function scopeLost(Builder $query): Builder
+    {
+        return $query->where('is_lost', true);
     }
 }

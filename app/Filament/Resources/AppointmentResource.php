@@ -85,6 +85,12 @@ class AppointmentResource extends Resource
                 Tables\Columns\TextColumn::make('stage')
                     ->badge()
                     ->sortable(),
+                Tables\Columns\TextColumn::make('is_lost')
+                    ->label('Current Status')
+                    ->badge()
+                    ->formatStateUsing(fn (bool $state) => $state ? 'Lost' : 'Active')
+                    ->color(fn (bool $state) => $state ? 'coral' : 'gray')
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('assignedEmployee.name')
                     ->label('Assigned To')
                     ->badge()
@@ -102,6 +108,11 @@ class AppointmentResource extends Resource
                     ->label('Assigned Employee')
                     ->relationship('assignedEmployee', 'name')
                     ->visible(fn () => auth()->user()->isAdmin()),
+                Tables\Filters\TernaryFilter::make('is_lost')
+                    ->label('Lost')
+                    ->trueLabel('Lost only')
+                    ->falseLabel('Active only')
+                    ->placeholder('All appointments'),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
@@ -119,6 +130,20 @@ class AppointmentResource extends Resource
                             ->searchable(),
                     ])
                     ->action(fn (Appointment $record, array $data) => $record->update(['assigned_to' => $data['assigned_to']])),
+                Tables\Actions\Action::make('markLost')
+                    ->label('Mark Lost')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('coral')
+                    ->requiresConfirmation(false)
+                    ->visible(fn (Appointment $record) => ! $record->is_lost && auth()->user()->can('update', $record))
+                    ->form([
+                        Forms\Components\Textarea::make('reason')
+                            ->label('Reason')
+                            ->required()
+                            ->rows(3)
+                            ->helperText('Required — why this Appointment is being marked Lost.'),
+                    ])
+                    ->action(fn (Appointment $record, array $data) => $record->markLost($data['reason'])),
                 Tables\Actions\DeleteAction::make(),
             ])
             ->bulkActions([

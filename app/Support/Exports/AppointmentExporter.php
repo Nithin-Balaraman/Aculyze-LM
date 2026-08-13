@@ -30,7 +30,7 @@ class AppointmentExporter extends ResourceExporter
 
     public function headers(): array
     {
-        return ['Company', 'Contact Person', 'Stage', 'Appointment At', 'Assigned Employee', 'Created By', 'Stage Since', 'Created At'];
+        return ['Company', 'Contact Person', 'Stage', 'Appointment At', 'Lost', 'Lost At Stage', 'Lost Reason', 'Assigned Employee', 'Created By', 'Stage Since', 'Created At'];
     }
 
     public function mapRow(Model $record): array
@@ -41,6 +41,9 @@ class AppointmentExporter extends ResourceExporter
             $record->prospect->contact_person,
             $record->stage->getLabel(),
             $record->appointment_at?->format('Y-m-d H:i'),
+            $record->is_lost ? 'Yes' : 'No',
+            $record->lost_at_stage?->getLabel(),
+            $record->lost_reason,
             $record->assignedEmployee->name,
             $record->creator->name,
             $record->stage_changed_at?->format('Y-m-d H:i'),
