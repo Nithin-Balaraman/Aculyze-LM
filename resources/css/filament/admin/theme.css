@@ -1,0 +1,137 @@
+@import '../../../../vendor/filament/filament/resources/css/theme.css';
+
+/*
+ * Fonts are bundled locally via the @fontsource/* npm packages (not a
+ * Google Fonts CDN <link>) so the app never depends on an external font
+ * request succeeding — the woff2 files ship in the compiled build.
+ */
+@import '@fontsource/space-grotesk/500.css';
+@import '@fontsource/space-grotesk/600.css';
+@import '@fontsource/space-grotesk/700.css';
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+@import '@fontsource/ibm-plex-mono/600.css';
+
+@config 'tailwind.config.js';
+
+/*
+ * Aculyze-LM "sales command center" theme.
+ *
+ * - Space Grotesk: headings / brand — geometric, technical.
+ * - IBM Plex Sans: body copy and form/table text — the Tailwind `sans`
+ *   default, so it applies everywhere Filament doesn't explicitly override.
+ * - IBM Plex Mono: KPI numbers only, applied to Filament's own
+ *   `.fi-wi-stats-overview-stat-value` class below. This is the
+ *   "telemetry" signature touch — every dashboard number reads as data.
+ */
+
+:root {
+    --font-heading: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    --font-mono-stat: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
+.fi-header-heading,
+.fi-ta-header-heading,
+.fi-section-header-heading,
+.fi-modal-heading,
+.fi-logo,
+.fi-sidebar-group-label {
+    font-family: var(--font-heading);
+    letter-spacing: -0.01em;
+}
+
+.fi-wi-stats-overview-stat-value {
+    font-family: var(--font-mono-stat);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+}
+
+/*
+ * Pipeline Pulse widget — the one deliberately animated element in the
+ * app (see App\Filament\Widgets\PipelinePulse and its Blade view). The
+ * connector "flow" is a repeating gradient whose position animates, which
+ * reads as calm, ambient motion rather than a spinner. Node "alert" glow
+ * flags a stage containing a Hot lead or a stale record — coral only.
+ */
+
+.pulse-flow-line-h {
+    background-image: repeating-linear-gradient(
+        90deg,
+        rgba(45, 196, 237, 0.9) 0,
+        rgba(45, 196, 237, 0.9) 6px,
+        transparent 6px,
+        transparent 16px
+    );
+    background-size: 32px 100%;
+    animation: aculyze-pulse-flow-h 1.8s linear infinite;
+}
+
+.pulse-flow-line-v {
+    background-image: repeating-linear-gradient(
+        180deg,
+        rgba(45, 196, 237, 0.9) 0,
+        rgba(45, 196, 237, 0.9) 6px,
+        transparent 6px,
+        transparent 16px
+    );
+    background-size: 100% 32px;
+    animation: aculyze-pulse-flow-v 1.8s linear infinite;
+}
+
+.pulse-flow-line-h.pulse-flow-alert {
+    background-image: repeating-linear-gradient(
+        90deg,
+        rgba(240, 101, 60, 0.95) 0,
+        rgba(240, 101, 60, 0.95) 6px,
+        transparent 6px,
+        transparent 16px
+    );
+}
+
+.pulse-flow-line-v.pulse-flow-alert {
+    background-image: repeating-linear-gradient(
+        180deg,
+        rgba(240, 101, 60, 0.95) 0,
+        rgba(240, 101, 60, 0.95) 6px,
+        transparent 6px,
+        transparent 16px
+    );
+}
+
+@keyframes aculyze-pulse-flow-h {
+    to {
+        background-position: -32px 0;
+    }
+}
+
+@keyframes aculyze-pulse-flow-v {
+    to {
+        background-position: 0 -32px;
+    }
+}
+
+.pulse-node-alert .pulse-node-icon {
+    animation: aculyze-pulse-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes aculyze-pulse-glow {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(240, 101, 60, 0.45);
+    }
+    50% {
+        box-shadow: 0 0 0 7px rgba(240, 101, 60, 0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pulse-flow-line-h,
+    .pulse-flow-line-v {
+        animation: none;
+    }
+
+    .pulse-node-alert .pulse-node-icon {
+        animation: none;
+    }
+}

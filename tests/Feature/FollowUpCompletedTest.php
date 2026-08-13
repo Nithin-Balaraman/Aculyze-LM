@@ -1,0 +1,137 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Enums\CallOutcome;
+use App\Enums\FollowUpStatus;
+use App\Filament\Resources\FollowUpResource\Pages\ListFollowUps;
+use App\Models\CallRecord;
+use App\Models\FollowUp;
+use App\Models\Prospect;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
+use Tests\TestCase;
+
+/**
+ * Change Request "Decisions 3 & 4": a Follow-Up has no stage of its own.
+ * "Completed" logs a real new Call Record and routes it through the exact
+ * same App\Services\CallRoutingService every other call uses (via
+ * CallRecordObserver on the `created` event) — no parallel routing path.
+ * "Close" is a distinct, separate action that just archives the Follow-Up.
+ */
+class FollowUpCompletedTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private function makeFollowUp(User $owner): FollowUp
+    {
+        $prospect = Prospect::factory()->create(['assigned_to' => $owner->id, 'created_by' => $owner->id]);
+        $call = CallRecord::create([
+            'prospect_id' => $prospect->id,
+            'user_id' => $owner->id,
+            'called_at' => now(),
+            'outcome' => CallOutcome::NoAnswer,
+        ]);
+
+        return $call->fresh()->followUp;
+    }
+
+    public function test_completed_action_creates_a_real_call_record_and_routes_it_normally(): void
+    {
+        $employee = User::factory()->create();
+        $followUp = $this->makeFollowUp($employee);
+
+        $this->actingAs($employee);
+
+        Livewire::test(ListFollowUps::class)
+            ->callTableAction('completed', $followUp, data: ['outcome' => CallOutcome::RequirementIdentified->value])
+            ->assertHasNoTableActionErrors();
+
+        $followUp->refresh();
+        $this->assertSame(FollowUpStatus::Completed, $followUp->status);
+
+        // Exactly one *new* call record was logged (in addition to the
+        // original one that created this Follow-Up), and it routed through
+        // the same CallRoutingService rules as any other call: Requirement
+        // Identified creates both an Appointment and a Lead.
+        $this->assertSame(2, CallRecord::where('prospect_id', $followUp->prospect_id)->count());
+
+        $newCall = CallRecord::where('prospect_id', $followUp->prospect_id)
+            ->where('outcome', CallOutcome::RequirementIdentified)
+            ->first();
+
+        $this->assertNotNull($newCall);
+        $this->assertNotNull($newCall->appointment);
+        $this->assertNotNull($newCall->lead);
+    }
+
+    public function test_completed_action_requires_an_outcome(): void
+    {
+        $employee = User::factory()->create();
+        $followUp = $this->makeFollowUp($employee);
+
+        $this->actingAs($employee);
+
+        Livewire::test(ListFollowUps::class)
+            ->callTableAction('completed', $followUp, data: ['outcome' => ''])
+            ->assertHasTableActionErrors(['outcome' => 'required']);
+
+        $this->assertSame(FollowUpStatus::Pending, $followUp->fresh()->status);
+    }
+
+    public function test_close_action_archives_without_creating_a_call_record(): void
+    {
+        $employee = User::factory()->create();
+        $followUp = $this->makeFollowUp($employee);
+
+        $this->actingAs($employee);
+
+        Livewire::test(ListFollowUps::class)
+            ->callTableAction('close', $followUp);
+
+        $followUp->refresh();
+        $this->assertSame(FollowUpStatus::Cancelled, $followUp->status);
+        $this->assertSame(1, CallRecord::where('prospect_id', $followUp->prospect_id)->count());
+    }
+
+    public function test_completed_and_close_actions_are_hidden_once_the_follow_up_is_no_longer_pending(): void
+    {
+        $employee = User::factory()->create();
+        $followUp = $this->makeFollowUp($employee);
+        $followUp->update(['status' => FollowUpStatus::Cancelled]);
+
+        $this->actingAs($employee);
+
+        Livewire::test(ListFollowUps::class)
+            ->assertTableActionHidden('completed', $followUp)
+            ->assertTableActionHidden('close', $followUp);
+    }
+
+    public function test_delete_action_is_admin_only(): void
+    {
+        $employee = User::factory()->create();
+        $admin = User::factory()->admin()->create();
+        $followUp = $this->makeFollowUp($employee);
+
+        $this->actingAs($employee);
+        Livewire::test(ListFollowUps::class)->assertTableActionHidden('delete', $followUp);
+
+        $this->actingAs($admin);
+        Livewire::test(ListFollowUps::class)->assertTableActionVisible('delete', $followUp);
+    }
+
+    public function test_completed_action_is_not_visible_to_another_employee(): void
+    {
+        $owner = User::factory()->create();
+        $intruder = User::factory()->create();
+        $followUp = $this->makeFollowUp($owner);
+
+        $this->actingAs($intruder);
+
+        // The Follow-Up isn't even in the intruder's visible table rows
+        // (FollowUp::scopeVisibleTo), so the action can't be resolved.
+        Livewire::test(ListFollowUps::class)
+            ->assertCanNotSeeTableRecords([$followUp]);
+    }
+}
