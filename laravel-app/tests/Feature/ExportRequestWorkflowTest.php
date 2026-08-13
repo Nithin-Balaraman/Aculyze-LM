@@ -344,6 +344,7 @@ class ExportRequestWorkflowTest extends TestCase
             'created_by' => $owner->id,
             'stage' => $stage,
             'temperature' => 'warm',
+            'notes' => $stage === LeadStage::Validated ? 'Validated in test fixture.' : null,
         ]);
     }
 }

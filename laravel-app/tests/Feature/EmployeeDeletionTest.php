@@ -67,6 +67,7 @@ class EmployeeDeletionTest extends TestCase
             'created_by' => $employee->id,
             'stage' => LeadStage::Validated,
             'temperature' => 'hot',
+            'notes' => 'Validated in test fixture.',
         ]);
 
         $proposal = Proposal::create([
@@ -416,6 +417,7 @@ class EmployeeDeletionTest extends TestCase
             'created_by' => $employee->id,
             'stage' => LeadStage::Validated,
             'temperature' => 'hot',
+            'notes' => 'Validated in test fixture.',
         ]);
         // The Proposal has since been reassigned to someone else, but the
         // Lead itself is still the target employee's.

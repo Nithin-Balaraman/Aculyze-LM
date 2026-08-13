@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\DeletionGuard;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -62,7 +63,8 @@ class LeadResource extends Resource
                         Forms\Components\Select::make('stage')
                             ->options(LeadStage::class)
                             ->required()
-                            ->default(LeadStage::RequirementCollection),
+                            ->default(LeadStage::RequirementCollection)
+                            ->live(),
                         Forms\Components\Select::make('temperature')
                             ->options(LeadTemperature::class)
                             ->required()
@@ -70,11 +72,48 @@ class LeadResource extends Resource
                         Forms\Components\Textarea::make('requirement_details')
                             ->rows(3)
                             ->columnSpanFull(),
+                        // Validated Lead / Create Proposal batch: Notes
+                        // becomes required — visibly (the asterisk, via
+                        // ->required()) and at save time — the moment Stage
+                        // is Validated, and reverts the instant it isn't.
+                        // Plain ->required() alone would accept a
+                        // whitespace-only value (Laravel's `required` rule
+                        // doesn't trim), so the extra closure rule below
+                        // catches that case with the same message.
+                        //
+                        // $get('stage') is NOT reliably a string here: once
+                        // a real Select interaction round-trips through
+                        // Livewire, Filament rehydrates it as the actual
+                        // LeadStage enum case (only a raw form-state seed —
+                        // e.g. a test's fillForm() — hands back a string),
+                        // so both representations must be handled.
                         Forms\Components\Textarea::make('notes')
+                            ->label('Notes / Remarks')
                             ->rows(3)
-                            ->columnSpanFull(),
+                            ->columnSpanFull()
+                            ->required(fn (Get $get) => self::stageIsValidated($get('stage')))
+                            ->validationMessages([
+                                'required' => 'Notes are required when the Lead stage is Validated.',
+                            ])
+                            ->rule(
+                                fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
+                                    if (self::stageIsValidated($get('stage')) && blank($value)) {
+                                        $fail('Notes are required when the Lead stage is Validated.');
+                                    }
+                                },
+                            ),
                     ]),
             ]);
+    }
+
+    /**
+     * $get() may hand back either the raw string value or the hydrated
+     * LeadStage case depending on how the form state got there — see the
+     * comment above the `notes` field.
+     */
+    private static function stageIsValidated(mixed $stage): bool
+    {
+        return ($stage instanceof LeadStage ? $stage : LeadStage::tryFrom((string) $stage)) === LeadStage::Validated;
     }
 
     public static function table(Table $table): Table
@@ -152,7 +191,11 @@ class LeadResource extends Resource
                     ->label('Create Proposal')
                     ->icon('heroicon-o-document-text')
                     ->color('success')
-                    ->visible(fn (Lead $record) => ! $record->is_lost && $record->stage->isEligibleForProposal() && $record->proposal === null)
+                    ->visible(fn (Lead $record) => ! $record->is_lost
+                        && $record->stage->isEligibleForProposal()
+                        && $record->hasMeaningfulNotes()
+                        && $record->proposal === null
+                        && auth()->user()->can('update', $record))
                     ->url(fn (Lead $record) => ProposalResource::getUrl('create', ['lead_id' => $record->id])),
                 Tables\Actions\Action::make('markLost')
                     ->label('Mark Lost')

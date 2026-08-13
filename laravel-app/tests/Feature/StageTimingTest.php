@@ -9,9 +9,7 @@ use App\Models\Appointment;
 use App\Models\Lead;
 use App\Models\Proposal;
 use App\Models\Prospect;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Date;
 use Tests\TestCase;
 
 /**
@@ -127,6 +125,7 @@ class StageTimingTest extends TestCase
             'created_by' => $prospect->created_by,
             'stage' => LeadStage::Validated,
             'temperature' => 'hot',
+            'notes' => 'Validated in test fixture.',
         ]);
 
         return Proposal::create([

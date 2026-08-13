@@ -30,6 +30,7 @@ class StageDropoutReportTest extends TestCase
             'created_by' => $prospect->created_by,
             'stage' => $stage,
             'temperature' => 'warm',
+            'notes' => $stage === LeadStage::Validated ? 'Validated in test fixture.' : null,
         ]);
     }
 

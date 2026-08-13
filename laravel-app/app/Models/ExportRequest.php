@@ -71,19 +71,78 @@ class ExportRequest extends Model
             && $this->expires_at->isPast();
     }
 
+    /**
+     * One admin approval authorizes exactly one successful CSV download
+     * (One-Time Approved Export Download batch, Section 2.1) — downloaded_at
+     * already existed on this model (previously written on download but
+     * never actually consulted here), so reusing it as the consumed marker
+     * needed no new schema.
+     */
     public function isDownloadable(): bool
     {
-        return $this->status === ExportRequestStatus::Approved && ! $this->isExpired();
+        return $this->status === ExportRequestStatus::Approved
+            && ! $this->isExpired()
+            && $this->downloaded_at === null;
+    }
+
+    public function wasDownloaded(): bool
+    {
+        return $this->downloaded_at !== null;
     }
 
     public function effectiveStatusLabel(): string
     {
-        return $this->isExpired() ? 'Expired' : $this->status->getLabel();
+        if ($this->isExpired()) {
+            return 'Expired';
+        }
+
+        if ($this->status === ExportRequestStatus::Approved && $this->wasDownloaded()) {
+            return 'Downloaded';
+        }
+
+        return $this->status->getLabel();
     }
 
     public function effectiveStatusColor(): string
     {
-        return $this->isExpired() ? 'gray' : $this->status->getColor();
+        if ($this->isExpired()) {
+            return 'gray';
+        }
+
+        if ($this->status === ExportRequestStatus::Approved && $this->wasDownloaded()) {
+            return 'gray';
+        }
+
+        return $this->status->getColor();
+    }
+
+    /**
+     * Atomically claims this request for its one permitted download. The
+     * database itself — not the in-memory $this state — is the source of
+     * truth for whether it's already been consumed: two nearly-simultaneous
+     * requests both operating on their own (possibly stale) in-memory copy
+     * will still only let one of these UPDATEs actually flip downloaded_at
+     * from NULL, since MySQL locks the row for the duration of each UPDATE
+     * and the second one's WHERE clause (whereNull('downloaded_at')) then
+     * no longer matches. No explicit transaction is needed — a single
+     * conditional UPDATE is already atomic at the row level.
+     */
+    public function claimForDownload(): bool
+    {
+        $now = now();
+
+        $claimed = static::query()
+            ->whereKey($this->id)
+            ->where('status', ExportRequestStatus::Approved)
+            ->where(fn (Builder $query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', $now))
+            ->whereNull('downloaded_at')
+            ->update(['downloaded_at' => $now]);
+
+        if ($claimed === 1) {
+            $this->forceFill(['downloaded_at' => $now]);
+        }
+
+        return $claimed === 1;
     }
 
     /**

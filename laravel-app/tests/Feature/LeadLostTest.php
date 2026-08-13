@@ -82,7 +82,7 @@ class LeadLostTest extends TestCase
     {
         $lead = $this->makeLead(LeadStage::RequirementCollection);
         $lead->update(['stage' => LeadStage::DemoScheduledOrDone]);
-        $lead->update(['stage' => LeadStage::Validated]);
+        $lead->update(['stage' => LeadStage::Validated, 'notes' => 'Validated in test fixture.']);
         $lead->markLost('Deal fell through after validation.');
         $lead->refresh();
 

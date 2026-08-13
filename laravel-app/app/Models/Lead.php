@@ -48,7 +48,27 @@ class Lead extends Model
             if ($lead->isDirty('stage') || ! $lead->exists) {
                 $lead->stage_changed_at = Date::now();
             }
+
+            // Validated Lead / Create Proposal batch: the Filament form
+            // already blocks this interactively (see LeadResource::form()),
+            // but every write path — including ones that bypass the visible
+            // form — must be unable to persist a Validated Lead without
+            // Notes/Remarks.
+            if ($lead->stage === LeadStage::Validated && ! $lead->hasMeaningfulNotes()) {
+                throw new \LogicException('A Lead cannot be saved as Validated without Notes/Remarks.');
+            }
         });
+    }
+
+    /**
+     * Whitespace-only Notes must not count as present — filled() already
+     * treats a whitespace-only string as blank (see Illuminate's blank()),
+     * so this is the same "meaningful content" check used elsewhere in the
+     * app (e.g. ImportProspects' company-name check) rather than a new one.
+     */
+    public function hasMeaningfulNotes(): bool
+    {
+        return filled($this->notes);
     }
 
     /**

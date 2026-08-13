@@ -146,6 +146,7 @@ class DeletionGuardTest extends TestCase
             'created_by' => $prospect->created_by,
             'stage' => LeadStage::Validated,
             'temperature' => 'hot',
+            'notes' => 'Validated in test fixture.',
         ]);
         Proposal::create([
             'lead_id' => $lead->id,
@@ -175,6 +176,7 @@ class DeletionGuardTest extends TestCase
             'created_by' => $prospect->created_by,
             'stage' => LeadStage::Validated,
             'temperature' => 'hot',
+            'notes' => 'Validated in test fixture.',
         ]);
         Proposal::create([
             'lead_id' => $lead->id,

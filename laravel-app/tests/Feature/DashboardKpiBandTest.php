@@ -145,8 +145,8 @@ class DashboardKpiBandTest extends TestCase
         $nithinProspect = Prospect::factory()->create(['assigned_to' => $nithin->id, 'created_by' => $nithin->id]);
         $kuralProspect = Prospect::factory()->create(['assigned_to' => $kural->id, 'created_by' => $kural->id]);
 
-        $nithinLead = Lead::create(['prospect_id' => $nithinProspect->id, 'assigned_to' => $nithin->id, 'created_by' => $nithin->id, 'stage' => 'validated', 'temperature' => 'hot']);
-        $kuralLead = Lead::create(['prospect_id' => $kuralProspect->id, 'assigned_to' => $kural->id, 'created_by' => $kural->id, 'stage' => 'validated', 'temperature' => 'hot']);
+        $nithinLead = Lead::create(['prospect_id' => $nithinProspect->id, 'assigned_to' => $nithin->id, 'created_by' => $nithin->id, 'stage' => 'validated', 'temperature' => 'hot', 'notes' => 'Validated in test fixture.']);
+        $kuralLead = Lead::create(['prospect_id' => $kuralProspect->id, 'assigned_to' => $kural->id, 'created_by' => $kural->id, 'stage' => 'validated', 'temperature' => 'hot', 'notes' => 'Validated in test fixture.']);
 
         Proposal::create(['lead_id' => $nithinLead->id, 'prospect_id' => $nithinProspect->id, 'assigned_to' => $nithin->id, 'created_by' => $nithin->id, 'stage' => ProposalStage::Sent, 'outcome' => ProposalOutcome::Won]);
         Proposal::create(['lead_id' => $kuralLead->id, 'prospect_id' => $kuralProspect->id, 'assigned_to' => $kural->id, 'created_by' => $kural->id, 'stage' => ProposalStage::Sent, 'outcome' => ProposalOutcome::Lost]);

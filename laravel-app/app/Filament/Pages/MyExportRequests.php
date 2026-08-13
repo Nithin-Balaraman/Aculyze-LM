@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Models\ExportRequest;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Exceptions\Halt;
 use Filament\Tables;
@@ -65,6 +66,10 @@ class MyExportRequests extends Page implements HasTable
                     ->label('Decision Date')
                     ->dateTime('d M Y, h:i A')
                     ->placeholder('—'),
+                Tables\Columns\TextColumn::make('downloaded_at')
+                    ->label('Downloaded At')
+                    ->dateTime('d M Y, h:i A')
+                    ->placeholder('—'),
                 Tables\Columns\TextColumn::make('denial_reason')
                     ->label('Denial Reason')
                     ->placeholder('—')
@@ -81,11 +86,25 @@ class MyExportRequests extends Page implements HasTable
                             throw new Halt;
                         }
 
-                        $response = $record->resource->exporter()->stream(auth()->user(), $record->filters);
+                        // One-Time Approved Export Download batch, Section
+                        // 2.7: the atomic claim happens before any CSV is
+                        // generated, so a losing concurrent attempt (rapid
+                        // double-click, two tabs) never receives a file —
+                        // only a rejection. The eligibility check above can
+                        // race against another request; this claim is what
+                        // actually decides it, against the database's
+                        // current state, not this $record's in-memory copy.
+                        if (! $record->claimForDownload()) {
+                            Notification::make()
+                                ->title('This export has already been downloaded.')
+                                ->body('Submit a new export request for fresh data.')
+                                ->danger()
+                                ->send();
 
-                        $record->forceFill(['downloaded_at' => now()])->save();
+                            throw new Halt;
+                        }
 
-                        return $response;
+                        return $record->resource->exporter()->stream(auth()->user(), $record->filters);
                     }),
             ])
             ->defaultSort('created_at', 'desc')

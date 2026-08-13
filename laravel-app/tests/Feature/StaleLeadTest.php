@@ -26,6 +26,7 @@ class StaleLeadTest extends TestCase
             'created_by' => $prospect->created_by,
             'stage' => $stage,
             'temperature' => 'warm',
+            'notes' => $stage === LeadStage::Validated ? 'Validated in test fixture.' : null,
         ]);
 
         Lead::withoutEvents(fn () => $lead->forceFill(['stage_changed_at' => Date::now()->subDays($daysAgo)])->save());

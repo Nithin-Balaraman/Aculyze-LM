@@ -47,6 +47,7 @@ class DashboardChartsTest extends TestCase
             'created_by' => $owner->id,
             'stage' => $stage,
             'temperature' => 'warm',
+            'notes' => $stage === LeadStage::Validated ? 'Validated in test fixture.' : null,
         ]);
     }
 
@@ -113,6 +114,7 @@ class DashboardChartsTest extends TestCase
             'created_by' => $prospect->created_by,
             'stage' => LeadStage::Validated,
             'temperature' => 'hot',
+            'notes' => 'Validated in test fixture.',
         ]);
 
         return Proposal::create([

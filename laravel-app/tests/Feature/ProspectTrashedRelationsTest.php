@@ -103,6 +103,7 @@ class ProspectTrashedRelationsTest extends TestCase
             'created_by' => $prospect->created_by,
             'stage' => LeadStage::Validated,
             'temperature' => 'hot',
+            'notes' => 'Validated in test fixture.',
         ]);
         $proposal = Proposal::create([
             'lead_id' => $lead->id,
