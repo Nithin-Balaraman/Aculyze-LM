@@ -131,7 +131,7 @@ class LeadResource extends Resource
                     ->badge()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('is_lost')
-                    ->label('Lost')
+                    ->label('Current Status')
                     ->badge()
                     ->formatStateUsing(fn (bool $state) => $state ? 'Lost' : 'Active')
                     ->color(fn (bool $state) => $state ? 'coral' : 'gray')
