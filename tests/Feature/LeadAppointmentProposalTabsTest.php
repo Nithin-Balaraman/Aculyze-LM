@@ -180,10 +180,11 @@ class LeadAppointmentProposalTabsTest extends TestCase
         ]);
     }
 
-    public function test_proposal_pending_tab_shows_only_undecided_proposals(): void
+    public function test_proposal_pending_tab_shows_undecided_and_hold_proposals(): void
     {
         $employee = User::factory()->create();
         $pending = $this->makeProposal($employee, null);
+        $hold = $this->makeProposal($employee, ProposalOutcome::Hold);
         $won = $this->makeProposal($employee, ProposalOutcome::Won);
         $lost = $this->makeProposal($employee, ProposalOutcome::Lost);
 
@@ -191,14 +192,15 @@ class LeadAppointmentProposalTabsTest extends TestCase
 
         Livewire::test(ListProposals::class)
             ->set('activeTab', 'pending')
-            ->assertCanSeeTableRecords([$pending])
+            ->assertCanSeeTableRecords([$pending, $hold])
             ->assertCanNotSeeTableRecords([$won, $lost]);
     }
 
-    public function test_proposal_history_tab_shows_every_decided_outcome(): void
+    public function test_proposal_history_tab_shows_only_final_outcomes_not_hold(): void
     {
         $employee = User::factory()->create();
         $pending = $this->makeProposal($employee, null);
+        $hold = $this->makeProposal($employee, ProposalOutcome::Hold);
         $won = $this->makeProposal($employee, ProposalOutcome::Won);
         $lost = $this->makeProposal($employee, ProposalOutcome::Lost);
 
@@ -207,7 +209,7 @@ class LeadAppointmentProposalTabsTest extends TestCase
         Livewire::test(ListProposals::class)
             ->set('activeTab', 'history')
             ->assertCanSeeTableRecords([$won, $lost])
-            ->assertCanNotSeeTableRecords([$pending]);
+            ->assertCanNotSeeTableRecords([$pending, $hold]);
     }
 
     public function test_proposal_lost_tab_shows_only_lost_outcome(): void

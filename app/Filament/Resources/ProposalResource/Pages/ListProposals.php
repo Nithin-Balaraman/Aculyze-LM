@@ -18,8 +18,10 @@ use Illuminate\Database\Eloquent\Builder;
  * track "Lost" as one of the three `outcome` values (Won/Hold/Lost — see
  * App\Enums\ProposalOutcome) rather than a separate flag, so these tabs
  * reuse that existing field instead of adding a new one: "Pending" is a
- * Proposal with no outcome decided yet, "History" is any Proposal with a
- * final outcome recorded, and "Lost" is outcome = Lost specifically.
+ * Proposal with no outcome yet OR on Hold — Hold is not a final decision,
+ * just a pause, so it stays in the active queue — "History" is a Proposal
+ * with a final outcome (Won or Lost), and "Lost" is outcome = Lost
+ * specifically.
  */
 class ListProposals extends ListRecords
 {
@@ -29,10 +31,10 @@ class ListProposals extends ListRecords
     {
         return [
             'pending' => Tab::make('Pending')
-                ->modifyQueryUsing(fn (Builder $query) => $query->whereNull('outcome'))
-                ->badge(fn () => Proposal::query()->visibleTo(auth()->user())->whereNull('outcome')->count()),
+                ->modifyQueryUsing(fn (Builder $query) => $query->where(fn (Builder $query) => $query->whereNull('outcome')->orWhere('outcome', ProposalOutcome::Hold)))
+                ->badge(fn () => Proposal::query()->visibleTo(auth()->user())->where(fn (Builder $query) => $query->whereNull('outcome')->orWhere('outcome', ProposalOutcome::Hold))->count()),
             'history' => Tab::make('History')
-                ->modifyQueryUsing(fn (Builder $query) => $query->whereNotNull('outcome')),
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('outcome', [ProposalOutcome::Won, ProposalOutcome::Lost])),
             'lost' => Tab::make('Lost')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('outcome', ProposalOutcome::Lost)),
         ];
