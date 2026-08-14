@@ -32,66 +32,78 @@ class ProspectResource extends Resource
 
     public static function form(Form $form): Form
     {
-        return $form
-            ->schema([
-                Forms\Components\Section::make('Company')
-                    ->columns(2)
-                    ->schema([
-                        Forms\Components\TextInput::make('company_name')
-                            ->required()
-                            ->maxLength(255)
-                            ->columnSpanFull(),
-                        Forms\Components\TextInput::make('contact_person')->maxLength(255),
-                        Forms\Components\TextInput::make('designation')->maxLength(255),
-                        Forms\Components\TextInput::make('telephone')
-                            ->tel()
-                            ->maxLength(20),
-                        Forms\Components\TextInput::make('mobile')
-                            ->tel()
-                            ->maxLength(20),
-                        Forms\Components\TextInput::make('email')
-                            ->email()
-                            ->maxLength(255),
-                        Forms\Components\TextInput::make('website')
-                            ->url()
-                            ->maxLength(255),
-                        Forms\Components\TextInput::make('industry')->maxLength(255),
-                        Forms\Components\TextInput::make('source')->maxLength(255),
-                    ]),
-                Forms\Components\Section::make('Location')
-                    ->columns(2)
-                    ->schema([
-                        Forms\Components\TextInput::make('address')
-                            ->maxLength(255)
-                            ->columnSpanFull(),
-                        Forms\Components\TextInput::make('locality')->maxLength(255),
-                        Forms\Components\TextInput::make('city')->maxLength(255),
-                        Forms\Components\TextInput::make('state')->maxLength(255),
-                        Forms\Components\TextInput::make('pincode')->maxLength(20),
-                    ]),
-                Forms\Components\Section::make('Ownership')
-                    ->columns(2)
-                    ->schema([
-                        Forms\Components\Select::make('assigned_to')
-                            ->label('Assigned Employee')
-                            ->relationship('assignedEmployee', 'name')
-                            ->default(fn () => auth()->id())
-                            ->required()
-                            ->searchable()
-                            ->preload()
-                            // Employees may not hand their own prospects to
-                            // someone else — only Admin assigns/reassigns
-                            // (AGENTS.md sections 11, 28).
-                            ->disabled(fn () => ! auth()->user()->isAdmin())
-                            ->dehydrated(),
-                    ]),
-                Forms\Components\Section::make('Notes')
-                    ->schema([
-                        Forms\Components\Textarea::make('notes')
-                            ->rows(3)
-                            ->columnSpanFull(),
-                    ]),
-            ]);
+        return $form->schema(static::formSchema());
+    }
+
+    /**
+     * Extracted from form() so other resources can open the exact same
+     * Prospect creation fields inline (see CallRecordResource's Company
+     * field — the "+ Create new company…" search-dropdown row and the
+     * standard createOptionForm "+" button both reuse this).
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    public static function formSchema(): array
+    {
+        return [
+            Forms\Components\Section::make('Company')
+                ->columns(2)
+                ->schema([
+                    Forms\Components\TextInput::make('company_name')
+                        ->required()
+                        ->maxLength(255)
+                        ->columnSpanFull(),
+                    Forms\Components\TextInput::make('contact_person')->maxLength(255),
+                    Forms\Components\TextInput::make('designation')->maxLength(255),
+                    Forms\Components\TextInput::make('telephone')
+                        ->tel()
+                        ->maxLength(20),
+                    Forms\Components\TextInput::make('mobile')
+                        ->tel()
+                        ->maxLength(20),
+                    Forms\Components\TextInput::make('email')
+                        ->email()
+                        ->maxLength(255),
+                    Forms\Components\TextInput::make('website')
+                        ->url()
+                        ->maxLength(255),
+                    Forms\Components\TextInput::make('industry')->maxLength(255),
+                    Forms\Components\TextInput::make('source')->maxLength(255),
+                ]),
+            Forms\Components\Section::make('Location')
+                ->columns(2)
+                ->schema([
+                    Forms\Components\TextInput::make('address')
+                        ->maxLength(255)
+                        ->columnSpanFull(),
+                    Forms\Components\TextInput::make('locality')->maxLength(255),
+                    Forms\Components\TextInput::make('city')->maxLength(255),
+                    Forms\Components\TextInput::make('state')->maxLength(255),
+                    Forms\Components\TextInput::make('pincode')->maxLength(20),
+                ]),
+            Forms\Components\Section::make('Ownership')
+                ->columns(2)
+                ->schema([
+                    Forms\Components\Select::make('assigned_to')
+                        ->label('Assigned Employee')
+                        ->relationship('assignedEmployee', 'name')
+                        ->default(fn () => auth()->id())
+                        ->required()
+                        ->searchable()
+                        ->preload()
+                        // Employees may not hand their own prospects to
+                        // someone else — only Admin assigns/reassigns
+                        // (AGENTS.md sections 11, 28).
+                        ->disabled(fn () => ! auth()->user()->isAdmin())
+                        ->dehydrated(),
+                ]),
+            Forms\Components\Section::make('Notes')
+                ->schema([
+                    Forms\Components\Textarea::make('notes')
+                        ->rows(3)
+                        ->columnSpanFull(),
+                ]),
+        ];
     }
 
     public static function table(Table $table): Table

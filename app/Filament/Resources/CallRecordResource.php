@@ -5,15 +5,18 @@ namespace App\Filament\Resources;
 use App\Enums\CallOutcome;
 use App\Filament\Resources\CallRecordResource\Pages;
 use App\Models\CallRecord;
+use App\Models\Prospect;
 use App\Support\DeletionGuard;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
+use Filament\Forms\Set;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\HtmlString;
 
 /**
  * Call Records = the Activity Log (AGENTS.md sections 12, 51). Every call,
@@ -35,6 +38,13 @@ class CallRecordResource extends Resource
 
     protected static ?int $navigationSort = 2;
 
+    /**
+     * Sentinel Select value for the always-present "+ Create new company…"
+     * search-result row (Phase 2 item #4) — a non-numeric string so it can
+     * never collide with a real prospects.id.
+     */
+    private const CREATE_NEW_PROSPECT = '__create_new_prospect__';
+
     public static function form(Form $form): Form
     {
         return $form
@@ -44,14 +54,47 @@ class CallRecordResource extends Resource
                     ->schema([
                         Forms\Components\Select::make('prospect_id')
                             ->label('Company')
-                            ->relationship(
-                                'prospect',
-                                'company_name',
-                                modifyQueryUsing: fn (Builder $query) => $query->visibleTo(auth()->user()),
-                            )
                             ->required()
                             ->searchable()
-                            ->preload(),
+                            ->preload()
+                            ->live()
+                            // No ->relationship() here — the sentinel
+                            // "create new" row has to be injected into the
+                            // search results themselves (present whether
+                            // the user has typed a search or not), which
+                            // relationship()'s auto-wired search doesn't
+                            // support alongside a synthetic non-Prospect
+                            // entry.
+                            ->getSearchResultsUsing(fn (string $search) => [self::CREATE_NEW_PROSPECT => '+ Create new company…']
+                                + Prospect::query()
+                                    ->visibleTo(auth()->user())
+                                    ->where('company_name', 'like', "%{$search}%")
+                                    ->limit(50)
+                                    ->pluck('company_name', 'id')
+                                    ->all())
+                            ->getOptionLabelUsing(fn ($value) => $value === self::CREATE_NEW_PROSPECT
+                                ? '+ Create new company…'
+                                : Prospect::find($value)?->company_name)
+                            ->afterStateUpdated(function ($state, Set $set, $livewire) {
+                                if ($state !== self::CREATE_NEW_PROSPECT) {
+                                    return;
+                                }
+
+                                // Reset the field itself — the sentinel is
+                                // never a real selection — then open the
+                                // exact same modal the field's own "+"
+                                // button (createOptionForm below) opens,
+                                // via Filament's standard, documented
+                                // trigger for a field-scoped action.
+                                $set('prospect_id', null);
+                                $livewire->mountFormComponentAction('prospect_id', 'createOption');
+                            })
+                            ->createOptionForm(ProspectResource::formSchema())
+                            ->createOptionUsing(function (array $data) {
+                                $data['created_by'] = auth()->id();
+
+                                return Prospect::create($data)->getKey();
+                            }),
                         Forms\Components\DateTimePicker::make('called_at')
                             ->required()
                             ->default(now())
@@ -76,6 +119,21 @@ class CallRecordResource extends Resource
                             ->seconds(false)
                             ->visible(fn (Forms\Get $get) => $get('callback_required')),
                     ]),
+                // Phase 2 item #5: once a company is selected, show its
+                // already-saved Database details inline so the caller
+                // doesn't have to leave this screen to look them up.
+                Forms\Components\Section::make('Company Details')
+                    ->schema([
+                        Forms\Components\Placeholder::make('prospect_details')
+                            ->label('')
+                            ->content(fn (Get $get) => new HtmlString(
+                                view('filament.forms.prospect-call-details', [
+                                    'prospect' => Prospect::find($get('prospect_id')),
+                                ])->render()
+                            ))
+                            ->columnSpanFull(),
+                    ])
+                    ->visible(fn (Get $get) => filled($get('prospect_id')) && $get('prospect_id') !== self::CREATE_NEW_PROSPECT),
                 Forms\Components\Section::make('Notes')
                     ->schema([
                         // Others is a catch-all with no defined next action
