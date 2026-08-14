@@ -30,6 +30,8 @@ class MyExportRequests extends Page implements HasTable
 
     protected static ?string $title = 'My Export Requests';
 
+    protected static ?int $navigationSort = -1;
+
     protected static string $view = 'filament.pages.my-export-requests';
 
     public function mount(): void

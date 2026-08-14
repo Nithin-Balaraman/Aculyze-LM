@@ -39,7 +39,7 @@ class MainDashboard extends BaseDashboard
 
     protected static string $routePath = '/main-dashboard';
 
-    protected static ?int $navigationSort = -1;
+    protected static ?int $navigationSort = -3;
 
     public function mount(): void
     {
