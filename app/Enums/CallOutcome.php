@@ -65,9 +65,19 @@ enum CallOutcome: string implements HasColor, HasLabel
     {
         return in_array($this, [
             self::AppointmentSet,
-            self::FutureOpportunity,
             self::RequirementIdentified,
         ], true);
+    }
+
+    /**
+     * Future Opportunity routes nowhere — it doesn't create a Follow-Up,
+     * Appointment, or Lead. The Call Record itself is the only record of it,
+     * surfaced via the "History" tab on the Call Records page instead (see
+     * ListCallRecords::getTabs()).
+     */
+    public function routesNowhere(): bool
+    {
+        return $this === self::FutureOpportunity;
     }
 
     /** Outcomes that route to the Lead Sheet (in addition to an Appointment). */

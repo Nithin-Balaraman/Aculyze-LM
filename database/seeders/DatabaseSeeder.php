@@ -184,8 +184,9 @@ class DatabaseSeeder extends Seeder
         ]);
         Proposal::withoutEvents(fn () => $staleProposal->forceFill(['stage_changed_at' => Date::now()->subDays(30)])->save());
 
-        // --- 8. A couple of "no requirement yet" calls for variety, also
-        // routed to the Appointment Call Sheet per AGENTS.md section 15-F. ---
+        // --- 8. A "no requirement yet" call for variety — routes nowhere
+        // (no Follow-Up/Appointment/Lead); it only shows up in the Call
+        // Records "History" tab. See CallOutcome::routesToAppointment(). ---
         $millenniumSteel = $this->prospect('Millennium Steel Traders', $kural, [
             'contact_person' => 'Bala Murugan',
             'designation' => 'Proprietor',

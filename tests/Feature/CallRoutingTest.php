@@ -80,12 +80,14 @@ class CallRoutingTest extends TestCase
         $this->assertNull($call->fresh()->lead);
     }
 
-    public function test_future_opportunity_routes_to_appointment_only(): void
+    public function test_future_opportunity_routes_nowhere(): void
     {
         $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::FutureOpportunity);
 
-        $this->assertNotNull($call->fresh()->appointment);
+        $this->assertNull($call->fresh()->appointment);
+        $this->assertNull($call->fresh()->followUp);
         $this->assertNull($call->fresh()->lead);
+        $this->assertNotNull($call->fresh()->processed_at);
     }
 
     public function test_requirement_identified_routes_to_appointment_and_lead(): void
