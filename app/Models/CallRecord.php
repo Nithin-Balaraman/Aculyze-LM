@@ -44,6 +44,33 @@ class CallRecord extends Model
     }
 
     /**
+     * The Others outcome is a catch-all with no defined routing (see
+     * CallOutcome::routesNowhere()), so Notes is the only record of what
+     * actually happened. The Filament form already blocks this
+     * interactively (see CallRecordResource::form()), but every write
+     * path — including ones that bypass the visible form — must be unable
+     * to persist an Others Call Record without Notes. Mirrors Lead's
+     * Validated-requires-notes guard.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $callRecord) {
+            if ($callRecord->outcome === CallOutcome::Others && ! $callRecord->hasMeaningfulNotes()) {
+                throw new \LogicException('A Call Record cannot be saved with outcome Others without Notes.');
+            }
+        });
+    }
+
+    /**
+     * Whitespace-only Notes must not count as present — mirrors
+     * Lead::hasMeaningfulNotes().
+     */
+    public function hasMeaningfulNotes(): bool
+    {
+        return filled($this->notes);
+    }
+
+    /**
      * withoutGlobalScope(SoftDeletingScope) so a soft-deleted Prospect's
      * company name still resolves in every module's history instead of
      * silently going blank (Change Request Section 7).

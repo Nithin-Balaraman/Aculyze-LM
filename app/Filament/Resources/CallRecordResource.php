@@ -8,6 +8,7 @@ use App\Models\CallRecord;
 use App\Support\DeletionGuard;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -77,11 +78,41 @@ class CallRecordResource extends Resource
                     ]),
                 Forms\Components\Section::make('Notes')
                     ->schema([
+                        // Others is a catch-all with no defined next action
+                        // (it routes nowhere — see CallOutcome::
+                        // routesNowhere()), so Notes becomes the only record
+                        // of what actually happened and must be filled in.
+                        // Mirrors the same required()+rule() pairing
+                        // LeadResource uses for "Notes required when
+                        // Validated" — plain required() alone would accept
+                        // a whitespace-only value.
                         Forms\Components\Textarea::make('notes')
                             ->rows(3)
-                            ->columnSpanFull(),
+                            ->columnSpanFull()
+                            ->required(fn (Get $get) => self::outcomeIsOthers($get('outcome')))
+                            ->validationMessages([
+                                'required' => 'Notes are required when the outcome is Others.',
+                            ])
+                            ->rule(
+                                fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
+                                    if (self::outcomeIsOthers($get('outcome')) && blank($value)) {
+                                        $fail('Notes are required when the outcome is Others.');
+                                    }
+                                },
+                            ),
                     ]),
             ]);
+    }
+
+    /**
+     * $get() may hand back either the raw string value or the hydrated
+     * CallOutcome case depending on how the form state got there — see the
+     * comment above the `notes` field (mirrors LeadResource::
+     * stageIsValidated()).
+     */
+    private static function outcomeIsOthers(mixed $outcome): bool
+    {
+        return ($outcome instanceof CallOutcome ? $outcome : CallOutcome::tryFrom((string) $outcome)) === CallOutcome::Others;
     }
 
     public static function table(Table $table): Table

@@ -22,9 +22,11 @@ enum CallOutcome: string implements HasColor, HasLabel
     case SwitchedOff = 'switched_off';
     case NotReachable = 'not_reachable';
     case CallbackRequested = 'callback_requested';
+    case ProfileRequested = 'profile_requested';
     case AppointmentSet = 'appointment_set';
     case FutureOpportunity = 'future_opportunity';
     case RequirementIdentified = 'requirement_identified';
+    case Others = 'others';
 
     public function getLabel(): string
     {
@@ -33,17 +35,19 @@ enum CallOutcome: string implements HasColor, HasLabel
             self::SwitchedOff => 'Switched Off',
             self::NotReachable => 'Not Reachable',
             self::CallbackRequested => 'Callback Requested',
+            self::ProfileRequested => 'Profile Requested',
             self::AppointmentSet => 'Appointment Set',
             self::FutureOpportunity => 'No Current Requirement / Future Opportunity',
             self::RequirementIdentified => 'Requirement Identified',
+            self::Others => 'Others',
         };
     }
 
     public function getColor(): string|array|null
     {
         return match ($this) {
-            self::NoAnswer, self::SwitchedOff, self::NotReachable => 'gray',
-            self::CallbackRequested => 'warning',
+            self::NoAnswer, self::SwitchedOff, self::NotReachable, self::Others => 'gray',
+            self::CallbackRequested, self::ProfileRequested => 'warning',
             self::AppointmentSet, self::FutureOpportunity => 'info',
             self::RequirementIdentified => 'success',
         };
@@ -57,6 +61,7 @@ enum CallOutcome: string implements HasColor, HasLabel
             self::SwitchedOff,
             self::NotReachable,
             self::CallbackRequested,
+            self::ProfileRequested,
         ], true);
     }
 
@@ -70,14 +75,18 @@ enum CallOutcome: string implements HasColor, HasLabel
     }
 
     /**
-     * Future Opportunity routes nowhere — it doesn't create a Follow-Up,
-     * Appointment, or Lead. The Call Record itself is the only record of it,
-     * surfaced via the "History" tab on the Call Records page instead (see
+     * These route nowhere — no Follow-Up, Appointment, or Lead is created.
+     * The Call Record itself (and, for Others, its mandatory Notes — see
+     * CallRecordResource::form()) is the only record of it, surfaced via
+     * the "History" tab on the Call Records page instead (see
      * ListCallRecords::getTabs()).
      */
     public function routesNowhere(): bool
     {
-        return $this === self::FutureOpportunity;
+        return in_array($this, [
+            self::FutureOpportunity,
+            self::Others,
+        ], true);
     }
 
     /** Outcomes that route to the Lead Sheet (in addition to an Appointment). */

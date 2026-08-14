@@ -23,16 +23,16 @@ class CallRecordTabsTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function makeCall(User $owner, CallOutcome $outcome): CallRecord
+    private function makeCall(User $owner, CallOutcome $outcome, array $attributes = []): CallRecord
     {
         $prospect = Prospect::factory()->create(['assigned_to' => $owner->id, 'created_by' => $owner->id]);
 
-        return CallRecord::create([
+        return CallRecord::create(array_merge([
             'prospect_id' => $prospect->id,
             'user_id' => $owner->id,
             'called_at' => now(),
             'outcome' => $outcome,
-        ]);
+        ], $attributes));
     }
 
     public function test_all_tab_shows_every_call_regardless_of_outcome(): void
@@ -77,6 +77,21 @@ class CallRecordTabsTest extends TestCase
         Livewire::test(ListCallRecords::class)
             ->set('activeTab', 'all')
             ->assertCanSeeTableRecords([$futureOpportunity]);
+    }
+
+    public function test_history_tab_also_includes_others_outcome_alongside_future_opportunity(): void
+    {
+        $employee = User::factory()->create();
+        $noAnswer = $this->makeCall($employee, CallOutcome::NoAnswer);
+        $futureOpportunity = $this->makeCall($employee, CallOutcome::FutureOpportunity);
+        $others = $this->makeCall($employee, CallOutcome::Others, ['notes' => 'Not a real business anymore.']);
+
+        $this->actingAs($employee);
+
+        Livewire::test(ListCallRecords::class)
+            ->set('activeTab', 'history')
+            ->assertCanSeeTableRecords([$futureOpportunity, $others])
+            ->assertCanNotSeeTableRecords([$noAnswer]);
     }
 
     public function test_employee_only_sees_their_own_calls_in_either_tab(): void

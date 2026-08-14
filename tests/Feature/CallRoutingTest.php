@@ -17,14 +17,14 @@ class CallRoutingTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function makeCall(Prospect $prospect, CallOutcome $outcome): CallRecord
+    private function makeCall(Prospect $prospect, CallOutcome $outcome, array $attributes = []): CallRecord
     {
-        return CallRecord::create([
+        return CallRecord::create(array_merge([
             'prospect_id' => $prospect->id,
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
             'outcome' => $outcome,
-        ]);
+        ], $attributes));
     }
 
     public function test_every_outcome_creates_a_call_record(): void
@@ -32,7 +32,9 @@ class CallRoutingTest extends TestCase
         $prospect = Prospect::factory()->create();
 
         foreach (CallOutcome::cases() as $outcome) {
-            $call = $this->makeCall($prospect, $outcome);
+            // Others requires Notes to save at all — see CallRecord::booted().
+            $attributes = $outcome === CallOutcome::Others ? ['notes' => 'Catch-all outcome, see notes.'] : [];
+            $call = $this->makeCall($prospect, $outcome, $attributes);
             $this->assertDatabaseHas('call_records', ['id' => $call->id, 'outcome' => $outcome->value]);
         }
     }
@@ -71,6 +73,15 @@ class CallRoutingTest extends TestCase
         $this->assertNull($call->fresh()->appointment);
     }
 
+    public function test_profile_requested_routes_to_follow_up_only(): void
+    {
+        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::ProfileRequested);
+
+        $this->assertNotNull($call->fresh()->followUp);
+        $this->assertNull($call->fresh()->appointment);
+        $this->assertNull($call->fresh()->lead);
+    }
+
     public function test_appointment_set_routes_to_appointment_only(): void
     {
         $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::AppointmentSet);
@@ -83,6 +94,16 @@ class CallRoutingTest extends TestCase
     public function test_future_opportunity_routes_nowhere(): void
     {
         $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::FutureOpportunity);
+
+        $this->assertNull($call->fresh()->appointment);
+        $this->assertNull($call->fresh()->followUp);
+        $this->assertNull($call->fresh()->lead);
+        $this->assertNotNull($call->fresh()->processed_at);
+    }
+
+    public function test_others_routes_nowhere(): void
+    {
+        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::Others, ['notes' => 'Prospect no longer exists as a company.']);
 
         $this->assertNull($call->fresh()->appointment);
         $this->assertNull($call->fresh()->followUp);
