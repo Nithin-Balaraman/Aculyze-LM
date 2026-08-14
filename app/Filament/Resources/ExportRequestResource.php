@@ -66,11 +66,13 @@ class ExportRequestResource extends Resource
                 Tables\Columns\TextColumn::make('decided_at')
                     ->label('Decided At')
                     ->dateTime('d M Y, h:i A')
-                    ->placeholder('—'),
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('downloaded_at')
                     ->label('Downloaded At')
                     ->dateTime('d M Y, h:i A')
-                    ->placeholder('—'),
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('status')

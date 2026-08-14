@@ -110,7 +110,8 @@ class ProposalResource extends Resource
                 Tables\Columns\TextColumn::make('stage_changed_at')
                     ->label('Stage Since')
                     ->dateTime('d M Y')
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\IconColumn::make('is_stale')
                     ->label('Stale')
                     ->boolean()

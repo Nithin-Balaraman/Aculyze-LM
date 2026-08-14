@@ -132,7 +132,13 @@ class CallRecordResource extends Resource
                 Tables\Columns\TextColumn::make('caller.name')
                     ->label('Called By')
                     ->badge()
-                    ->sortable(),
+                    ->sortable()
+                    // Employees only ever see their own calls (see
+                    // CallRecord::scopeVisibleTo()), so this column always
+                    // just shows their own name for them — redundant, not
+                    // a toggleable default like the others, just hidden
+                    // outright for non-admins.
+                    ->visible(fn () => auth()->user()->isAdmin()),
                 Tables\Columns\IconColumn::make('callback_required')
                     ->boolean()
                     ->toggleable(isToggledHiddenByDefault: true),

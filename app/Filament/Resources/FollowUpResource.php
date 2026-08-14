@@ -83,7 +83,8 @@ class FollowUpResource extends Resource
                     ->searchable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('reason')
-                    ->searchable(),
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('follow_up_at')
                     ->dateTime('d M Y, h:i A')
                     ->sortable()

@@ -104,16 +104,16 @@ class ProspectResource extends Resource
                     ->weight('bold'),
                 Tables\Columns\TextColumn::make('contact_person')
                     ->searchable()
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('telephone')
                     ->label('Telephone')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('email')
                     ->searchable()
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('industry')
                     ->searchable()
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('city')
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),

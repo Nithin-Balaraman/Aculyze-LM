@@ -91,7 +91,8 @@ class AppointmentResource extends Resource
                     ->badge()
                     ->formatStateUsing(fn (bool $state) => $state ? 'Lost' : 'Active')
                     ->color(fn (bool $state) => $state ? 'coral' : 'gray')
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('assignedEmployee.name')
                     ->label('Assigned To')
                     ->badge()
