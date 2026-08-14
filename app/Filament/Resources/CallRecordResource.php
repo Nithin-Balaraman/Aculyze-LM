@@ -55,16 +55,34 @@ class CallRecordResource extends Resource
                         Forms\Components\Select::make('prospect_id')
                             ->label('Company')
                             ->required()
+                            // ->relationship() is kept (rather than
+                            // dropped) even though its auto-wired search/
+                            // label resolvers are immediately overridden
+                            // below — Filament's createOptionForm internals
+                            // unconditionally walk getRelationshipName() to
+                            // resolve a related-model context, and crash on
+                            // a null relationship name when it's absent
+                            // (`Call to a member function isRelation() on
+                            // null`, Select.php ~line 1164). Keeping
+                            // relationship() gives that internal code a
+                            // real relation ('prospect') to resolve, while
+                            // the two calls after it still take over the
+                            // actual search behavior — later closures win.
+                            ->relationship(
+                                'prospect',
+                                'company_name',
+                                modifyQueryUsing: fn (Builder $query) => $query->visibleTo(auth()->user()),
+                            )
                             ->searchable()
                             ->preload()
                             ->live()
-                            // No ->relationship() here — the sentinel
-                            // "create new" row has to be injected into the
-                            // search results themselves (present whether
-                            // the user has typed a search or not), which
-                            // relationship()'s auto-wired search doesn't
-                            // support alongside a synthetic non-Prospect
-                            // entry.
+                            // The sentinel "create new" row has to be
+                            // injected into the search results themselves
+                            // (present whether the user has typed a search
+                            // or not) — relationship()'s auto-wired search
+                            // above doesn't support a synthetic
+                            // non-Prospect entry, so these two calls
+                            // replace it.
                             ->getSearchResultsUsing(fn (string $search) => [self::CREATE_NEW_PROSPECT => '+ Create new company…']
                                 + Prospect::query()
                                     ->visibleTo(auth()->user())
