@@ -65,6 +65,7 @@ class StageTimingTest extends TestCase
             'prospect_id' => $prospect->id,
             'assigned_to' => $prospect->assigned_to,
             'created_by' => $prospect->created_by,
+            'appointment_at' => now(),
             'stage' => AppointmentStage::AppointmentMade,
         ]);
 
@@ -83,6 +84,7 @@ class StageTimingTest extends TestCase
             'prospect_id' => $prospect->id,
             'assigned_to' => $prospect->assigned_to,
             'created_by' => $prospect->created_by,
+            'appointment_at' => now(),
             'stage' => AppointmentStage::AppointmentMade,
         ]);
 

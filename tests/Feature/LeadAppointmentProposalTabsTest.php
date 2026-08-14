@@ -104,6 +104,7 @@ class LeadAppointmentProposalTabsTest extends TestCase
             'prospect_id' => $prospect->id,
             'assigned_to' => $owner->id,
             'created_by' => $owner->id,
+            'appointment_at' => now(),
             'stage' => $stage,
         ]);
 

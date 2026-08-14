@@ -58,6 +58,7 @@ class EmployeeDeletionTest extends TestCase
             'prospect_id' => $prospect->id,
             'assigned_to' => $employee->id,
             'created_by' => $employee->id,
+            'appointment_at' => now(),
             'stage' => 'appointment_made',
         ]);
 

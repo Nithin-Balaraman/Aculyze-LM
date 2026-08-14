@@ -29,6 +29,7 @@ class AppointmentLostTest extends TestCase
             'prospect_id' => $prospect->id,
             'assigned_to' => $prospect->assigned_to,
             'created_by' => $prospect->created_by,
+            'appointment_at' => now(),
             'stage' => $stage,
         ]);
     }
@@ -64,6 +65,7 @@ class AppointmentLostTest extends TestCase
             'prospect_id' => Prospect::factory()->create(['assigned_to' => $employee->id, 'created_by' => $employee->id])->id,
             'assigned_to' => $employee->id,
             'created_by' => $employee->id,
+            'appointment_at' => now(),
             'stage' => AppointmentStage::AppointmentMade,
         ]);
 
@@ -83,6 +85,7 @@ class AppointmentLostTest extends TestCase
             'prospect_id' => Prospect::factory()->create(['assigned_to' => $employee->id, 'created_by' => $employee->id])->id,
             'assigned_to' => $employee->id,
             'created_by' => $employee->id,
+            'appointment_at' => now(),
             'stage' => AppointmentStage::AppointmentMade,
         ]);
 
