@@ -14,8 +14,12 @@ use Tests\TestCase;
  * "+ Create new company…" row in its search results (see
  * CallRecordResource::CREATE_NEW_PROSPECT and the field's
  * getSearchResultsUsing()/afterStateUpdated() closures), which opens the
- * exact same modal as the field's own createOptionForm "+" button via
- * Filament's standard mountFormComponentAction() trigger.
+ * same modal as the field's own "createProspect" suffix action "+" button
+ * via Filament's standard mountFormComponentAction() trigger. Deliberately
+ * a plain suffixAction rather than ->relationship()+createOptionForm() —
+ * the latter combination was tried first and broke the dropdown-row click
+ * in the browser (see CallRecordResource::form()'s comment on the field for
+ * the full story).
  *
  * The dropdown-row rendering itself (the live search UI) isn't something
  * PHPUnit/Livewire testing can exercise — this covers the parts that are
@@ -32,7 +36,7 @@ class CallRecordCreateCompanyInlineTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(CreateCallRecord::class)
-            ->mountFormComponentAction('prospect_id', 'createOption')
+            ->mountFormComponentAction('prospect_id', 'createProspect')
             ->setFormComponentActionData([
                 'company_name' => 'Brand New Co',
                 'contact_person' => 'Priya Nair',
@@ -50,7 +54,7 @@ class CallRecordCreateCompanyInlineTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(CreateCallRecord::class)
-            ->mountFormComponentAction('prospect_id', 'createOption')
+            ->mountFormComponentAction('prospect_id', 'createProspect')
             ->setFormComponentActionData(['company_name' => 'Another New Co'])
             ->callMountedFormComponentAction()
             ->assertFormSet([

@@ -55,34 +55,30 @@ class CallRecordResource extends Resource
                         Forms\Components\Select::make('prospect_id')
                             ->label('Company')
                             ->required()
-                            // ->relationship() is kept (rather than
-                            // dropped) even though its auto-wired search/
-                            // label resolvers are immediately overridden
-                            // below — Filament's createOptionForm internals
-                            // unconditionally walk getRelationshipName() to
-                            // resolve a related-model context, and crash on
-                            // a null relationship name when it's absent
-                            // (`Call to a member function isRelation() on
-                            // null`, Select.php ~line 1164). Keeping
-                            // relationship() gives that internal code a
-                            // real relation ('prospect') to resolve, while
-                            // the two calls after it still take over the
-                            // actual search behavior — later closures win.
-                            ->relationship(
-                                'prospect',
-                                'company_name',
-                                modifyQueryUsing: fn (Builder $query) => $query->visibleTo(auth()->user()),
-                            )
+                            // Deliberately NOT ->relationship() and NOT
+                            // ->createOptionForm() — both were tried and
+                            // both broke this specific requirement (an
+                            // always-present synthetic "create new" row the
+                            // user can click *in the dropdown itself*):
+                            // createOptionForm's internals crash without
+                            // relationship() (they unconditionally walk
+                            // getRelationshipName()), but WITH
+                            // relationship() restored, selecting the
+                            // sentinel value silently did nothing in the
+                            // browser — relationship-mode Select appears to
+                            // validate/hydrate a selected option against
+                            // the real `prospect` relationship before
+                            // committing the state change, so a value with
+                            // no matching Prospect row never reaches
+                            // afterStateUpdated() at all client-side (even
+                            // though it works when state is set
+                            // programmatically in a test). A plain
+                            // ->suffixAction() sidesteps both — it's a
+                            // generic field-adjacent action with no
+                            // relationship coupling at all.
                             ->searchable()
                             ->preload()
                             ->live()
-                            // The sentinel "create new" row has to be
-                            // injected into the search results themselves
-                            // (present whether the user has typed a search
-                            // or not) — relationship()'s auto-wired search
-                            // above doesn't support a synthetic
-                            // non-Prospect entry, so these two calls
-                            // replace it.
                             ->getSearchResultsUsing(fn (string $search) => [self::CREATE_NEW_PROSPECT => '+ Create new company…']
                                 + Prospect::query()
                                     ->visibleTo(auth()->user())
@@ -100,19 +96,24 @@ class CallRecordResource extends Resource
 
                                 // Reset the field itself — the sentinel is
                                 // never a real selection — then open the
-                                // exact same modal the field's own "+"
-                                // button (createOptionForm below) opens,
-                                // via Filament's standard, documented
-                                // trigger for a field-scoped action.
+                                // same modal the suffix "+" action below
+                                // opens, via Filament's standard trigger
+                                // for a field-scoped action.
                                 $set('prospect_id', null);
-                                $livewire->mountFormComponentAction('prospect_id', 'createOption');
+                                $livewire->mountFormComponentAction('prospect_id', 'createProspect');
                             })
-                            ->createOptionForm(ProspectResource::formSchema())
-                            ->createOptionUsing(function (array $data) {
-                                $data['created_by'] = auth()->id();
+                            ->suffixAction(
+                                Forms\Components\Actions\Action::make('createProspect')
+                                    ->icon('heroicon-o-plus')
+                                    ->modalHeading('Add Company to Database')
+                                    ->form(ProspectResource::formSchema())
+                                    ->action(function (array $data, Set $set) {
+                                        $data['created_by'] = auth()->id();
+                                        $prospect = Prospect::create($data);
 
-                                return Prospect::create($data)->getKey();
-                            }),
+                                        $set('prospect_id', $prospect->getKey());
+                                    }),
+                            ),
                         Forms\Components\DateTimePicker::make('called_at')
                             ->required()
                             ->default(now())
