@@ -50,11 +50,21 @@ return [
         // Deliberately NOT the default 'public' disk (storage/app/public) —
         // that requires a symlink at public/storage, which `storage:link`
         // can't create on Hostinger without SSH access. This disk's root is
-        // public/avatars directly, so uploaded files are already inside the
-        // webroot and need no symlink at all.
+        // a public webroot directly, so uploaded files need no symlink at
+        // all — just written straight to wherever the domain is served
+        // from.
+        //
+        // AVATARS_PUBLIC_PATH exists because that webroot is not always
+        // this Laravel app's own public/ folder: on this app's live
+        // Hostinger deployment, the domain's document root is a separate,
+        // physically distinct directory (outside the app's public/), so
+        // public_path('avatars') would write files nothing ever serves.
+        // Local dev (`php artisan serve`) has no such split, so the
+        // fallback keeps using public_path('avatars') unchanged when the
+        // env var isn't set.
         'avatars' => [
             'driver' => 'local',
-            'root' => public_path('avatars'),
+            'root' => env('AVATARS_PUBLIC_PATH', public_path('avatars')),
             'url' => env('APP_URL').'/avatars',
             'visibility' => 'public',
             'throw' => false,
