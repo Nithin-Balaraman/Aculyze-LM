@@ -73,6 +73,15 @@ class CallRoutingTest extends TestCase
         $this->assertNull($call->fresh()->appointment);
     }
 
+    public function test_concerned_person_not_available_routes_to_follow_up_only(): void
+    {
+        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::ConcernedPersonNotAvailable);
+
+        $this->assertNotNull($call->fresh()->followUp);
+        $this->assertNull($call->fresh()->appointment);
+        $this->assertNull($call->fresh()->lead);
+    }
+
     public function test_profile_requested_routes_to_follow_up_only(): void
     {
         $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::ProfileRequested);

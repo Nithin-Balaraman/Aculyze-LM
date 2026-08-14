@@ -22,6 +22,7 @@ enum CallOutcome: string implements HasColor, HasLabel
     case SwitchedOff = 'switched_off';
     case NotReachable = 'not_reachable';
     case CallbackRequested = 'callback_requested';
+    case ConcernedPersonNotAvailable = 'concerned_person_not_available';
     case ProfileRequested = 'profile_requested';
     case AppointmentSet = 'appointment_set';
     case FutureOpportunity = 'future_opportunity';
@@ -35,6 +36,7 @@ enum CallOutcome: string implements HasColor, HasLabel
             self::SwitchedOff => 'Switched Off',
             self::NotReachable => 'Not Reachable',
             self::CallbackRequested => 'Callback Requested',
+            self::ConcernedPersonNotAvailable => 'Concerned Person Not Available',
             self::ProfileRequested => 'Profile Requested',
             self::AppointmentSet => 'Appointment Set',
             self::FutureOpportunity => 'No Current Requirement / Future Opportunity',
@@ -47,7 +49,7 @@ enum CallOutcome: string implements HasColor, HasLabel
     {
         return match ($this) {
             self::NoAnswer, self::SwitchedOff, self::NotReachable, self::Others => 'gray',
-            self::CallbackRequested, self::ProfileRequested => 'warning',
+            self::CallbackRequested, self::ConcernedPersonNotAvailable, self::ProfileRequested => 'warning',
             self::AppointmentSet, self::FutureOpportunity => 'info',
             self::RequirementIdentified => 'success',
         };
@@ -61,6 +63,7 @@ enum CallOutcome: string implements HasColor, HasLabel
             self::SwitchedOff,
             self::NotReachable,
             self::CallbackRequested,
+            self::ConcernedPersonNotAvailable,
             self::ProfileRequested,
         ], true);
     }
