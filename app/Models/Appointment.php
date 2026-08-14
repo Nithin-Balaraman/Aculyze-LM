@@ -39,11 +39,30 @@ class Appointment extends Model
 
     protected static function booted(): void
     {
-        // stage_changed_at must only move when the stage itself changes —
-        // never on unrelated edits like notes (AGENTS.md section 19).
         static::saving(function (self $appointment) {
+            // stage_changed_at must only move when the stage itself
+            // changes — never on unrelated edits like notes (AGENTS.md
+            // section 19).
             if ($appointment->isDirty('stage') || ! $appointment->exists) {
                 $appointment->stage_changed_at = Date::now();
+            }
+
+            // Appointment At is mandatory (Change Request: Mandatory
+            // Fields batch) — the Filament form already blocks this
+            // interactively (see AppointmentResource::form()), but every
+            // write path must be unable to persist it blank, mirroring
+            // Lead's Validated-notes guard. CallRoutingService::
+            // createAppointment() never sets it (the exact time often
+            // isn't known yet when a call sets one up), so that one
+            // specific write is exempt — but any later save that actually
+            // sets it blank (via the form or otherwise) is still rejected.
+            // Row actions that update other fields (Reassign, Mark Lost)
+            // never touch appointment_at, so isDirty() keeps them
+            // unaffected by a pre-existing blank value.
+            $isInitialAutoRoutedInsert = ! $appointment->exists && $appointment->call_record_id !== null;
+
+            if (! $isInitialAutoRoutedInsert && $appointment->isDirty('appointment_at') && blank($appointment->appointment_at)) {
+                throw new \LogicException('An Appointment cannot be saved without an Appointment At date/time.');
             }
         });
     }

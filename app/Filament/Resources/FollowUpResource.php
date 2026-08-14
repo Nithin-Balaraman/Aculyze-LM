@@ -58,8 +58,10 @@ class FollowUpResource extends Resource
                             ->searchable()
                             ->preload(),
                         Forms\Components\DateTimePicker::make('follow_up_at')
+                            ->required()
                             ->seconds(false),
                         Forms\Components\TextInput::make('reason')
+                            ->required()
                             ->maxLength(255),
                         Forms\Components\Select::make('status')
                             ->options(FollowUpStatus::class)

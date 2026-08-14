@@ -57,6 +57,16 @@ class Lead extends Model
             if ($lead->stage === LeadStage::Validated && ! $lead->hasMeaningfulNotes()) {
                 throw new \LogicException('A Lead cannot be saved as Validated without Notes/Remarks.');
             }
+
+            // Mandatory Fields batch: Temperature is required — checked
+            // unconditionally (unlike Follow Up At/Appointment At below in
+            // FollowUp/Appointment) because it's always populated by every
+            // existing write path already (the form defaults it and
+            // requires it; CallRoutingService::createLead() always sets it
+            // to Warm), so there's no legitimate blank case to exempt.
+            if ($lead->temperature === null) {
+                throw new \LogicException('A Lead cannot be saved without a Temperature.');
+            }
         });
     }
 

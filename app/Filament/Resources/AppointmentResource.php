@@ -55,6 +55,7 @@ class AppointmentResource extends Resource
                             ->disabled(fn () => ! auth()->user()->isAdmin())
                             ->dehydrated(),
                         Forms\Components\DateTimePicker::make('appointment_at')
+                            ->required()
                             ->seconds(false),
                         Forms\Components\Select::make('stage')
                             ->options(AppointmentStage::class)
