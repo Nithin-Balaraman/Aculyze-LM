@@ -30,6 +30,13 @@ class AdminPanelProvider extends PanelProvider
             ->path('admin')
             ->login()
             ->profile(EditProfile::class, isSimple: false)
+            /*
+             * Phase 2, "Left panel UI fix": Filament's 20rem default left
+             * more table columns than fit before the right panel needed
+             * horizontal scrolling. 16rem still comfortably fits the
+             * longest nav label ("Stage Dropout Report") without wrapping.
+             */
+            ->sidebarWidth('16rem')
             ->brandName('Aculyze LM')
             ->defaultAvatarProvider(InitialsAvatarProvider::class)
             /*
