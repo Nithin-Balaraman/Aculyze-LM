@@ -41,11 +41,17 @@ class FollowUp extends Model
      * (set to the originating outcome's label), so it's checked
      * unconditionally on every save. Follow Up At is NOT always known at
      * auto-creation time (e.g. a No Answer call creates a Follow-Up with
-     * no specific callback time) — so that one specific write is exempt,
-     * but any later save that actually sets Follow Up At to blank (via the
-     * form or otherwise) is still rejected. Row actions that update other
-     * fields (Completed/Close) never touch follow_up_at, so isDirty()
-     * keeps them unaffected by a pre-existing blank value.
+     * no specific callback time) — so that one specific insert is exempt.
+     *
+     * The other two conditions are deliberately separate — an earlier
+     * version used isDirty('follow_up_at') to gate both the insert and
+     * update cases, but isDirty() only tracks keys actually passed to
+     * create(); a manual create() that simply omits follow_up_at (rather
+     * than passing null) was never "dirty" and slipped the guard entirely.
+     * So: on insert, check the value directly; on update, still gate on
+     * isDirty() so row actions that update unrelated fields (Completed/
+     * Close) aren't blocked by a pre-existing blank value they never
+     * touched.
      */
     protected static function booted(): void
     {
@@ -54,9 +60,10 @@ class FollowUp extends Model
                 throw new \LogicException('A Follow-Up cannot be saved without a Reason.');
             }
 
-            $isInitialAutoRoutedInsert = ! $followUp->exists && $followUp->call_record_id !== null;
+            $isExemptAutoRoutedInsert = ! $followUp->exists && $followUp->call_record_id !== null;
+            $isUntouchedOnUpdate = $followUp->exists && ! $followUp->isDirty('follow_up_at');
 
-            if (! $isInitialAutoRoutedInsert && $followUp->isDirty('follow_up_at') && blank($followUp->follow_up_at)) {
+            if (! $isExemptAutoRoutedInsert && ! $isUntouchedOnUpdate && blank($followUp->follow_up_at)) {
                 throw new \LogicException('A Follow-Up cannot be saved without a Follow Up At date/time.');
             }
         });

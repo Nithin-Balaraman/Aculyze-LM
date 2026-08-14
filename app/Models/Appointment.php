@@ -54,14 +54,22 @@ class Appointment extends Model
             // Lead's Validated-notes guard. CallRoutingService::
             // createAppointment() never sets it (the exact time often
             // isn't known yet when a call sets one up), so that one
-            // specific write is exempt — but any later save that actually
-            // sets it blank (via the form or otherwise) is still rejected.
-            // Row actions that update other fields (Reassign, Mark Lost)
-            // never touch appointment_at, so isDirty() keeps them
-            // unaffected by a pre-existing blank value.
-            $isInitialAutoRoutedInsert = ! $appointment->exists && $appointment->call_record_id !== null;
+            // specific insert is exempt.
+            //
+            // The other two conditions are deliberately separate — an
+            // earlier version used isDirty('appointment_at') to gate both
+            // the insert and update cases, but isDirty() only tracks keys
+            // actually passed to create(); a manual create() that simply
+            // omits appointment_at (rather than passing null) was never
+            // "dirty" and slipped the guard entirely. So: on insert, check
+            // the value directly; on update, still gate on isDirty() so
+            // row actions that update unrelated fields (Reassign, Mark
+            // Lost) aren't blocked by a pre-existing blank value they never
+            // touched.
+            $isExemptAutoRoutedInsert = ! $appointment->exists && $appointment->call_record_id !== null;
+            $isUntouchedOnUpdate = $appointment->exists && ! $appointment->isDirty('appointment_at');
 
-            if (! $isInitialAutoRoutedInsert && $appointment->isDirty('appointment_at') && blank($appointment->appointment_at)) {
+            if (! $isExemptAutoRoutedInsert && ! $isUntouchedOnUpdate && blank($appointment->appointment_at)) {
                 throw new \LogicException('An Appointment cannot be saved without an Appointment At date/time.');
             }
         });
