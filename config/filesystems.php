@@ -47,6 +47,20 @@ return [
             'report' => false,
         ],
 
+        // Deliberately NOT the default 'public' disk (storage/app/public) —
+        // that requires a symlink at public/storage, which `storage:link`
+        // can't create on Hostinger without SSH access. This disk's root is
+        // public/avatars directly, so uploaded files are already inside the
+        // webroot and need no symlink at all.
+        'avatars' => [
+            'driver' => 'local',
+            'root' => public_path('avatars'),
+            'url' => env('APP_URL').'/avatars',
+            'visibility' => 'public',
+            'throw' => false,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

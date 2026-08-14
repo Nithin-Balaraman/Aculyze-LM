@@ -5,13 +5,15 @@ namespace App\Models;
 use App\Enums\UserRole;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
+use Filament\Models\Contracts\HasAvatar;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Storage;
 
-class User extends Authenticatable implements FilamentUser
+class User extends Authenticatable implements FilamentUser, HasAvatar
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
@@ -21,6 +23,7 @@ class User extends Authenticatable implements FilamentUser
         'email',
         'password',
         'role',
+        'avatar',
     ];
 
     protected $hidden = [
@@ -40,6 +43,17 @@ class User extends Authenticatable implements FilamentUser
     public function isAdmin(): bool
     {
         return $this->role === UserRole::Admin;
+    }
+
+    /**
+     * Returns null when no avatar has been uploaded, which Filament falls
+     * back on to render App\Filament\AvatarProviders\InitialsAvatarProvider
+     * (the panel's registered default) instead — so every user still gets a
+     * sensible avatar even before uploading one.
+     */
+    public function getFilamentAvatarUrl(): ?string
+    {
+        return $this->avatar ? Storage::disk('avatars')->url($this->avatar) : null;
     }
 
     /**

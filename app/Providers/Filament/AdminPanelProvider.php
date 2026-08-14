@@ -3,6 +3,7 @@
 namespace App\Providers\Filament;
 
 use App\Filament\AvatarProviders\InitialsAvatarProvider;
+use App\Filament\Pages\Auth\EditProfile;
 use App\Filament\Pages\MyDashboard;
 use Filament\FontProviders\LocalFontProvider;
 use Filament\Http\Middleware\Authenticate;
@@ -28,6 +29,7 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
+            ->profile(EditProfile::class, isSimple: false)
             ->brandName('Aculyze LM')
             ->defaultAvatarProvider(InitialsAvatarProvider::class)
             /*

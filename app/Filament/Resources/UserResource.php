@@ -55,6 +55,12 @@ class UserResource extends Resource
                 Forms\Components\Section::make('Employee Details')
                     ->columns(2)
                     ->schema([
+                        Forms\Components\FileUpload::make('avatar')
+                            ->disk('avatars')
+                            ->visibility('public')
+                            ->avatar()
+                            ->image()
+                            ->columnSpanFull(),
                         Forms\Components\TextInput::make('name')
                             ->required()
                             ->maxLength(255),
@@ -83,6 +89,11 @@ class UserResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\ImageColumn::make('avatar')
+                    ->label('')
+                    ->disk('avatars')
+                    ->circular()
+                    ->defaultImageUrl(fn (User $record) => $record->getFilamentAvatarUrl()),
                 Tables\Columns\TextColumn::make('name')
                     ->searchable()
                     ->sortable(),
