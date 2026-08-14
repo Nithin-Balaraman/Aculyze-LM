@@ -62,6 +62,10 @@ class CallRecordResource extends Resource
                             ->helperText('Determines what happens next — see the Follow-Ups, Appointments, and Leads panels.'),
                         Forms\Components\TextInput::make('contact_person_spoken_to')
                             ->maxLength(255),
+                        Forms\Components\TextInput::make('designation')
+                            ->label('Designation')
+                            ->placeholder('e.g. Manager, Owner, Procurement Head')
+                            ->maxLength(255),
                         Forms\Components\TextInput::make('phone_called')
                             ->tel()
                             ->maxLength(20),

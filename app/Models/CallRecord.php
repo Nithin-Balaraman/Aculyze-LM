@@ -28,6 +28,7 @@ class CallRecord extends Model
         'callback_required',
         'callback_at',
         'contact_person_spoken_to',
+        'designation',
         'phone_called',
     ];
 
