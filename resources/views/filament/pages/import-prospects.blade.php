@@ -124,7 +124,7 @@
                                 <div class="text-sm text-gray-700 dark:text-gray-300">
                                     <div><strong>{{ $duplicate['existingSnapshot']['company_name'] }}</strong></div>
                                     <div>{{ $duplicate['existingSnapshot']['contact_person'] ?: '—' }}</div>
-                                    <div>{{ $duplicate['existingSnapshot']['phone_primary'] ?: '—' }} · {{ $duplicate['existingSnapshot']['email'] ?: '—' }}</div>
+                                    <div>{{ $duplicate['existingSnapshot']['telephone'] ?: '—' }} · {{ $duplicate['existingSnapshot']['email'] ?: '—' }}</div>
                                     <div class="text-xs text-gray-400">Assigned: {{ $duplicate['existingSnapshot']['assigned_to'] ?: '—' }}</div>
                                 </div>
                             </div>
@@ -133,7 +133,7 @@
                                 <div class="text-sm text-gray-700 dark:text-gray-300">
                                     <div><strong>{{ $duplicate['incoming']['company_name'] }}</strong></div>
                                     <div>{{ $duplicate['incoming']['contact_person'] ?? '—' }}</div>
-                                    <div>{{ $duplicate['incoming']['phone_primary'] ?? '—' }} · {{ $duplicate['incoming']['email'] ?? '—' }}</div>
+                                    <div>{{ $duplicate['incoming']['telephone'] ?? '—' }} · {{ $duplicate['incoming']['email'] ?? '—' }}</div>
                                 </div>
                             </div>
                         </div>

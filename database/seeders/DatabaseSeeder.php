@@ -61,7 +61,7 @@ class DatabaseSeeder extends Seeder
         $chennaiPrecision = $this->prospect('Chennai Precision Engineering Works', $nithin, [
             'contact_person' => 'R. Suresh Kumar',
             'designation' => 'Plant Manager',
-            'phone_primary' => '+91 98400 11223',
+            'telephone' => '+91 98400 11223',
             'email' => 'suresh@chennaiprecision.example',
             'industry' => 'Precision Engineering',
             'city' => 'Coimbatore',
@@ -77,7 +77,7 @@ class DatabaseSeeder extends Seeder
         $coimbatoreTextiles = $this->prospect('Coimbatore Textile Mills', $kural, [
             'contact_person' => 'Meena Rangaswamy',
             'designation' => 'Operations Head',
-            'phone_primary' => '+91 98430 55667',
+            'telephone' => '+91 98430 55667',
             'industry' => 'Textiles',
             'city' => 'Coimbatore',
             'source' => 'Referral',
@@ -89,7 +89,7 @@ class DatabaseSeeder extends Seeder
         $novaIndustrial = $this->prospect('Nova Industrial Systems', $ilaya, [
             'contact_person' => 'Arvind Menon',
             'designation' => 'Director',
-            'phone_primary' => '+91 90000 12121',
+            'telephone' => '+91 90000 12121',
             'email' => 'arvind@novaindustrial.example',
             'industry' => 'Industrial Automation',
             'city' => 'Coimbatore',
@@ -106,7 +106,7 @@ class DatabaseSeeder extends Seeder
         $metroAuto = $this->prospect('Metro Auto Components', $nithin, [
             'contact_person' => 'Divya Prakash',
             'designation' => 'Purchase Manager',
-            'phone_primary' => '+91 98940 33445',
+            'telephone' => '+91 98940 33445',
             'industry' => 'Automotive Components',
             'city' => 'Coimbatore',
             'source' => 'Cold Outreach',
@@ -132,7 +132,7 @@ class DatabaseSeeder extends Seeder
         $globalFasteners = $this->prospect('Global Fasteners Pvt Ltd', $kural, [
             'contact_person' => 'K. Rajendran',
             'designation' => 'Owner',
-            'phone_primary' => '+91 98650 77889',
+            'telephone' => '+91 98650 77889',
             'industry' => 'Industrial Fasteners',
             'city' => 'Coimbatore',
             'source' => 'Exhibition',
@@ -146,7 +146,7 @@ class DatabaseSeeder extends Seeder
         $sunrisePlastics = $this->prospect('Sunrise Plastics', $ilaya, [
             'contact_person' => 'Geetha Subramaniam',
             'designation' => 'Admin Manager',
-            'phone_primary' => '+91 90420 66778',
+            'telephone' => '+91 90420 66778',
             'industry' => 'Plastics Manufacturing',
             'city' => 'Tiruppur',
             'source' => 'Trade Directory',
@@ -161,7 +161,7 @@ class DatabaseSeeder extends Seeder
         $apexEngineering = $this->prospect('Apex Engineering Solutions', $nithin, [
             'contact_person' => 'Vignesh Iyer',
             'designation' => 'General Manager',
-            'phone_primary' => '+91 90470 22334',
+            'telephone' => '+91 90470 22334',
             'industry' => 'Precision Engineering',
             'city' => 'Coimbatore',
             'source' => 'Referral',
@@ -189,7 +189,7 @@ class DatabaseSeeder extends Seeder
         $millenniumSteel = $this->prospect('Millennium Steel Traders', $kural, [
             'contact_person' => 'Bala Murugan',
             'designation' => 'Proprietor',
-            'phone_primary' => '+91 90930 44556',
+            'telephone' => '+91 90930 44556',
             'industry' => 'Steel Trading',
             'city' => 'Coimbatore',
             'source' => 'Cold Outreach',

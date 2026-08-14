@@ -51,8 +51,8 @@ class ImportProspects extends Page
     private const FIELD_SUGGESTIONS = [
         'company name' => 'company_name',
         'contact person' => 'contact_person',
-        'contact number' => 'phone_primary',
-        'mobile number' => 'phone_secondary',
+        'contact number' => 'telephone',
+        'mobile number' => 'mobile',
         'email address' => 'email',
         'website' => 'website',
         'industry' => 'industry',
@@ -69,8 +69,8 @@ class ImportProspects extends Page
         'ignore' => '— Ignore —',
         'company_name' => 'Company Name (required)',
         'contact_person' => 'Contact Person',
-        'phone_primary' => 'Phone (Primary)',
-        'phone_secondary' => 'Phone (Secondary)',
+        'telephone' => 'Telephone',
+        'mobile' => 'Mobile',
         'email' => 'Email',
         'website' => 'Website',
         'industry' => 'Industry',
@@ -329,7 +329,7 @@ class ImportProspects extends Page
                     'existingSnapshot' => [
                         'company_name' => $duplicate->company_name,
                         'contact_person' => $duplicate->contact_person,
-                        'phone_primary' => $duplicate->phone_primary,
+                        'telephone' => $duplicate->telephone,
                         'email' => $duplicate->email,
                         'assigned_to' => $duplicate->assignedEmployee?->name,
                     ],
@@ -355,7 +355,7 @@ class ImportProspects extends Page
      */
     private function findDuplicate(array $attributes): ?Prospect
     {
-        $hasSignal = filled($attributes['phone_primary'] ?? null) || filled($attributes['email'] ?? null);
+        $hasSignal = filled($attributes['telephone'] ?? null) || filled($attributes['email'] ?? null);
 
         if (! $hasSignal) {
             return null;
@@ -364,8 +364,8 @@ class ImportProspects extends Page
         return Prospect::query()
             ->whereRaw('LOWER(TRIM(company_name)) = ?', [Str::lower(trim($attributes['company_name']))])
             ->where(function ($query) use ($attributes) {
-                if (filled($attributes['phone_primary'] ?? null)) {
-                    $query->orWhere('phone_primary', $attributes['phone_primary']);
+                if (filled($attributes['telephone'] ?? null)) {
+                    $query->orWhere('telephone', $attributes['telephone']);
                 }
 
                 if (filled($attributes['email'] ?? null)) {

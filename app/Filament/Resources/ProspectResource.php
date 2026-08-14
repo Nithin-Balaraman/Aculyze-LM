@@ -43,10 +43,10 @@ class ProspectResource extends Resource
                             ->columnSpanFull(),
                         Forms\Components\TextInput::make('contact_person')->maxLength(255),
                         Forms\Components\TextInput::make('designation')->maxLength(255),
-                        Forms\Components\TextInput::make('phone_primary')
+                        Forms\Components\TextInput::make('telephone')
                             ->tel()
                             ->maxLength(20),
-                        Forms\Components\TextInput::make('phone_secondary')
+                        Forms\Components\TextInput::make('mobile')
                             ->tel()
                             ->maxLength(20),
                         Forms\Components\TextInput::make('email')
@@ -105,8 +105,8 @@ class ProspectResource extends Resource
                 Tables\Columns\TextColumn::make('contact_person')
                     ->searchable()
                     ->toggleable(),
-                Tables\Columns\TextColumn::make('phone_primary')
-                    ->label('Phone')
+                Tables\Columns\TextColumn::make('telephone')
+                    ->label('Telephone')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('email')
                     ->searchable()

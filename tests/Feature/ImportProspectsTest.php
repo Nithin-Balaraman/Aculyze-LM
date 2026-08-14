@@ -132,7 +132,7 @@ class ImportProspectsTest extends TestCase
             ->call('processUpload')
             ->assertSet('step', 'mapping')
             ->assertSet('mapping.Company Name', 'company_name')
-            ->assertSet('mapping.Contact Number', 'phone_primary')
+            ->assertSet('mapping.Contact Number', 'telephone')
             ->assertSet('mapping.Assigned Owner', 'assigned_owner')
             // "Lead Status" has no direct Prospect field home per Decision 5
             // and must fall back to being folded into Notes.
@@ -186,7 +186,7 @@ class ImportProspectsTest extends TestCase
         $prospect = Prospect::sole();
         $this->assertSame('Sunrise Plastics', $prospect->company_name);
         $this->assertSame('Ravi Kumar', $prospect->contact_person);
-        $this->assertSame('+91 98765 43210', $prospect->phone_primary);
+        $this->assertSame('+91 98765 43210', $prospect->telephone);
         $this->assertSame('ravi@sunriseplastics.test', $prospect->email);
         $this->assertSame($owner->id, $prospect->assigned_to);
 
@@ -220,7 +220,7 @@ class ImportProspectsTest extends TestCase
         $admin = User::factory()->admin()->create();
         $existing = Prospect::factory()->create([
             'company_name' => 'Sunrise Plastics',
-            'phone_primary' => '+91 98765 43210',
+            'telephone' => '+91 98765 43210',
             'email' => 'original@sunriseplastics.test',
         ]);
         $this->actingAs($admin);
@@ -243,7 +243,7 @@ class ImportProspectsTest extends TestCase
         $originalOwner = User::factory()->create();
         $existing = Prospect::factory()->create([
             'company_name' => 'Sunrise Plastics',
-            'phone_primary' => '+91 98765 43210',
+            'telephone' => '+91 98765 43210',
             'assigned_to' => $originalOwner->id,
             'email' => null,
         ]);
@@ -273,7 +273,7 @@ class ImportProspectsTest extends TestCase
         $admin = User::factory()->admin()->create();
         Prospect::factory()->create([
             'company_name' => 'Sunrise Plastics',
-            'phone_primary' => '+91 98765 43210',
+            'telephone' => '+91 98765 43210',
         ]);
         $this->actingAs($admin);
 
@@ -291,8 +291,8 @@ class ImportProspectsTest extends TestCase
     public function test_finish_import_is_blocked_until_every_duplicate_is_resolved(): void
     {
         $admin = User::factory()->admin()->create();
-        Prospect::factory()->create(['company_name' => 'Sunrise Plastics', 'phone_primary' => '+91 98765 43210']);
-        Prospect::factory()->create(['company_name' => 'Coastal Foods', 'phone_primary' => '+91 91111 22222']);
+        Prospect::factory()->create(['company_name' => 'Sunrise Plastics', 'telephone' => '+91 98765 43210']);
+        Prospect::factory()->create(['company_name' => 'Coastal Foods', 'telephone' => '+91 91111 22222']);
         $this->actingAs($admin);
 
         $test = Livewire::test(ImportProspects::class)
@@ -335,8 +335,8 @@ class ImportProspectsTest extends TestCase
         $this->assertSame('Coimbatore', $prospect->city);
         $this->assertSame('SIDCO Estate, Coimbatore', $prospect->address);
         $this->assertSame('Ravi Kumar', $prospect->contact_person);
-        $this->assertSame('+91 98765 43210', $prospect->phone_primary);
-        $this->assertSame('+91 90000 11111', $prospect->phone_secondary);
+        $this->assertSame('+91 98765 43210', $prospect->telephone);
+        $this->assertSame('+91 90000 11111', $prospect->mobile);
         $this->assertSame('ravi@sunriseplastics.test', $prospect->email);
         $this->assertSame('sunriseplastics.test', $prospect->website);
         $this->assertSame('Trade Fair 2024', $prospect->source);
@@ -352,7 +352,7 @@ class ImportProspectsTest extends TestCase
         $admin = User::factory()->admin()->create();
         $existing = Prospect::factory()->create([
             'company_name' => 'Sunrise Plastics',
-            'phone_primary' => '+91 98765 43210',
+            'telephone' => '+91 98765 43210',
             'address' => null,
             'city' => null,
             'website' => null,
@@ -434,9 +434,9 @@ class ImportProspectsTest extends TestCase
         $this->assertSame([], $test->instance()->duplicateMappingWarnings());
 
         // Deliberately point both phone-ish columns at the same destination.
-        $test->set('mapping.Mobile Number', 'phone_primary');
+        $test->set('mapping.Mobile Number', 'telephone');
 
-        $this->assertSame(['Phone (Primary)'], $test->instance()->duplicateMappingWarnings());
+        $this->assertSame(['Telephone'], $test->instance()->duplicateMappingWarnings());
 
         // Not blocked — the existing "last one wins" behavior is preserved,
         // just surfaced instead of silently changed.
@@ -447,7 +447,7 @@ class ImportProspectsTest extends TestCase
     public function test_back_to_mapping_from_duplicates_preserves_the_workbook_and_mapping(): void
     {
         $admin = User::factory()->admin()->create();
-        Prospect::factory()->create(['company_name' => 'Sunrise Plastics', 'phone_primary' => '+91 98765 43210']);
+        Prospect::factory()->create(['company_name' => 'Sunrise Plastics', 'telephone' => '+91 98765 43210']);
         $this->actingAs($admin);
 
         $test = Livewire::test(ImportProspects::class)
@@ -542,7 +542,7 @@ class ImportProspectsTest extends TestCase
         $originalOwner = User::factory()->create();
         $existing = Prospect::factory()->create([
             'company_name' => 'Sunrise Plastics',
-            'phone_primary' => '+91 98765 43210',
+            'telephone' => '+91 98765 43210',
             'assigned_to' => $originalOwner->id,
             'created_by' => $originalOwner->id,
         ]);
@@ -568,7 +568,7 @@ class ImportProspectsTest extends TestCase
         $otherEmployee = User::factory()->create();
         Prospect::factory()->create([
             'company_name' => 'Sunrise Plastics',
-            'phone_primary' => '+91 98765 43210',
+            'telephone' => '+91 98765 43210',
             'assigned_to' => $otherEmployee->id,
             'created_by' => $otherEmployee->id,
         ]);
