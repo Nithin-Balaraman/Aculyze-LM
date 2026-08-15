@@ -294,11 +294,13 @@ class CallRecordResource extends Resource
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\DeleteAction::make()
+                    ->visible(fn () => auth()->user()->isAdmin())
                     ->before(fn (CallRecord $record) => DeletionGuard::guardRecord($record, 'call record')),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make()
+                        ->visible(fn () => auth()->user()->isAdmin())
                         ->before(fn (Collection $records) => DeletionGuard::guardRecords(
                             $records,
                             'call records',

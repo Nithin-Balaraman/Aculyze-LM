@@ -214,11 +214,13 @@ class LeadResource extends Resource
                     ])
                     ->action(fn (Lead $record, array $data) => $record->markLost($data['reason'])),
                 Tables\Actions\DeleteAction::make()
+                    ->visible(fn () => auth()->user()->isAdmin())
                     ->before(fn (Lead $record) => DeletionGuard::guardRecord($record, 'lead')),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make()
+                        ->visible(fn () => auth()->user()->isAdmin())
                         ->before(fn (Collection $records) => DeletionGuard::guardRecords($records, 'leads', fn (Lead $lead) => $lead->prospect->company_name)),
                 ]),
             ])

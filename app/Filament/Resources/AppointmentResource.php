@@ -146,11 +146,13 @@ class AppointmentResource extends Resource
                             ->helperText('Required — why this Appointment is being marked Lost.'),
                     ])
                     ->action(fn (Appointment $record, array $data) => $record->markLost($data['reason'])),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\DeleteAction::make()
+                    ->visible(fn () => auth()->user()->isAdmin()),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\DeleteBulkAction::make()
+                        ->visible(fn () => auth()->user()->isAdmin()),
                 ]),
             ])
             ->defaultSort('appointment_at', 'asc')
