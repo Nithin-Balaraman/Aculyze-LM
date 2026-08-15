@@ -11,6 +11,7 @@ use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -94,17 +95,45 @@ class CallRecordResource extends Resource
                                     return;
                                 }
 
+                                // TEMPORARY DIAGNOSTIC (Phase 2 item #4
+                                // debugging) — two visible toasts bracket
+                                // the mountFormComponentAction() call so a
+                                // real browser click-through can pinpoint
+                                // exactly where the chain breaks: neither
+                                // toast = afterStateUpdated() never fires
+                                // client-side; only the first = mount call
+                                // itself fails; both but no modal = the
+                                // dispatched open-modal event isn't
+                                // reaching the frontend. Remove once the
+                                // dropdown-row click is confirmed working.
+                                Notification::make()
+                                    ->title('DIAGNOSTIC: afterStateUpdated fired, about to mount createProspect')
+                                    ->send();
+
                                 // Reset the field itself — the sentinel is
                                 // never a real selection — then open the
-                                // same modal the suffix "+" action below
-                                // opens, via Filament's standard trigger
-                                // for a field-scoped action.
+                                // same modal the (hidden) suffix action
+                                // below opens, via Filament's standard
+                                // trigger for a field-scoped action.
                                 $set('prospect_id', null);
                                 $livewire->mountFormComponentAction('prospect_id', 'createProspect');
+
+                                Notification::make()
+                                    ->title('DIAGNOSTIC: mountFormComponentAction() call completed')
+                                    ->send();
                             })
                             ->suffixAction(
                                 Forms\Components\Actions\Action::make('createProspect')
-                                    ->icon('heroicon-o-plus')
+                                    // No visible "+" button — the dropdown
+                                    // row is the only intended trigger.
+                                    // Confirmed via Filament source
+                                    // (HasActions::cacheActions() /
+                                    // HasAffixes::cacheSuffixActions()) that
+                                    // hidden() only affects Blade rendering,
+                                    // not getAction()'s lookup — this stays
+                                    // fully mountable via
+                                    // mountFormComponentAction() either way.
+                                    ->hidden()
                                     ->modalHeading('Add Company to Database')
                                     ->form(ProspectResource::formSchema())
                                     ->action(function (array $data, Set $set) {
