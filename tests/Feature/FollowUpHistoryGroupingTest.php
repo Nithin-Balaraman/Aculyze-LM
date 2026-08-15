@@ -131,4 +131,35 @@ class FollowUpHistoryGroupingTest extends TestCase
             ->set('activeTab', 'history')
             ->assertCanSeeTableRecords([$first, $second]);
     }
+
+    /**
+     * Filament's Group::collapsible() only adds the toggle — groups start
+     * expanded by default, with no PHP-level "start collapsed" option (see
+     * ListFollowUps::getFooter()'s doc comment for the full explanation).
+     * The client-side script that auto-collapses on load simulates a click
+     * on each group header, so this only confirms the script itself is
+     * present on the page — the actual collapsed *rendering* is client-side
+     * DOM state Livewire's server-side test harness can't observe.
+     */
+    public function test_the_auto_collapse_script_is_present_on_the_page(): void
+    {
+        $employee = User::factory()->create();
+
+        $this->actingAs($employee);
+
+        Livewire::test(ListFollowUps::class)
+            ->assertSee('collapseExpandedFollowUpGroups', false)
+            ->assertSee('fi-ta-group-header', false);
+    }
+
+    public function test_switching_tabs_dispatches_the_grouping_reset_event_for_the_auto_collapse_script(): void
+    {
+        $employee = User::factory()->create();
+
+        $this->actingAs($employee);
+
+        Livewire::test(ListFollowUps::class)
+            ->set('activeTab', 'history')
+            ->assertDispatched('follow-ups-grouping-reset');
+    }
 }

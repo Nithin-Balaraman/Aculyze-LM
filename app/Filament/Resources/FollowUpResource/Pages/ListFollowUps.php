@@ -10,6 +10,7 @@ use App\Support\Exports\ExportActions;
 use Filament\Actions;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
+use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -59,12 +60,19 @@ class ListFollowUps extends ListRecords
      * tabs needs an explicit push here rather than relying solely on
      * ->defaultGroup()'s closure re-evaluating — otherwise grouping picked
      * up on History could still be showing after clicking back to Pending.
+     *
+     * The dispatched event tells the browser-side script (see getFooter())
+     * to re-collapse the freshly-rendered groups — Filament's own
+     * collapsedGroups state doesn't reset itself just because the grouped
+     * column/record set changed underneath it.
      */
     public function updatedActiveTab(): void
     {
         $this->tableGrouping = in_array($this->activeTab, ['history', 'lost'], true)
             ? FollowUpResource::GROUP_BY_COMPANY
             : null;
+
+        $this->dispatch('follow-ups-grouping-reset');
     }
 
     protected function getHeaderActions(): array
@@ -74,5 +82,15 @@ class ListFollowUps extends ListRecords
             ExportActions::request(ExportableResource::FollowUp),
             Actions\CreateAction::make(),
         ];
+    }
+
+    /**
+     * Filament's table grouping has no "collapsed by default" config
+     * option — see the view for the full explanation of why this is a
+     * small client-side script rather than a PHP-level setting.
+     */
+    public function getFooter(): ?View
+    {
+        return view('filament.resources.follow-up-resource.pages.list-follow-ups-footer');
     }
 }
