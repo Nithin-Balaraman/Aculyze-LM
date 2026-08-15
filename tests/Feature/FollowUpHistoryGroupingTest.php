@@ -152,6 +152,7 @@ class FollowUpHistoryGroupingTest extends TestCase
 
         $test = Livewire::test(ListFollowUps::class)
             ->assertSee('MutationObserver', false)
+            ->assertSee('collapseExpandedFollowUpGroups', false)
             ->assertSee('fi-ta-group-header', false);
 
         $test->set('activeTab', 'history')
