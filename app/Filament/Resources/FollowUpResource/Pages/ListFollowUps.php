@@ -10,6 +10,7 @@ use App\Support\Exports\ExportActions;
 use Filament\Actions;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
+use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -51,6 +52,28 @@ class ListFollowUps extends ListRecords
         ];
     }
 
+    /**
+     * Phase 2 item #3: History/Lost group by company, Pending stays flat
+     * (see FollowUpResource::table()'s ->defaultGroup()). $tableGrouping
+     * (from Filament's CanGroupRecords trait) is a persistent Livewire
+     * property, not re-derived from scratch on every request, so switching
+     * tabs needs an explicit push here rather than relying solely on
+     * ->defaultGroup()'s closure re-evaluating — otherwise grouping picked
+     * up on History could still be showing after clicking back to Pending.
+     *
+     * The browser-side collapse script (see getFooter()) doesn't need a
+     * matching signal here — it watches the DOM directly via a
+     * MutationObserver, which catches the freshly-rendered group headers
+     * regardless of what triggered them (a tab switch, the page's initial
+     * load, or Filament's own deferred table loading).
+     */
+    public function updatedActiveTab(): void
+    {
+        $this->tableGrouping = in_array($this->activeTab, ['history', 'lost'], true)
+            ? FollowUpResource::GROUP_BY_COMPANY
+            : null;
+    }
+
     protected function getHeaderActions(): array
     {
         return [
@@ -58,5 +81,15 @@ class ListFollowUps extends ListRecords
             ExportActions::request(ExportableResource::FollowUp),
             Actions\CreateAction::make(),
         ];
+    }
+
+    /**
+     * Filament's table grouping has no "collapsed by default" config
+     * option — see the view for the full explanation of why this is a
+     * small client-side script rather than a PHP-level setting.
+     */
+    public function getFooter(): ?View
+    {
+        return view('filament.resources.follow-up-resource.pages.list-follow-ups-footer');
     }
 }

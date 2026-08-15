@@ -11,8 +11,10 @@ use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
+use Filament\Tables\Grouping\Group;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -39,6 +41,12 @@ class FollowUpResource extends Resource
     protected static ?string $navigationGroup = 'Sales';
 
     protected static ?int $navigationSort = 3;
+
+    /**
+     * Shared with ListFollowUps::updatedActiveTab() so the two stay in
+     * sync — one place defining which column History/Lost group by.
+     */
+    public const GROUP_BY_COMPANY = 'prospect.company_name';
 
     public static function form(Form $form): Form
     {
@@ -106,6 +114,25 @@ class FollowUpResource extends Resource
                     ->relationship('responsibleEmployee', 'name')
                     ->visible(fn () => auth()->user()->isAdmin()),
             ])
+            // Phase 2 item #3: History and Lost are look-back/audit views —
+            // grouping by company collapses noise (one row's worth of
+            // follow-ups against a company that's been called 20 times)
+            // without hiding anything, since the underlying records are
+            // still there, just collapsed until clicked. Pending stays flat
+            // — it's an actionable queue, not something to browse by
+            // company. Only one grouping dimension is offered, so
+            // Filament's built-in "Groups" picker is hidden rather than
+            // left visible with nothing else to switch to.
+            ->groups([
+                Group::make(self::GROUP_BY_COMPANY)
+                    ->titlePrefixedWithLabel(false)
+                    ->collapsible()
+                    ->getDescriptionFromRecordUsing(fn (FollowUp $record, $livewire) => static::groupSummary($record, $livewire)),
+            ])
+            ->defaultGroup(fn ($livewire) => in_array($livewire->activeTab ?? 'pending', ['history', 'lost'], true)
+                ? self::GROUP_BY_COMPANY
+                : null)
+            ->groupingSettingsHidden()
             ->actions([
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
@@ -166,6 +193,34 @@ class FollowUpResource extends Resource
                 default => 'Follow-ups land here automatically when a call needs one.',
             })
             ->emptyStateIcon('heroicon-o-arrow-path');
+    }
+
+    /**
+     * The group header's subtitle: how many follow-ups against this
+     * company are in the *currently active tab's* filtered set (History =
+     * Completed + Cancelled, Lost = Cancelled only) and when the most
+     * recent one was — mirrors ListFollowUps::getTabs()'s own status
+     * filtering rather than a raw all-time count, so it matches what's
+     * actually on screen.
+     */
+    private static function groupSummary(FollowUp $record, $livewire): string
+    {
+        $statuses = ($livewire->activeTab ?? 'pending') === 'lost'
+            ? [FollowUpStatus::Cancelled]
+            : [FollowUpStatus::Completed, FollowUpStatus::Cancelled];
+
+        $matching = FollowUp::query()
+            ->visibleTo(auth()->user())
+            ->where('prospect_id', $record->prospect_id)
+            ->whereIn('status', $statuses);
+
+        $count = $matching->count();
+        $mostRecent = $matching->max('follow_up_at');
+
+        $countLabel = $count === 1 ? '1 follow-up' : "{$count} follow-ups";
+        $recentLabel = $mostRecent ? Carbon::parse($mostRecent)->format('d M Y') : '—';
+
+        return "{$countLabel} · most recent {$recentLabel}";
     }
 
     public static function getPages(): array
