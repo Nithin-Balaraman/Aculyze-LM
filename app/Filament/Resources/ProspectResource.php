@@ -172,11 +172,13 @@ class ProspectResource extends Resource
                     ->action(function (Prospect $record, array $data) {
                         $record->update(['assigned_to' => $data['assigned_to']]);
                     }),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\DeleteAction::make()
+                    ->visible(fn () => auth()->user()->isAdmin()),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\DeleteBulkAction::make()
+                        ->visible(fn () => auth()->user()->isAdmin()),
                 ]),
             ])
             ->defaultSort('created_at', 'desc')
