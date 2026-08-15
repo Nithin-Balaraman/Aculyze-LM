@@ -51,6 +51,22 @@ class ListFollowUps extends ListRecords
         ];
     }
 
+    /**
+     * Phase 2 item #3: History/Lost group by company, Pending stays flat
+     * (see FollowUpResource::table()'s ->defaultGroup()). $tableGrouping
+     * (from Filament's CanGroupRecords trait) is a persistent Livewire
+     * property, not re-derived from scratch on every request, so switching
+     * tabs needs an explicit push here rather than relying solely on
+     * ->defaultGroup()'s closure re-evaluating — otherwise grouping picked
+     * up on History could still be showing after clicking back to Pending.
+     */
+    public function updatedActiveTab(): void
+    {
+        $this->tableGrouping = in_array($this->activeTab, ['history', 'lost'], true)
+            ? FollowUpResource::GROUP_BY_COMPANY
+            : null;
+    }
+
     protected function getHeaderActions(): array
     {
         return [
