@@ -13,14 +13,33 @@ use Tests\TestCase;
  * Phase 2 item #4: the Call Record's Company field always offers a
  * "+ Create new company…" row in its search results (see
  * CallRecordResource::CREATE_NEW_PROSPECT and the field's
- * getSearchResultsUsing()/afterStateUpdated() closures), which opens the
- * exact same modal as the field's own createOptionForm "+" button via
- * Filament's standard mountFormComponentAction() trigger.
+ * getSearchResultsUsing() closure), which opens the same modal as the
+ * field's own "createProspect" suffix action via Filament's standard
+ * mountFormComponentAction() trigger. Deliberately a plain suffixAction
+ * rather than ->relationship()+createOptionForm() — the latter combination
+ * was tried first and broke the dropdown-row click in the browser (see
+ * CallRecordResource::form()'s comment on the field for the full story).
  *
- * The dropdown-row rendering itself (the live search UI) isn't something
- * PHPUnit/Livewire testing can exercise — this covers the parts that are
- * testable: the modal's own create-and-select behavior, and the sentinel
- * value never surviving as a real prospect_id.
+ * Clicking the row itself is wired up in client-side Alpine JS (see the
+ * field's ->extraAlpineAttributes() in CallRecordResource::form()), which
+ * PHPUnit/Livewire testing can't exercise. This covers the parts that are
+ * testable: the modal's own create-and-select behavior via a direct
+ * mountFormComponentAction() call (simulating what the Alpine watcher
+ * triggers), and the sentinel value never surviving as a real prospect_id
+ * (via the field's ->afterStateUpdated() reset, which runs independently of
+ * the Alpine trigger).
+ *
+ * Note for anyone touching the raw Livewire component method: the real
+ * component key is "data.prospect_id" (Filament's CreateRecord/EditRecord
+ * pages nest all form fields under a "data." statePath prefix — see
+ * CreateRecord::getFormStatePath() — hence the field's own
+ * ->extraAlpineAttributes() call in CallRecordResource::form() hardcodes
+ * that full key). This test file calls the *test helper*
+ * ->mountFormComponentAction(), which auto-prepends the form's statePath
+ * itself (see Filament\Forms\Testing\TestsComponentActions::
+ * parseNestedFormComponentActionComponentAndName()) — so plain
+ * 'prospect_id' is correct here; passing 'data.prospect_id' would double
+ * the prefix and silently fail to resolve the component.
  */
 class CallRecordCreateCompanyInlineTest extends TestCase
 {
@@ -32,7 +51,7 @@ class CallRecordCreateCompanyInlineTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(CreateCallRecord::class)
-            ->mountFormComponentAction('prospect_id', 'createOption')
+            ->mountFormComponentAction('prospect_id', 'createProspect')
             ->setFormComponentActionData([
                 'company_name' => 'Brand New Co',
                 'contact_person' => 'Priya Nair',
@@ -50,7 +69,7 @@ class CallRecordCreateCompanyInlineTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(CreateCallRecord::class)
-            ->mountFormComponentAction('prospect_id', 'createOption')
+            ->mountFormComponentAction('prospect_id', 'createProspect')
             ->setFormComponentActionData(['company_name' => 'Another New Co'])
             ->callMountedFormComponentAction()
             ->assertFormSet([
