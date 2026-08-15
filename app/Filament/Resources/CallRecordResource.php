@@ -11,7 +11,6 @@ use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
-use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -57,26 +56,17 @@ class CallRecordResource extends Resource
                             ->label('Company')
                             ->required()
                             // Deliberately NOT ->relationship() and NOT
-                            // ->createOptionForm() — both were tried and
-                            // both broke this specific requirement (an
-                            // always-present synthetic "create new" row the
-                            // user can click *in the dropdown itself*):
-                            // createOptionForm's internals crash without
-                            // relationship() (they unconditionally walk
+                            // ->createOptionForm(): createOptionForm's
+                            // internals crash without relationship()
+                            // (they unconditionally walk
                             // getRelationshipName()), but WITH
-                            // relationship() restored, selecting the
-                            // sentinel value silently did nothing in the
-                            // browser — relationship-mode Select appears to
-                            // validate/hydrate a selected option against
-                            // the real `prospect` relationship before
-                            // committing the state change, so a value with
-                            // no matching Prospect row never reaches
-                            // afterStateUpdated() at all client-side (even
-                            // though it works when state is set
-                            // programmatically in a test). A plain
-                            // ->suffixAction() sidesteps both — it's a
-                            // generic field-adjacent action with no
-                            // relationship coupling at all.
+                            // relationship() restored, relationship-mode
+                            // Select silently rejects a selected value
+                            // that has no matching Prospect row before it
+                            // ever reaches PHP. A plain ->suffixAction()
+                            // sidesteps both — it's a generic
+                            // field-adjacent action with no relationship
+                            // coupling at all.
                             ->searchable()
                             ->preload()
                             ->live()
@@ -90,38 +80,47 @@ class CallRecordResource extends Resource
                             ->getOptionLabelUsing(fn ($value) => $value === self::CREATE_NEW_PROSPECT
                                 ? '+ Create new company…'
                                 : Prospect::find($value)?->company_name)
-                            ->afterStateUpdated(function ($state, Set $set, $livewire) {
-                                if ($state !== self::CREATE_NEW_PROSPECT) {
-                                    return;
-                                }
+                            // Pure state normalization only — the sentinel
+                            // must never persist as a real prospect_id,
+                            // including when state is set programmatically
+                            // (e.g. fillForm() in tests, or if JS is
+                            // disabled). This does NOT attempt to open the
+                            // modal; that trigger lives in
+                            // extraAlpineAttributes() below, see its
+                            // comment for why.
+                            ->afterStateUpdated(fn ($state, Set $set) => $state === self::CREATE_NEW_PROSPECT
+                                && $set('prospect_id', null))
+                            // Triggering the modal from PHP inside
+                            // afterStateUpdated() (i.e. as a side effect of
+                            // the entangled property-sync request) proved
+                            // unreliable: diagnostics confirmed the PHP
+                            // chain runs and dispatches open-modal, but the
+                            // browser never rendered the modal — unlike the
+                            // "+" suffix button below, whose direct
+                            // wire:click reliably opens it. So the sentinel
+                            // is detected here in genuine client-side
+                            // Alpine JS instead, calling
+                            // $wire.mountFormComponentAction() the same way
+                            // the "+" button's wire:click does (a real
+                            // top-level Livewire call, not one nested
+                            // inside another lifecycle hook). Confirmed via
+                            // Filament source (select.blade.php merges
+                            // extraAlpineAttributes() onto the same
+                            // x-data="selectFormComponent(...)" div that
+                            // owns the reactive `state` property, so
+                            // `state` is in scope here).
+                            ->extraAlpineAttributes([
+                                'x-init' => <<<'JS'
+                                    $watch('state', (value) => {
+                                        if (value !== '__create_new_prospect__') {
+                                            return;
+                                        }
 
-                                // TEMPORARY DIAGNOSTIC (Phase 2 item #4
-                                // debugging) — two visible toasts bracket
-                                // the mountFormComponentAction() call so a
-                                // real browser click-through can pinpoint
-                                // exactly where the chain breaks: neither
-                                // toast = afterStateUpdated() never fires
-                                // client-side; only the first = mount call
-                                // itself fails; both but no modal = the
-                                // dispatched open-modal event isn't
-                                // reaching the frontend. Remove once the
-                                // dropdown-row click is confirmed working.
-                                Notification::make()
-                                    ->title('DIAGNOSTIC: afterStateUpdated fired, about to mount createProspect')
-                                    ->send();
-
-                                // Reset the field itself — the sentinel is
-                                // never a real selection — then open the
-                                // same modal the (hidden) suffix action
-                                // below opens, via Filament's standard
-                                // trigger for a field-scoped action.
-                                $set('prospect_id', null);
-                                $livewire->mountFormComponentAction('prospect_id', 'createProspect');
-
-                                Notification::make()
-                                    ->title('DIAGNOSTIC: mountFormComponentAction() call completed')
-                                    ->send();
-                            })
+                                        state = null;
+                                        $wire.mountFormComponentAction('prospect_id', 'createProspect');
+                                    })
+                                    JS,
+                            ])
                             ->suffixAction(
                                 Forms\Components\Actions\Action::make('createProspect')
                                     // No visible "+" button — the dropdown
