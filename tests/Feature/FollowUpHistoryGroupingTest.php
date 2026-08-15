@@ -138,28 +138,27 @@ class FollowUpHistoryGroupingTest extends TestCase
      * ListFollowUps::getFooter()'s doc comment for the full explanation).
      * The client-side script that auto-collapses on load simulates a click
      * on each group header, so this only confirms the script itself is
-     * present on the page — the actual collapsed *rendering* is client-side
-     * DOM state Livewire's server-side test harness can't observe.
+     * present on the page (using a MutationObserver, not a fixed set of
+     * "when to check" events — those didn't survive contact with
+     * Filament's actual loading sequence, see getFooter()'s doc comment)
+     * — the actual collapsed *rendering* is client-side DOM state
+     * Livewire's server-side test harness can't observe.
      */
-    public function test_the_auto_collapse_script_is_present_on_the_page(): void
+    public function test_the_auto_collapse_script_is_present_on_every_tab(): void
     {
         $employee = User::factory()->create();
 
         $this->actingAs($employee);
 
-        Livewire::test(ListFollowUps::class)
+        $test = Livewire::test(ListFollowUps::class)
+            ->assertSee('MutationObserver', false)
             ->assertSee('collapseExpandedFollowUpGroups', false)
             ->assertSee('fi-ta-group-header', false);
-    }
 
-    public function test_switching_tabs_dispatches_the_grouping_reset_event_for_the_auto_collapse_script(): void
-    {
-        $employee = User::factory()->create();
+        $test->set('activeTab', 'history')
+            ->assertSee('MutationObserver', false);
 
-        $this->actingAs($employee);
-
-        Livewire::test(ListFollowUps::class)
-            ->set('activeTab', 'history')
-            ->assertDispatched('follow-ups-grouping-reset');
+        $test->set('activeTab', 'lost')
+            ->assertSee('MutationObserver', false);
     }
 }

@@ -61,18 +61,17 @@ class ListFollowUps extends ListRecords
      * ->defaultGroup()'s closure re-evaluating — otherwise grouping picked
      * up on History could still be showing after clicking back to Pending.
      *
-     * The dispatched event tells the browser-side script (see getFooter())
-     * to re-collapse the freshly-rendered groups — Filament's own
-     * collapsedGroups state doesn't reset itself just because the grouped
-     * column/record set changed underneath it.
+     * The browser-side collapse script (see getFooter()) doesn't need a
+     * matching signal here — it watches the DOM directly via a
+     * MutationObserver, which catches the freshly-rendered group headers
+     * regardless of what triggered them (a tab switch, the page's initial
+     * load, or Filament's own deferred table loading).
      */
     public function updatedActiveTab(): void
     {
         $this->tableGrouping = in_array($this->activeTab, ['history', 'lost'], true)
             ? FollowUpResource::GROUP_BY_COMPANY
             : null;
-
-        $this->dispatch('follow-ups-grouping-reset');
     }
 
     protected function getHeaderActions(): array

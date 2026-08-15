@@ -9,30 +9,48 @@
     collapses itself — same end state a user clicking each one would
     produce, just done automatically.
 
-    Runs once after Alpine's initial page walk completes (`aria-expanded`
-    only reflects real state once Alpine has processed the group headers'
-    x-bind directives), and again whenever FollowUpResource\Pages\
-    ListFollowUps::updatedActiveTab() dispatches `follow-ups-grouping-reset`
-    after a tab switch — since $tableGrouping/$activeTab changing doesn't
-    reset the client-side collapsedGroups array on its own, and switching
-    to History/Lost should start collapsed each time, not carry over
-    whatever was manually expanded on a previous visit to that tab.
+    A MutationObserver — not a fixed set of "when to check" events — is
+    what actually makes this reliable: Filament tables load in two stages
+    (an initial skeleton, per the `wire:init="loadTable"` in
+    filament/tables' index.blade.php, then the real rows arrive a moment
+    later via their own Livewire request), and switching tabs is a third,
+    separate render. Trying to enumerate each of those moments individually
+    (an `alpine:initialized` listener alone only ever caught the empty
+    skeleton, never the real content that shows up after it) is exactly the
+    kind of timing assumption that breaks under Filament's actual loading
+    sequence. Watching the DOM directly reacts to group headers whenever
+    they genuinely appear, regardless of which of those stages produced
+    them.
+
+    The click-toggle itself is idempotent (skips anything already showing
+    aria-expanded="false"), so the observer re-firing on its own resulting
+    mutations (collapsing a group hides its rows, which is itself a
+    mutation) settles after one real pass per header rather than looping.
 --}}
 <script>
     (function () {
-        function collapseExpandedFollowUpGroups() {
-            document.querySelectorAll('.fi-ta-group-header').forEach(function (header) {
-                var toggle = header.querySelector('button[aria-expanded]');
+        function collapseHeaderIfExpanded(header) {
+            var toggle = header.querySelector('button[aria-expanded]');
 
-                if (toggle && toggle.getAttribute('aria-expanded') === 'false') {
-                    return;
-                }
+            if (toggle && toggle.getAttribute('aria-expanded') === 'false') {
+                return;
+            }
 
-                header.click();
-            });
+            header.click();
         }
 
-        document.addEventListener('alpine:initialized', collapseExpandedFollowUpGroups);
-        window.addEventListener('follow-ups-grouping-reset', collapseExpandedFollowUpGroups);
+        function collapseExpandedFollowUpGroups() {
+            document.querySelectorAll('.fi-ta-group-header').forEach(collapseHeaderIfExpanded);
+        }
+
+        new MutationObserver(collapseExpandedFollowUpGroups).observe(document.body, {
+            childList: true,
+            subtree: true,
+            characterData: true,
+        });
+
+        // Covers the case where the table is already fully rendered by
+        // the time this script runs (e.g. no deferred loading in play).
+        collapseExpandedFollowUpGroups();
     })();
 </script>
