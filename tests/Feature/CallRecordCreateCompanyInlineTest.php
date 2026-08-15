@@ -28,6 +28,18 @@ use Tests\TestCase;
  * triggers), and the sentinel value never surviving as a real prospect_id
  * (via the field's ->afterStateUpdated() reset, which runs independently of
  * the Alpine trigger).
+ *
+ * Note for anyone touching the raw Livewire component method: the real
+ * component key is "data.prospect_id" (Filament's CreateRecord/EditRecord
+ * pages nest all form fields under a "data." statePath prefix — see
+ * CreateRecord::getFormStatePath() — hence the field's own
+ * ->extraAlpineAttributes() call in CallRecordResource::form() hardcodes
+ * that full key). This test file calls the *test helper*
+ * ->mountFormComponentAction(), which auto-prepends the form's statePath
+ * itself (see Filament\Forms\Testing\TestsComponentActions::
+ * parseNestedFormComponentActionComponentAndName()) — so plain
+ * 'prospect_id' is correct here; passing 'data.prospect_id' would double
+ * the prefix and silently fail to resolve the component.
  */
 class CallRecordCreateCompanyInlineTest extends TestCase
 {

@@ -63,8 +63,8 @@ class CallRecordResource extends Resource
                             // relationship() restored, relationship-mode
                             // Select silently rejects a selected value
                             // that has no matching Prospect row before it
-                            // ever reaches PHP. A plain ->suffixAction()
-                            // sidesteps both — it's a generic
+                            // ever reaches PHP. registerActions() (see
+                            // below) sidesteps both — it's a generic
                             // field-adjacent action with no relationship
                             // coupling at all.
                             ->searchable()
@@ -86,29 +86,22 @@ class CallRecordResource extends Resource
                             // (e.g. fillForm() in tests, or if JS is
                             // disabled). This does NOT attempt to open the
                             // modal; that trigger lives in
-                            // extraAlpineAttributes() below, see its
-                            // comment for why.
+                            // extraAlpineAttributes() below.
                             ->afterStateUpdated(fn ($state, Set $set) => $state === self::CREATE_NEW_PROSPECT
                                 && $set('prospect_id', null))
-                            // Triggering the modal from PHP inside
-                            // afterStateUpdated() (i.e. as a side effect of
-                            // the entangled property-sync request) proved
-                            // unreliable: diagnostics confirmed the PHP
-                            // chain runs and dispatches open-modal, but the
-                            // browser never rendered the modal — unlike the
-                            // "+" suffix button below, whose direct
-                            // wire:click reliably opens it. So the sentinel
-                            // is detected here in genuine client-side
-                            // Alpine JS instead, calling
-                            // $wire.mountFormComponentAction() the same way
-                            // the "+" button's wire:click does (a real
-                            // top-level Livewire call, not one nested
-                            // inside another lifecycle hook). Confirmed via
-                            // Filament source (select.blade.php merges
-                            // extraAlpineAttributes() onto the same
-                            // x-data="selectFormComponent(...)" div that
-                            // owns the reactive `state` property, so
-                            // `state` is in scope here).
+                            // Every field on a Filament CreateRecord/
+                            // EditRecord page lives under a 'data.'
+                            // statePath prefix (both pages'
+                            // getFormStatePath() return 'data'), so this
+                            // field's real mountFormComponentAction()
+                            // component key is "data.prospect_id", not
+                            // "prospect_id" — confirmed by instrumenting a
+                            // real Livewire::test() run and inspecting
+                            // getFlatComponentsByKey(). Triggering from
+                            // genuine client-side Alpine JS (rather than
+                            // from inside afterStateUpdated() above) keeps
+                            // this a real top-level $wire call, matching
+                            // how Filament's own action buttons trigger it.
                             ->extraAlpineAttributes([
                                 'x-init' => <<<'JS'
                                     $watch('state', (value) => {
@@ -117,22 +110,50 @@ class CallRecordResource extends Resource
                                         }
 
                                         state = null;
-                                        $wire.mountFormComponentAction('prospect_id', 'createProspect');
+                                        $wire.mountFormComponentAction('data.prospect_id', 'createProspect');
                                     })
                                     JS,
                             ])
-                            ->suffixAction(
+                            // registerActions() (NOT ->suffixAction()) is
+                            // the actual root-cause fix: an Action's
+                            // isDisabled() is `$this->evaluate($this->
+                            // isDisabled) || $this->isHidden()` (see
+                            // filament/actions'
+                            // Concerns\CanBeDisabled::isDisabled()) — so a
+                            // ->suffixAction()->hidden() action is also
+                            // implicitly *disabled*, and
+                            // mountFormComponentAction() silently refuses
+                            // to mount any disabled action (no exception,
+                            // no dispatch — exactly the "nothing happens"
+                            // symptom seen throughout this investigation).
+                            // registerActions() adds the action to the
+                            // field's mountable action pool without ever
+                            // wiring it into the rendered
+                            // prefix/suffix-icon list at all, so it's
+                            // never hidden(), never disabled, and never
+                            // rendered as a button — the dropdown row is
+                            // genuinely the only way to trigger it.
+                            // Without this, the mounted action's form model
+                            // falls back to this field's *container* model
+                            // (CallRecord — this is CallRecordResource's
+                            // own create form), since prospect_id has no
+                            // ->relationship() of its own. The reused
+                            // ProspectResource::formSchema() has an inner
+                            // assigned_to field with
+                            // ->relationship('assignedEmployee', 'name'),
+                            // which crashes when resolved against a
+                            // CallRecord instance (no such relation exists,
+                            // so Select's internal
+                            // RelationshipJoiner::prepareQueryForNoConstraints()
+                            // gets passed null where it requires a real
+                            // Relation). Declaring the action form's model
+                            // explicitly avoids needing prospect_id itself
+                            // to carry a ->relationship() — which was tried
+                            // earlier and broke selecting the sentinel
+                            // value via click.
+                            ->actionFormModel(Prospect::class)
+                            ->registerActions([
                                 Forms\Components\Actions\Action::make('createProspect')
-                                    // No visible "+" button — the dropdown
-                                    // row is the only intended trigger.
-                                    // Confirmed via Filament source
-                                    // (HasActions::cacheActions() /
-                                    // HasAffixes::cacheSuffixActions()) that
-                                    // hidden() only affects Blade rendering,
-                                    // not getAction()'s lookup — this stays
-                                    // fully mountable via
-                                    // mountFormComponentAction() either way.
-                                    ->hidden()
                                     ->modalHeading('Add Company to Database')
                                     ->form(ProspectResource::formSchema())
                                     ->action(function (array $data, Set $set) {
@@ -141,7 +162,7 @@ class CallRecordResource extends Resource
 
                                         $set('prospect_id', $prospect->getKey());
                                     }),
-                            ),
+                            ]),
                         Forms\Components\DateTimePicker::make('called_at')
                             ->required()
                             ->default(now())
