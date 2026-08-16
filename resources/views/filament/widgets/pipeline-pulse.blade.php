@@ -59,10 +59,10 @@
                         >
                             {{ number_format($node['count']) }}
                         </div>
-                        <div class="whitespace-nowrap text-[9px] font-semibold uppercase tracking-widest text-white/35">
+                        <div class="whitespace-nowrap text-[9px] font-normal uppercase tracking-wide text-white/40">
                             {{ $node['tag'] }}
                         </div>
-                        <div class="whitespace-nowrap text-[11px] font-medium uppercase tracking-wide text-white/50 sm:text-xs">
+                        <div class="whitespace-nowrap text-[11px] font-bold uppercase tracking-wide text-white/75 sm:text-xs">
                             {{ $node['label'] }}
                         </div>
                     </div>

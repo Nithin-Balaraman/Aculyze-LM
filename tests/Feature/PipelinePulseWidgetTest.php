@@ -3,14 +3,17 @@
 namespace Tests\Feature;
 
 use App\Enums\AppointmentStage;
+use App\Enums\FollowUpStatus;
 use App\Enums\LeadStage;
 use App\Enums\ProposalOutcome;
 use App\Enums\ProposalStage;
 use App\Filament\Resources\AppointmentResource\Pages\ListAppointments;
+use App\Filament\Resources\FollowUpResource\Pages\ListFollowUps;
 use App\Filament\Resources\LeadResource\Pages\ListLeads;
 use App\Filament\Resources\ProposalResource\Pages\ListProposals;
 use App\Filament\Widgets\PipelinePulse;
 use App\Models\Appointment;
+use App\Models\FollowUp;
 use App\Models\Lead;
 use App\Models\Proposal;
 use App\Models\Prospect;
@@ -24,7 +27,10 @@ use Tests\TestCase;
  * Appointment, and Proposal counts: each of those models splits "is this
  * closed?" across two fields (stage/outcome plus a separate is_lost flag,
  * or Proposal's Hold outcome), and the widget originally only checked one
- * half. Every test here cross-checks the widget's node count against the
+ * half. Follow-Up has no such split (status is the single source of
+ * truth), but is covered here too for symmetry now that it's its own node
+ * rather than folded into a combined Follow-Up/Appointment figure. Every
+ * "Active" node's test cross-checks the widget's count against the
  * corresponding resource's own ListRecords "Pending" tab (via
  * getAllTableRecordsCount(), not a re-derived query), using fixture data
  * specifically shaped to expose the gap: a Lost record sitting in a
@@ -61,8 +67,11 @@ class PipelinePulseWidgetTest extends TestCase
         $this->assertSame('Total', $nodes['call_record']['tag']);
         $this->assertSame('Call Record', $nodes['call_record']['label']);
 
-        $this->assertSame('Active', $nodes['follow_up_appointment']['tag']);
-        $this->assertSame('Follow-Up / Appointment', $nodes['follow_up_appointment']['label']);
+        $this->assertSame('Active', $nodes['follow_up']['tag']);
+        $this->assertSame('Follow-Up', $nodes['follow_up']['label']);
+
+        $this->assertSame('Active', $nodes['appointment']['tag']);
+        $this->assertSame('Appointment', $nodes['appointment']['label']);
 
         $this->assertSame('Active', $nodes['lead']['tag']);
         $this->assertSame('Lead', $nodes['lead']['label']);
@@ -118,7 +127,43 @@ class PipelinePulseWidgetTest extends TestCase
         $this->assertSame($pendingTabCount, $this->widgetNode('lead')['count']);
     }
 
-    public function test_appointment_portion_of_the_combined_count_excludes_a_lost_non_terminal_appointment(): void
+    public function test_follow_up_active_count_matches_the_follow_ups_pending_tab(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        FollowUp::create([
+            'prospect_id' => Prospect::factory()->create()->id,
+            'user_id' => $admin->id,
+            'follow_up_at' => now()->addDay(),
+            'reason' => 'Callback later',
+            'status' => FollowUpStatus::Pending,
+        ]);
+        FollowUp::create([
+            'prospect_id' => Prospect::factory()->create()->id,
+            'user_id' => $admin->id,
+            'follow_up_at' => now()->addDay(),
+            'reason' => 'Callback later',
+            'status' => FollowUpStatus::Completed,
+        ]);
+        FollowUp::create([
+            'prospect_id' => Prospect::factory()->create()->id,
+            'user_id' => $admin->id,
+            'follow_up_at' => now()->addDay(),
+            'reason' => 'Callback later',
+            'status' => FollowUpStatus::Cancelled,
+        ]);
+
+        $pendingTabCount = Livewire::test(ListFollowUps::class)
+            ->set('activeTab', 'pending')
+            ->instance()
+            ->getAllTableRecordsCount();
+
+        $this->assertSame(1, $pendingTabCount);
+        $this->assertSame($pendingTabCount, $this->widgetNode('follow_up')['count']);
+    }
+
+    public function test_appointment_active_count_matches_the_appointments_pending_tab_and_excludes_a_lost_non_terminal_appointment(): void
     {
         $admin = User::factory()->admin()->create();
         $this->actingAs($admin);
@@ -154,11 +199,7 @@ class PipelinePulseWidgetTest extends TestCase
             ->getAllTableRecordsCount();
 
         $this->assertSame(1, $pendingTabCount);
-
-        // No FollowUps exist in this test, so the widget's combined
-        // Follow-Up/Appointment node count is exactly the Appointment
-        // portion here.
-        $this->assertSame($pendingTabCount, $this->widgetNode('follow_up_appointment')['count']);
+        $this->assertSame($pendingTabCount, $this->widgetNode('appointment')['count']);
     }
 
     public function test_proposal_active_count_matches_the_proposals_pending_tab_and_includes_hold(): void

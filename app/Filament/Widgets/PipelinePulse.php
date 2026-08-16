@@ -18,10 +18,10 @@ use Illuminate\Database\Eloquent\Builder;
 
 /**
  * "Pipeline Pulse" — the Main Dashboard's signature opening element
- * (admin-only, see App\Filament\Pages\MainDashboard). A live, six-stage
+ * (admin-only, see App\Filament\Pages\MainDashboard). A live, seven-node
  * flow visualization of the real sales process:
  *
- *   Database -> Call Record -> Follow-Up/Appointment -> Lead -> Proposal -> Won
+ *   Database -> Call Record -> Follow-Up -> Appointment -> Lead -> Proposal -> Won
  *
  * Every count below is a real query against current data — nothing here is
  * placeholder or hardcoded. Database/Call Record/Won are cumulative totals
@@ -32,14 +32,17 @@ use Illuminate\Database\Eloquent\Builder;
  * (`tag` reads "Active"), each matching — deliberately, not coincidentally
  * — exactly what that resource's own ListRecords "Pending" tab shows: see
  * ListFollowUps/ListAppointments/ListLeads/ListProposals'
- * getTabs(). Lead and Appointment in particular split "is this closed?"
- * across two fields (stage progression, plus a separate is_lost flag set by
- * markLost() without touching stage), and Proposal folds its Hold outcome
- * into "active" too (Hold is a pause, not a final decision) — this widget
- * must replicate both halves of each of those checks, not just the stage/
- * outcome half, or a closed-but-not-terminal-stage record silently
- * over-counts as active (this happened for real — Hold proposals were
- * excluded by an earlier whereNull('outcome')-only check).
+ * getTabs(). Follow-Up and Appointment are two separate nodes with their
+ * own counts (not a single combined figure — that read as confusing, one
+ * number couldn't be attributed to either resource). Lead and Appointment
+ * in particular split "is this closed?" across two fields (stage
+ * progression, plus a separate is_lost flag set by markLost() without
+ * touching stage), and Proposal folds its Hold outcome into "active" too
+ * (Hold is a pause, not a final decision) — this widget must replicate
+ * both halves of each of those checks, not just the stage/outcome half, or
+ * a closed-but-not-terminal-stage record silently over-counts as active
+ * (this happened for real — Hold proposals were excluded by an earlier
+ * whereNull('outcome')-only check).
  *
  * The coral highlight on a node (see resources/views/filament/widgets/
  * pipeline-pulse.blade.php and the `.pulse-node-alert` animation in
@@ -70,6 +73,8 @@ class PipelinePulse extends Widget
             array_filter(LeadStage::cases(), fn (LeadStage $stage) => ! $stage->isTerminal()),
         );
 
+        $activeFollowUpsCount = FollowUp::query()->where('status', FollowUpStatus::Pending)->count();
+
         // Lead/Appointment split "is this closed?" across two fields: the
         // normal stage progression, plus a separate is_lost flag that
         // markLost() sets *without* touching stage (see Lead::markLost()/
@@ -78,8 +83,7 @@ class PipelinePulse extends Widget
         // what ListLeads/ListAppointments' own "Pending" tab checks
         // (App\Filament\Resources\LeadResource\Pages\ListLeads::getTabs(),
         // AppointmentResource\Pages\ListAppointments::getTabs()).
-        $followUpAppointmentCount = FollowUp::query()->where('status', FollowUpStatus::Pending)->count()
-            + Appointment::query()->where('is_lost', false)->whereIn('stage', $activeAppointmentStages)->count();
+        $activeAppointmentsCount = Appointment::query()->where('is_lost', false)->whereIn('stage', $activeAppointmentStages)->count();
 
         $activeLeadsQuery = Lead::query()->where('is_lost', false)->whereIn('stage', $activeLeadStages);
 
@@ -110,10 +114,18 @@ class PipelinePulse extends Widget
                 'alert' => false,
             ],
             [
-                'key' => 'follow_up_appointment',
+                'key' => 'follow_up',
                 'tag' => 'Active',
-                'label' => 'Follow-Up / Appointment',
-                'count' => $followUpAppointmentCount,
+                'label' => 'Follow-Up',
+                'count' => $activeFollowUpsCount,
+                'icon' => 'heroicon-o-arrow-path',
+                'alert' => false,
+            ],
+            [
+                'key' => 'appointment',
+                'tag' => 'Active',
+                'label' => 'Appointment',
+                'count' => $activeAppointmentsCount,
                 'icon' => 'heroicon-o-calendar-days',
                 'alert' => false,
             ],
