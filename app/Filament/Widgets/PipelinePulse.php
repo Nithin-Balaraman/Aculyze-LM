@@ -25,12 +25,13 @@ use Illuminate\Database\Eloquent\Builder;
  *
  * Every count below is a real query against current data — nothing here is
  * placeholder or hardcoded. Database/Call Record/Won are cumulative totals
- * (labeled "(Total)" in the widget) — Database/Call Record are the source
- * of everything downstream and never "complete"; Won is a running tally of
- * closed-won Proposals. Follow-Up/Appointment/Lead/Proposal are "currently
- * active" counts (labeled "(Active)"), each matching — deliberately, not
- * coincidentally — exactly what that resource's own ListRecords "Pending"
- * tab shows: see ListFollowUps/ListAppointments/ListLeads/ListProposals'
+ * (each node's `tag` reads "Total" in the widget, above the node's normal
+ * name) — Database/Call Record are the source of everything downstream and
+ * never "complete"; Won is a running tally of closed-won Proposals.
+ * Follow-Up/Appointment/Lead/Proposal are "currently active" counts
+ * (`tag` reads "Active"), each matching — deliberately, not coincidentally
+ * — exactly what that resource's own ListRecords "Pending" tab shows: see
+ * ListFollowUps/ListAppointments/ListLeads/ListProposals'
  * getTabs(). Lead and Appointment in particular split "is this closed?"
  * across two fields (stage progression, plus a separate is_lost flag set by
  * markLost() without touching stage), and Proposal folds its Hold outcome
@@ -94,32 +95,32 @@ class PipelinePulse extends Widget
         $nodes = [
             [
                 'key' => 'database',
-                'label' => 'Database (Total)',
+                'tag' => 'Total',
+                'label' => 'Database',
                 'count' => Prospect::query()->count(),
                 'icon' => 'heroicon-o-building-office-2',
                 'alert' => false,
             ],
             [
                 'key' => 'call_record',
-                'label' => 'Call Record (Total)',
+                'tag' => 'Total',
+                'label' => 'Call Record',
                 'count' => CallRecord::query()->count(),
                 'icon' => 'heroicon-o-phone',
                 'alert' => false,
             ],
             [
                 'key' => 'follow_up_appointment',
-                // "Appt" rather than "Appointment" here specifically — this
-                // is already the longest label before adding a qualifier,
-                // and the widget renders labels uppercase, single-line,
-                // non-wrapping at 11-12px (see pipeline-pulse.blade.php).
-                'label' => 'Follow-Up / Appt (Active)',
+                'tag' => 'Active',
+                'label' => 'Follow-Up / Appointment',
                 'count' => $followUpAppointmentCount,
                 'icon' => 'heroicon-o-calendar-days',
                 'alert' => false,
             ],
             [
                 'key' => 'lead',
-                'label' => 'Lead (Active)',
+                'tag' => 'Active',
+                'label' => 'Lead',
                 'count' => (clone $activeLeadsQuery)->count(),
                 'icon' => 'heroicon-o-fire',
                 'alert' => (clone $activeLeadsQuery)->where('temperature', LeadTemperature::Hot)->exists()
@@ -127,14 +128,16 @@ class PipelinePulse extends Widget
             ],
             [
                 'key' => 'proposal',
-                'label' => 'Proposal (Active)',
+                'tag' => 'Active',
+                'label' => 'Proposal',
                 'count' => $openProposalsCount,
                 'icon' => 'heroicon-o-document-text',
                 'alert' => Proposal::query()->stale()->exists(),
             ],
             [
                 'key' => 'won',
-                'label' => 'Won (Total)',
+                'tag' => 'Total',
+                'label' => 'Won',
                 'count' => Proposal::query()->where('outcome', ProposalOutcome::Won)->count(),
                 'icon' => 'heroicon-o-trophy',
                 'alert' => false,

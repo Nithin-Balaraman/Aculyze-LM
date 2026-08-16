@@ -59,6 +59,9 @@
                         >
                             {{ number_format($node['count']) }}
                         </div>
+                        <div class="whitespace-nowrap text-[9px] font-semibold uppercase tracking-widest text-white/35">
+                            {{ $node['tag'] }}
+                        </div>
                         <div class="whitespace-nowrap text-[11px] font-medium uppercase tracking-wide text-white/50 sm:text-xs">
                             {{ $node['label'] }}
                         </div>

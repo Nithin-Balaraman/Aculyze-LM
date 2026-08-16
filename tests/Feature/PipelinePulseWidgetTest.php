@@ -41,6 +41,39 @@ class PipelinePulseWidgetTest extends TestCase
         return collect($nodes)->firstWhere('key', $key);
     }
 
+    /**
+     * The widget shows each node's "Total"/"Active" distinction as a
+     * separate small tag line above the original short label (see
+     * pipeline-pulse.blade.php), rather than appended into the label text
+     * itself — that combined form (e.g. "Proposal (Active)") overflowed
+     * and got cut off in the actual rendered widget.
+     */
+    public function test_each_node_has_the_original_short_label_and_a_separate_total_or_active_tag(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $nodes = collect(Livewire::test(PipelinePulse::class)->viewData('nodes'))->keyBy('key');
+
+        $this->assertSame('Total', $nodes['database']['tag']);
+        $this->assertSame('Database', $nodes['database']['label']);
+
+        $this->assertSame('Total', $nodes['call_record']['tag']);
+        $this->assertSame('Call Record', $nodes['call_record']['label']);
+
+        $this->assertSame('Active', $nodes['follow_up_appointment']['tag']);
+        $this->assertSame('Follow-Up / Appointment', $nodes['follow_up_appointment']['label']);
+
+        $this->assertSame('Active', $nodes['lead']['tag']);
+        $this->assertSame('Lead', $nodes['lead']['label']);
+
+        $this->assertSame('Active', $nodes['proposal']['tag']);
+        $this->assertSame('Proposal', $nodes['proposal']['label']);
+
+        $this->assertSame('Total', $nodes['won']['tag']);
+        $this->assertSame('Won', $nodes['won']['label']);
+    }
+
     public function test_lead_active_count_matches_the_leads_pending_tab_and_excludes_a_lost_non_terminal_lead(): void
     {
         $admin = User::factory()->admin()->create();
