@@ -181,11 +181,26 @@ class CallRecordResource extends Resource
                         Forms\Components\TextInput::make('phone_called')
                             ->tel()
                             ->maxLength(20),
-                        Forms\Components\Toggle::make('callback_required')
-                            ->live(),
-                        Forms\Components\DateTimePicker::make('callback_at')
+                        // Visibility is driven by the outcome's own routing
+                        // rules (CallOutcome::routesToFollowUp()/
+                        // routesToAppointment()) rather than a manual
+                        // toggle, so the field can never fall out of sync
+                        // with what the outcome actually does. Both
+                        // optional — the caller may not know the exact
+                        // time yet when logging the call — and read
+                        // straight into the auto-created Follow-Up/
+                        // Appointment record by
+                        // CallRoutingService::createFollowUp()/
+                        // createAppointment(). Only ever one visible at a
+                        // time in practice, since no outcome routes to both.
+                        Forms\Components\DateTimePicker::make('follow_up_at')
+                            ->label('Follow Up At')
                             ->seconds(false)
-                            ->visible(fn (Forms\Get $get) => $get('callback_required')),
+                            ->visible(fn (Get $get) => self::outcomeRoutesToFollowUp($get('outcome'))),
+                        Forms\Components\DateTimePicker::make('appointment_at')
+                            ->label('Appointment At')
+                            ->seconds(false)
+                            ->visible(fn (Get $get) => self::outcomeRoutesToAppointment($get('outcome'))),
                     ]),
                 // Phase 2 item #5: once a company is selected, show its
                 // already-saved Database details inline so the caller
@@ -238,7 +253,22 @@ class CallRecordResource extends Resource
      */
     private static function outcomeIsOthers(mixed $outcome): bool
     {
-        return ($outcome instanceof CallOutcome ? $outcome : CallOutcome::tryFrom((string) $outcome)) === CallOutcome::Others;
+        return self::resolveOutcome($outcome) === CallOutcome::Others;
+    }
+
+    private static function outcomeRoutesToFollowUp(mixed $outcome): bool
+    {
+        return self::resolveOutcome($outcome)?->routesToFollowUp() ?? false;
+    }
+
+    private static function outcomeRoutesToAppointment(mixed $outcome): bool
+    {
+        return self::resolveOutcome($outcome)?->routesToAppointment() ?? false;
+    }
+
+    private static function resolveOutcome(mixed $outcome): ?CallOutcome
+    {
+        return $outcome instanceof CallOutcome ? $outcome : CallOutcome::tryFrom((string) $outcome);
     }
 
     public static function table(Table $table): Table
@@ -265,8 +295,13 @@ class CallRecordResource extends Resource
                     // a toggleable default like the others, just hidden
                     // outright for non-admins.
                     ->visible(fn () => auth()->user()->isAdmin()),
-                Tables\Columns\IconColumn::make('callback_required')
-                    ->boolean()
+                Tables\Columns\TextColumn::make('follow_up_at')
+                    ->dateTime('d M Y, h:i A')
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('appointment_at')
+                    ->dateTime('d M Y, h:i A')
+                    ->placeholder('—')
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('notes')
                     ->limit(40)

@@ -25,8 +25,8 @@ class CallRecord extends Model
         'called_at',
         'outcome',
         'notes',
-        'callback_required',
-        'callback_at',
+        'follow_up_at',
+        'appointment_at',
         'contact_person_spoken_to',
         'designation',
         'phone_called',
@@ -37,8 +37,8 @@ class CallRecord extends Model
         return [
             'outcome' => CallOutcome::class,
             'called_at' => 'datetime',
-            'callback_at' => 'datetime',
-            'callback_required' => 'boolean',
+            'follow_up_at' => 'datetime',
+            'appointment_at' => 'datetime',
             'processed_at' => 'datetime',
         ];
     }
