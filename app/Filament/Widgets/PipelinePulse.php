@@ -14,6 +14,7 @@ use App\Models\Lead;
 use App\Models\Proposal;
 use App\Models\Prospect;
 use Filament\Widgets\Widget;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * "Pipeline Pulse" — the Main Dashboard's signature opening element
@@ -23,11 +24,21 @@ use Filament\Widgets\Widget;
  *   Database -> Call Record -> Follow-Up/Appointment -> Lead -> Proposal -> Won
  *
  * Every count below is a real query against current data — nothing here is
- * placeholder or hardcoded. Database/Call Record show cumulative totals
- * (they're the source of everything downstream and never "complete");
- * Follow-Up/Appointment/Lead/Proposal show what's currently active/open at
- * that station of the pipeline; Won is a cumulative count of closed-won
- * Proposals.
+ * placeholder or hardcoded. Database/Call Record/Won are cumulative totals
+ * (labeled "(Total)" in the widget) — Database/Call Record are the source
+ * of everything downstream and never "complete"; Won is a running tally of
+ * closed-won Proposals. Follow-Up/Appointment/Lead/Proposal are "currently
+ * active" counts (labeled "(Active)"), each matching — deliberately, not
+ * coincidentally — exactly what that resource's own ListRecords "Pending"
+ * tab shows: see ListFollowUps/ListAppointments/ListLeads/ListProposals'
+ * getTabs(). Lead and Appointment in particular split "is this closed?"
+ * across two fields (stage progression, plus a separate is_lost flag set by
+ * markLost() without touching stage), and Proposal folds its Hold outcome
+ * into "active" too (Hold is a pause, not a final decision) — this widget
+ * must replicate both halves of each of those checks, not just the stage/
+ * outcome half, or a closed-but-not-terminal-stage record silently
+ * over-counts as active (this happened for real — Hold proposals were
+ * excluded by an earlier whereNull('outcome')-only check).
  *
  * The coral highlight on a node (see resources/views/filament/widgets/
  * pipeline-pulse.blade.php and the `.pulse-node-alert` animation in
@@ -58,38 +69,57 @@ class PipelinePulse extends Widget
             array_filter(LeadStage::cases(), fn (LeadStage $stage) => ! $stage->isTerminal()),
         );
 
+        // Lead/Appointment split "is this closed?" across two fields: the
+        // normal stage progression, plus a separate is_lost flag that
+        // markLost() sets *without* touching stage (see Lead::markLost()/
+        // Appointment::markLost()) — so a Lost record sitting in a
+        // non-terminal stage must be excluded here too, matching exactly
+        // what ListLeads/ListAppointments' own "Pending" tab checks
+        // (App\Filament\Resources\LeadResource\Pages\ListLeads::getTabs(),
+        // AppointmentResource\Pages\ListAppointments::getTabs()).
         $followUpAppointmentCount = FollowUp::query()->where('status', FollowUpStatus::Pending)->count()
-            + Appointment::query()->whereIn('stage', $activeAppointmentStages)->count();
+            + Appointment::query()->where('is_lost', false)->whereIn('stage', $activeAppointmentStages)->count();
 
-        $activeLeadsQuery = Lead::query()->whereIn('stage', $activeLeadStages);
+        $activeLeadsQuery = Lead::query()->where('is_lost', false)->whereIn('stage', $activeLeadStages);
 
-        $openProposalsCount = Proposal::query()->whereNull('outcome')->count();
+        // Proposal doesn't have a separate is_lost flag — Hold is one of
+        // its three `outcome` values (Won/Hold/Lost) — but Hold is
+        // explicitly not a final decision (ListProposals::getTabs()'s own
+        // "Pending" tab treats whereNull('outcome') OR outcome=Hold as the
+        // active queue), so it must count here the same way.
+        $openProposalsCount = Proposal::query()
+            ->where(fn (Builder $query) => $query->whereNull('outcome')->orWhere('outcome', ProposalOutcome::Hold))
+            ->count();
 
         $nodes = [
             [
                 'key' => 'database',
-                'label' => 'Database',
+                'label' => 'Database (Total)',
                 'count' => Prospect::query()->count(),
                 'icon' => 'heroicon-o-building-office-2',
                 'alert' => false,
             ],
             [
                 'key' => 'call_record',
-                'label' => 'Call Record',
+                'label' => 'Call Record (Total)',
                 'count' => CallRecord::query()->count(),
                 'icon' => 'heroicon-o-phone',
                 'alert' => false,
             ],
             [
                 'key' => 'follow_up_appointment',
-                'label' => 'Follow-Up / Appointment',
+                // "Appt" rather than "Appointment" here specifically — this
+                // is already the longest label before adding a qualifier,
+                // and the widget renders labels uppercase, single-line,
+                // non-wrapping at 11-12px (see pipeline-pulse.blade.php).
+                'label' => 'Follow-Up / Appt (Active)',
                 'count' => $followUpAppointmentCount,
                 'icon' => 'heroicon-o-calendar-days',
                 'alert' => false,
             ],
             [
                 'key' => 'lead',
-                'label' => 'Lead',
+                'label' => 'Lead (Active)',
                 'count' => (clone $activeLeadsQuery)->count(),
                 'icon' => 'heroicon-o-fire',
                 'alert' => (clone $activeLeadsQuery)->where('temperature', LeadTemperature::Hot)->exists()
@@ -97,14 +127,14 @@ class PipelinePulse extends Widget
             ],
             [
                 'key' => 'proposal',
-                'label' => 'Proposal',
+                'label' => 'Proposal (Active)',
                 'count' => $openProposalsCount,
                 'icon' => 'heroicon-o-document-text',
                 'alert' => Proposal::query()->stale()->exists(),
             ],
             [
                 'key' => 'won',
-                'label' => 'Won',
+                'label' => 'Won (Total)',
                 'count' => Proposal::query()->where('outcome', ProposalOutcome::Won)->count(),
                 'icon' => 'heroicon-o-trophy',
                 'alert' => false,
