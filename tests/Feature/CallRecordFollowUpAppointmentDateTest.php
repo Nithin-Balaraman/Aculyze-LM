@@ -14,13 +14,19 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
- * "Follow Up At" and "Appointment At" on the Call Record form: visible only
- * for the outcomes that actually route to that downstream record (driven
- * by CallOutcome::routesToFollowUp()/routesToAppointment() directly, so
- * they can never drift out of sync with the real routing rules), optional,
- * and set on the auto-created Follow-Up/Appointment by
+ * "Follow Up At" and "Appointment At" on the Call Record form: visible AND
+ * required only for the outcomes that actually route to that downstream
+ * record (driven by CallOutcome::routesToFollowUp()/routesToAppointment()
+ * directly, so they can never drift out of sync with the real routing
+ * rules), and set on the auto-created Follow-Up/Appointment by
  * CallRoutingService — see CallRoutingTest for the lower-level service
  * coverage of the same data flow.
+ *
+ * The model-level "exempt auto-routed insert" guards on FollowUp/
+ * Appointment (see AppointmentMandatoryFieldsTest/FollowUpMandatoryFieldsTest)
+ * are deliberately untouched by this requirement — they cover write paths
+ * other than this form (tests, seeders, future imports/backfills), which
+ * may legitimately not know the date at insert time.
  */
 class CallRecordFollowUpAppointmentDateTest extends TestCase
 {
@@ -130,30 +136,30 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
         $this->assertSame($appointmentAt->format('Y-m-d H:i:s'), $appointment->appointment_at->format('Y-m-d H:i:s'));
     }
 
-    public function test_leaving_follow_up_at_blank_is_accepted_and_the_follow_up_has_no_date(): void
+    public function test_leaving_follow_up_at_blank_fails_validation_for_a_follow_up_routing_outcome(): void
     {
         $admin = User::factory()->admin()->create();
         $this->actingAs($admin);
 
         Livewire::test(CreateCallRecord::class)
-            ->fillForm($this->baseFormData(['outcome' => CallOutcome::NoAnswer->value]))
+            ->fillForm($this->baseFormData(['outcome' => CallOutcome::NoAnswer->value, 'follow_up_at' => null]))
             ->call('create')
-            ->assertHasNoFormErrors();
+            ->assertHasFormErrors(['follow_up_at']);
 
-        $this->assertNull(FollowUp::sole()->follow_up_at);
+        $this->assertDatabaseCount('call_records', 0);
     }
 
-    public function test_leaving_appointment_at_blank_is_accepted_and_the_appointment_has_no_date(): void
+    public function test_leaving_appointment_at_blank_fails_validation_for_an_appointment_routing_outcome(): void
     {
         $admin = User::factory()->admin()->create();
         $this->actingAs($admin);
 
         Livewire::test(CreateCallRecord::class)
-            ->fillForm($this->baseFormData(['outcome' => CallOutcome::AppointmentSet->value]))
+            ->fillForm($this->baseFormData(['outcome' => CallOutcome::AppointmentSet->value, 'appointment_at' => null]))
             ->call('create')
-            ->assertHasNoFormErrors();
+            ->assertHasFormErrors(['appointment_at']);
 
-        $this->assertNull(Appointment::sole()->appointment_at);
+        $this->assertDatabaseCount('call_records', 0);
     }
 
     /**

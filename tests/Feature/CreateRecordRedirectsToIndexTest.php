@@ -119,6 +119,7 @@ class CreateRecordRedirectsToIndexTest extends TestCase
             ->fillForm([
                 'prospect_id' => $prospect->id,
                 'outcome' => CallOutcome::NoAnswer->value,
+                'follow_up_at' => now()->addDay(),
             ])
             ->call('create')
             ->assertHasNoFormErrors()

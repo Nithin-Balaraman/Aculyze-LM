@@ -185,22 +185,29 @@ class CallRecordResource extends Resource
                         // rules (CallOutcome::routesToFollowUp()/
                         // routesToAppointment()) rather than a manual
                         // toggle, so the field can never fall out of sync
-                        // with what the outcome actually does. Both
-                        // optional — the caller may not know the exact
-                        // time yet when logging the call — and read
-                        // straight into the auto-created Follow-Up/
-                        // Appointment record by
+                        // with what the outcome actually does. Required
+                        // whenever visible — the caller must know the
+                        // follow-up/appointment time when logging the call
+                        // — and read straight into the auto-created
+                        // Follow-Up/Appointment record by
                         // CallRoutingService::createFollowUp()/
                         // createAppointment(). Only ever one visible at a
                         // time in practice, since no outcome routes to both.
+                        // The model-level "exempt auto-routed insert"
+                        // guards on FollowUp/Appointment stay in place —
+                        // they cover every OTHER write path (tests,
+                        // seeders, future imports/backfills), not this
+                        // form, which now never submits a blank value.
                         Forms\Components\DateTimePicker::make('follow_up_at')
                             ->label('Follow Up At')
                             ->seconds(false)
-                            ->visible(fn (Get $get) => self::outcomeRoutesToFollowUp($get('outcome'))),
+                            ->visible(fn (Get $get) => self::outcomeRoutesToFollowUp($get('outcome')))
+                            ->required(fn (Get $get) => self::outcomeRoutesToFollowUp($get('outcome'))),
                         Forms\Components\DateTimePicker::make('appointment_at')
                             ->label('Appointment At')
                             ->seconds(false)
-                            ->visible(fn (Get $get) => self::outcomeRoutesToAppointment($get('outcome'))),
+                            ->visible(fn (Get $get) => self::outcomeRoutesToAppointment($get('outcome')))
+                            ->required(fn (Get $get) => self::outcomeRoutesToAppointment($get('outcome'))),
                     ]),
                 // Phase 2 item #5: once a company is selected, show its
                 // already-saved Database details inline so the caller
