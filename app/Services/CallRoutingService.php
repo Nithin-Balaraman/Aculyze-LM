@@ -69,7 +69,7 @@ class CallRoutingService
             [
                 'prospect_id' => $callRecord->prospect_id,
                 'user_id' => $callRecord->prospect->assigned_to,
-                'follow_up_at' => $callRecord->callback_at,
+                'follow_up_at' => $callRecord->follow_up_at,
                 'reason' => $callRecord->outcome->getLabel(),
                 'status' => 'pending',
             ]
@@ -84,6 +84,7 @@ class CallRoutingService
                 'prospect_id' => $callRecord->prospect_id,
                 'assigned_to' => $callRecord->prospect->assigned_to,
                 'created_by' => $callRecord->user_id,
+                'appointment_at' => $callRecord->appointment_at,
                 'stage' => AppointmentStage::AppointmentMade->value,
             ]
         );

@@ -52,7 +52,11 @@ class CallRecordOthersNotesTest extends TestCase
         $this->actingAs($admin);
 
         Livewire::test(CreateCallRecord::class)
-            ->fillForm($this->baseFormData(['outcome' => CallOutcome::NoAnswer->value, 'notes' => null]))
+            ->fillForm($this->baseFormData([
+                'outcome' => CallOutcome::NoAnswer->value,
+                'follow_up_at' => now()->addDay()->format('Y-m-d H:i:s'),
+                'notes' => null,
+            ]))
             ->call('create')
             ->assertHasNoFormErrors();
 
