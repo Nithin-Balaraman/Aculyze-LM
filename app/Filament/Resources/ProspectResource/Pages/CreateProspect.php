@@ -17,4 +17,12 @@ class CreateProspect extends CreateRecord
 
         return $data;
     }
+
+    // Return to the list, not the new record's view/edit page — same
+    // destination "Cancel" already goes to (Filament's default here is
+    // view-then-edit-then-index).
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
+    }
 }
