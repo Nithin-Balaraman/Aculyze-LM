@@ -9,6 +9,7 @@ use App\Filament\Resources\UserResource\Pages;
 use App\Models\User;
 use App\Services\EmployeeDeletionService;
 use App\Support\DeletionGuard;
+use App\Support\TableBulkActions;
 use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -126,6 +127,7 @@ class UserResource extends Resource
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
+                    TableBulkActions::deselectAll(),
                     Tables\Actions\DeleteBulkAction::make()
                         ->before(fn (Collection $records) => DeletionGuard::guardRecords($records, 'employees', fn (User $user) => $user->name)),
                 ]),

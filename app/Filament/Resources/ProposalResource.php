@@ -8,6 +8,7 @@ use App\Filament\Resources\ProposalResource\Pages;
 use App\Models\Lead;
 use App\Models\Proposal;
 use App\Models\User;
+use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -158,6 +159,7 @@ class ProposalResource extends Resource
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
+                    TableBulkActions::deselectAll(),
                     Tables\Actions\DeleteBulkAction::make()
                         ->visible(fn () => auth()->user()->isAdmin()),
                 ]),

@@ -6,6 +6,7 @@ use App\Filament\Resources\ExportRequestResource\Pages\ListExportRequests;
 use App\Filament\Resources\LeadResource\Pages\ListLeads;
 use App\Filament\Resources\ProposalResource\Pages\ListProposals;
 use App\Filament\Resources\ProspectResource\Pages\ListProspects;
+use App\Models\Prospect;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -79,5 +80,39 @@ class BulkSelectToggleTest extends TestCase
         $table = Livewire::test(ListProposals::class)->instance()->getTable();
 
         $this->assertTrue($table->getColumn('is_stale')->isToggledHiddenByDefault());
+    }
+
+    /**
+     * "Deselect all" moved from a standalone link in the selection-
+     * indicator bar into a real entry in the "Bulk actions" dropdown (see
+     * App\Support\TableBulkActions::deselectAll()). It's a no-op action
+     * that relies on BulkAction's built-in deselectRecordsAfterCompletion()
+     * to actually clear the selection.
+     */
+    public function test_admin_can_deselect_all_via_the_bulk_actions_dropdown(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $prospects = Prospect::factory()->count(2)->create();
+
+        Livewire::test(ListProspects::class)
+            ->callTableBulkAction('deselectAll', $prospects)
+            ->assertSet('selectedTableRecords', []);
+    }
+
+    /**
+     * Must stay gated identically to the resource's other bulk actions
+     * (Delete) — Table::isSelectionEnabled() checks whether ANY bulk
+     * action is visible, so an unrestricted "Deselect all" would silently
+     * turn row checkboxes back on for Employees, who currently see none.
+     */
+    public function test_employee_does_not_have_the_deselect_all_bulk_action(): void
+    {
+        $employee = User::factory()->create();
+        $this->actingAs($employee);
+
+        Livewire::test(ListLeads::class)
+            ->assertTableBulkActionHidden('deselectAll');
     }
 }

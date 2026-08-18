@@ -7,6 +7,7 @@ use App\Filament\Resources\CallRecordResource\Pages;
 use App\Models\CallRecord;
 use App\Models\Prospect;
 use App\Support\DeletionGuard;
+use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
@@ -343,6 +344,7 @@ class CallRecordResource extends Resource
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
+                    TableBulkActions::deselectAll(),
                     Tables\Actions\DeleteBulkAction::make()
                         ->visible(fn () => auth()->user()->isAdmin())
                         ->before(fn (Collection $records) => DeletionGuard::guardRecords(

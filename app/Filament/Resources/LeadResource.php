@@ -8,6 +8,7 @@ use App\Filament\Resources\LeadResource\Pages;
 use App\Models\Lead;
 use App\Models\User;
 use App\Support\DeletionGuard;
+use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
@@ -221,6 +222,7 @@ class LeadResource extends Resource
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
+                    TableBulkActions::deselectAll(),
                     Tables\Actions\DeleteBulkAction::make()
                         ->visible(fn () => auth()->user()->isAdmin())
                         ->before(fn (Collection $records) => DeletionGuard::guardRecords($records, 'leads', fn (Lead $lead) => $lead->prospect->company_name)),

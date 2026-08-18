@@ -1,9 +1,9 @@
 {{--
     Overrides vendor/filament/tables/resources/views/components/selection/indicator.blade.php.
-    Only change from upstream: "Deselect all" is `color="gray"` instead of
-    Filament's default `color="danger"` — red should read as destructive
-    (Delete itself), not as "deselect", which otherwise dominated the
-    toolbar visually the moment any row was selected.
+    Only change from upstream: the standalone "Deselect all" link is
+    removed — it's now a real entry inside each resource's "Bulk actions"
+    dropdown instead (see App\Support\TableBulkActions::deselectAll()),
+    rather than a separate link that visually dominated the toolbar.
 --}}
 
 @php
@@ -64,14 +64,6 @@
                 :wire:key="$this->getId() . 'table.selection.indicator.actions.select-all.' . $allSelectableRecordsCount . '.' . $page"
             >
                 {{ trans_choice('filament-tables::table.selection_indicator.actions.select_all.label', $allSelectableRecordsCount, ['count' => \Illuminate\Support\Number::format($allSelectableRecordsCount, locale: $locale)]) }}
-            </x-filament::link>
-
-            <x-filament::link
-                color="gray"
-                tag="button"
-                :x-on:click="$deselectAllRecordsAction"
-            >
-                {{ __('filament-tables::table.selection_indicator.actions.deselect_all.label') }}
             </x-filament::link>
         </div>
 

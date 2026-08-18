@@ -7,6 +7,7 @@ use App\Enums\FollowUpStatus;
 use App\Filament\Resources\FollowUpResource\Pages;
 use App\Models\CallRecord;
 use App\Models\FollowUp;
+use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -179,6 +180,7 @@ class FollowUpResource extends Resource
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
+                    TableBulkActions::deselectAll(),
                     Tables\Actions\DeleteBulkAction::make()
                         ->visible(fn () => auth()->user()->isAdmin()),
                 ]),

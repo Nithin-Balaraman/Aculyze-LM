@@ -92,7 +92,7 @@ class AdminPanelProvider extends PanelProvider
                 fn (): string => view('filament.scripts.bulk-select-store')->render(),
             )
             ->renderHook(
-                TablesRenderHook::TOOLBAR_TOGGLE_COLUMN_TRIGGER_AFTER,
+                TablesRenderHook::TOOLBAR_START,
                 fn (): string => auth()->user()?->isAdmin()
                     ? view('filament.tables.bulk-select-toggle')->render()
                     : '',
