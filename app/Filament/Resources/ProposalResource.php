@@ -8,6 +8,7 @@ use App\Filament\Resources\ProposalResource\Pages;
 use App\Models\Lead;
 use App\Models\Proposal;
 use App\Models\User;
+use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -119,7 +120,8 @@ class ProposalResource extends Resource
                     ->trueColor('coral')
                     ->trueIcon('heroicon-o-exclamation-triangle')
                     ->falseIcon('heroicon-o-check-circle')
-                    ->falseColor('gray'),
+                    ->falseColor('gray')
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('stage')
@@ -135,26 +137,29 @@ class ProposalResource extends Resource
                     ->query(fn (Builder $query) => $query->stale()),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\Action::make('assign')
-                    ->label('Reassign')
-                    ->icon('heroicon-o-user-plus')
-                    ->color('gray')
-                    ->visible(fn (Proposal $record) => auth()->user()->can('assign', $record))
-                    ->form([
-                        Forms\Components\Select::make('assigned_to')
-                            ->label('Assign To')
-                            ->options(fn () => User::query()->pluck('name', 'id'))
-                            ->required()
-                            ->searchable(),
-                    ])
-                    ->action(fn (Proposal $record, array $data) => $record->update(['assigned_to' => $data['assigned_to']])),
-                Tables\Actions\DeleteAction::make()
-                    ->visible(fn () => auth()->user()->isAdmin()),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make(),
+                    Tables\Actions\EditAction::make(),
+                    Tables\Actions\Action::make('assign')
+                        ->label('Reassign')
+                        ->icon('heroicon-o-user-plus')
+                        ->color('gray')
+                        ->visible(fn (Proposal $record) => auth()->user()->can('assign', $record))
+                        ->form([
+                            Forms\Components\Select::make('assigned_to')
+                                ->label('Assign To')
+                                ->options(fn () => User::query()->pluck('name', 'id'))
+                                ->required()
+                                ->searchable(),
+                        ])
+                        ->action(fn (Proposal $record, array $data) => $record->update(['assigned_to' => $data['assigned_to']])),
+                    Tables\Actions\DeleteAction::make()
+                        ->visible(fn () => auth()->user()->isAdmin()),
+                ]),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
+                    TableBulkActions::deselectAll(),
                     Tables\Actions\DeleteBulkAction::make()
                         ->visible(fn () => auth()->user()->isAdmin()),
                 ]),

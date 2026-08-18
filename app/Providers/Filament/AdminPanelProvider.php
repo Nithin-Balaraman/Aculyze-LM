@@ -5,6 +5,13 @@ namespace App\Providers\Filament;
 use App\Filament\AvatarProviders\InitialsAvatarProvider;
 use App\Filament\Pages\Auth\EditProfile;
 use App\Filament\Pages\MyDashboard;
+use App\Filament\Resources\AppointmentResource\Pages\ListAppointments;
+use App\Filament\Resources\CallRecordResource\Pages\ListCallRecords;
+use App\Filament\Resources\FollowUpResource\Pages\ListFollowUps;
+use App\Filament\Resources\LeadResource\Pages\ListLeads;
+use App\Filament\Resources\ProposalResource\Pages\ListProposals;
+use App\Filament\Resources\ProspectResource\Pages\ListProspects;
+use App\Filament\Resources\UserResource\Pages\ListUsers;
 use Filament\FontProviders\LocalFontProvider;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -13,6 +20,8 @@ use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
+use Filament\Tables\View\TablesRenderHook;
+use Filament\View\PanelsRenderHook;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
@@ -69,6 +78,34 @@ class AdminPanelProvider extends PanelProvider
                 'gray' => Color::hex('#64748b'),
             ])
             ->viteTheme('resources/css/filament/admin/theme.css')
+            /*
+             * Bulk-select checkboxes UI fix: hidden by default (an
+             * `enabled: false` Alpine store) so they don't sit permanently
+             * on the left of every row pushing the row-actions dropdown
+             * off-screen — see the "Select Multiple" toggle button below
+             * and the overridden vendor views under
+             * resources/views/vendor/filament-tables/components/selection/.
+             * Registered here, once, panel-wide, rather than per-resource.
+             */
+            ->renderHook(
+                PanelsRenderHook::SCRIPTS_AFTER,
+                fn (): string => view('filament.scripts.bulk-select-store')->render(),
+            )
+            ->renderHook(
+                TablesRenderHook::TOOLBAR_START,
+                fn (): string => auth()->user()?->isAdmin()
+                    ? view('filament.tables.bulk-select-toggle')->render()
+                    : '',
+                scopes: [
+                    ListProspects::class,
+                    ListCallRecords::class,
+                    ListFollowUps::class,
+                    ListAppointments::class,
+                    ListLeads::class,
+                    ListProposals::class,
+                    ListUsers::class,
+                ],
+            )
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->pages([

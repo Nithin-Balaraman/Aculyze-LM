@@ -9,6 +9,7 @@ use App\Filament\Resources\UserResource\Pages;
 use App\Models\User;
 use App\Services\EmployeeDeletionService;
 use App\Support\DeletionGuard;
+use App\Support\TableBulkActions;
 use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -113,17 +114,20 @@ class UserResource extends Resource
                     ->options(UserRole::class),
             ])
             ->actions([
-                Tables\Actions\Action::make('dashboard')
-                    ->label('Dashboard')
-                    ->icon('heroicon-o-chart-bar')
-                    ->url(fn (User $record) => EmployeeDashboard::getUrl(['employee' => $record->id]))
-                    ->color('gray'),
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                static::tableDeleteAction(),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\Action::make('dashboard')
+                        ->label('Dashboard')
+                        ->icon('heroicon-o-chart-bar')
+                        ->url(fn (User $record) => EmployeeDashboard::getUrl(['employee' => $record->id]))
+                        ->color('gray'),
+                    Tables\Actions\ViewAction::make(),
+                    Tables\Actions\EditAction::make(),
+                    static::tableDeleteAction(),
+                ]),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
+                    TableBulkActions::deselectAll(),
                     Tables\Actions\DeleteBulkAction::make()
                         ->before(fn (Collection $records) => DeletionGuard::guardRecords($records, 'employees', fn (User $user) => $user->name)),
                 ]),

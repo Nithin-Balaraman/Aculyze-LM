@@ -7,6 +7,7 @@ use App\Enums\FollowUpStatus;
 use App\Filament\Resources\FollowUpResource\Pages;
 use App\Models\CallRecord;
 use App\Models\FollowUp;
+use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -134,49 +135,52 @@ class FollowUpResource extends Resource
                 : null)
             ->groupingSettingsHidden()
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\Action::make('completed')
-                    ->label('Completed')
-                    ->icon('heroicon-o-phone')
-                    ->color('success')
-                    ->visible(fn (FollowUp $record) => $record->status === FollowUpStatus::Pending && auth()->user()->can('update', $record))
-                    ->form([
-                        Forms\Components\Select::make('outcome')
-                            ->label('Call Outcome')
-                            ->options(CallOutcome::class)
-                            ->required()
-                            ->helperText('You reached them — log what happened on this call, same as logging any other call.'),
-                    ])
-                    ->action(function (FollowUp $record, array $data) {
-                        DB::transaction(function () use ($record, $data) {
-                            // A real new Call Record, routed by the exact
-                            // same CallRoutingService every other call
-                            // uses (via CallRecordObserver on `created`) —
-                            // not a parallel/duplicate routing path.
-                            CallRecord::create([
-                                'prospect_id' => $record->prospect_id,
-                                'user_id' => auth()->id(),
-                                'called_at' => now(),
-                                'outcome' => $data['outcome'],
-                            ]);
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make(),
+                    Tables\Actions\EditAction::make(),
+                    Tables\Actions\Action::make('completed')
+                        ->label('Completed')
+                        ->icon('heroicon-o-phone')
+                        ->color('success')
+                        ->visible(fn (FollowUp $record) => $record->status === FollowUpStatus::Pending && auth()->user()->can('update', $record))
+                        ->form([
+                            Forms\Components\Select::make('outcome')
+                                ->label('Call Outcome')
+                                ->options(CallOutcome::class)
+                                ->required()
+                                ->helperText('You reached them — log what happened on this call, same as logging any other call.'),
+                        ])
+                        ->action(function (FollowUp $record, array $data) {
+                            DB::transaction(function () use ($record, $data) {
+                                // A real new Call Record, routed by the exact
+                                // same CallRoutingService every other call
+                                // uses (via CallRecordObserver on `created`) —
+                                // not a parallel/duplicate routing path.
+                                CallRecord::create([
+                                    'prospect_id' => $record->prospect_id,
+                                    'user_id' => auth()->id(),
+                                    'called_at' => now(),
+                                    'outcome' => $data['outcome'],
+                                ]);
 
-                            $record->update(['status' => FollowUpStatus::Completed]);
-                        });
-                    }),
-                Tables\Actions\Action::make('close')
-                    ->label('Close')
-                    ->icon('heroicon-o-archive-box-x-mark')
-                    ->color('gray')
-                    ->requiresConfirmation()
-                    ->modalDescription('This follow-up will be archived and removed from your default list. It is not deleted — history is retained.')
-                    ->visible(fn (FollowUp $record) => $record->status === FollowUpStatus::Pending && auth()->user()->can('update', $record))
-                    ->action(fn (FollowUp $record) => $record->update(['status' => FollowUpStatus::Cancelled])),
-                Tables\Actions\DeleteAction::make()
-                    ->visible(fn () => auth()->user()->isAdmin()),
+                                $record->update(['status' => FollowUpStatus::Completed]);
+                            });
+                        }),
+                    Tables\Actions\Action::make('close')
+                        ->label('Close')
+                        ->icon('heroicon-o-archive-box-x-mark')
+                        ->color('gray')
+                        ->requiresConfirmation()
+                        ->modalDescription('This follow-up will be archived and removed from your default list. It is not deleted — history is retained.')
+                        ->visible(fn (FollowUp $record) => $record->status === FollowUpStatus::Pending && auth()->user()->can('update', $record))
+                        ->action(fn (FollowUp $record) => $record->update(['status' => FollowUpStatus::Cancelled])),
+                    Tables\Actions\DeleteAction::make()
+                        ->visible(fn () => auth()->user()->isAdmin()),
+                ]),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
+                    TableBulkActions::deselectAll(),
                     Tables\Actions\DeleteBulkAction::make()
                         ->visible(fn () => auth()->user()->isAdmin()),
                 ]),

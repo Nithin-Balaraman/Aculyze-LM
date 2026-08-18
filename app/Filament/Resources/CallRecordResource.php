@@ -7,6 +7,7 @@ use App\Filament\Resources\CallRecordResource\Pages;
 use App\Models\CallRecord;
 use App\Models\Prospect;
 use App\Support\DeletionGuard;
+use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
@@ -333,14 +334,17 @@ class CallRecordResource extends Resource
                     }),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make()
-                    ->visible(fn () => auth()->user()->isAdmin())
-                    ->before(fn (CallRecord $record) => DeletionGuard::guardRecord($record, 'call record')),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make(),
+                    Tables\Actions\EditAction::make(),
+                    Tables\Actions\DeleteAction::make()
+                        ->visible(fn () => auth()->user()->isAdmin())
+                        ->before(fn (CallRecord $record) => DeletionGuard::guardRecord($record, 'call record')),
+                ]),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
+                    TableBulkActions::deselectAll(),
                     Tables\Actions\DeleteBulkAction::make()
                         ->visible(fn () => auth()->user()->isAdmin())
                         ->before(fn (Collection $records) => DeletionGuard::guardRecords(
