@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ContactMode;
 use App\Enums\FollowUpStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,6 +19,7 @@ class FollowUp extends Model
         'call_record_id',
         'user_id',
         'follow_up_at',
+        'contact_mode',
         'reason',
         'notes',
         'status',
@@ -28,6 +30,7 @@ class FollowUp extends Model
         return [
             'status' => FollowUpStatus::class,
             'follow_up_at' => 'datetime',
+            'contact_mode' => ContactMode::class,
         ];
     }
 

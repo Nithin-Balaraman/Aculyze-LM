@@ -45,7 +45,10 @@ class FollowUpCompletedTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(ListFollowUps::class)
-            ->callTableAction('completed', $followUp, data: ['outcome' => CallOutcome::RequirementIdentified->value])
+            ->callTableAction('completed', $followUp, data: [
+                'outcome' => CallOutcome::RequirementIdentified->value,
+                'notes' => 'Spoke to the owner, ready to move forward.',
+            ])
             ->assertHasNoTableActionErrors();
 
         $followUp->refresh();
@@ -62,6 +65,7 @@ class FollowUpCompletedTest extends TestCase
             ->first();
 
         $this->assertNotNull($newCall);
+        $this->assertSame('Spoke to the owner, ready to move forward.', $newCall->notes);
         $this->assertNotNull($newCall->appointment);
         $this->assertNotNull($newCall->lead);
     }
@@ -74,8 +78,25 @@ class FollowUpCompletedTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(ListFollowUps::class)
-            ->callTableAction('completed', $followUp, data: ['outcome' => ''])
+            ->callTableAction('completed', $followUp, data: ['outcome' => '', 'notes' => 'Reached them this time.'])
             ->assertHasTableActionErrors(['outcome' => 'required']);
+
+        $this->assertSame(FollowUpStatus::Pending, $followUp->fresh()->status);
+    }
+
+    public function test_completed_action_requires_notes(): void
+    {
+        $employee = User::factory()->create();
+        $followUp = $this->makeFollowUp($employee);
+
+        $this->actingAs($employee);
+
+        Livewire::test(ListFollowUps::class)
+            ->callTableAction('completed', $followUp, data: [
+                'outcome' => CallOutcome::NoAnswer->value,
+                'notes' => '',
+            ])
+            ->assertHasTableActionErrors(['notes' => 'required']);
 
         $this->assertSame(FollowUpStatus::Pending, $followUp->fresh()->status);
     }

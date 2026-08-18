@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Enums\CallOutcome;
+use App\Enums\ContactMode;
 use App\Enums\FollowUpStatus;
 use App\Filament\Resources\FollowUpResource\Pages;
 use App\Models\CallRecord;
@@ -66,9 +67,15 @@ class FollowUpResource extends Resource
                             ->required()
                             ->searchable()
                             ->preload(),
-                        Forms\Components\DateTimePicker::make('follow_up_at')
-                            ->required()
-                            ->seconds(false),
+                        Forms\Components\Grid::make(2)
+                            ->schema([
+                                Forms\Components\DateTimePicker::make('follow_up_at')
+                                    ->required()
+                                    ->seconds(false),
+                                Forms\Components\Select::make('contact_mode')
+                                    ->label('Contact Mode')
+                                    ->options(ContactMode::class),
+                            ]),
                         Forms\Components\TextInput::make('reason')
                             ->required()
                             ->maxLength(255),
@@ -149,6 +156,10 @@ class FollowUpResource extends Resource
                                 ->options(CallOutcome::class)
                                 ->required()
                                 ->helperText('You reached them — log what happened on this call, same as logging any other call.'),
+                            Forms\Components\Textarea::make('notes')
+                                ->label('Notes')
+                                ->required()
+                                ->rows(3),
                         ])
                         ->action(function (FollowUp $record, array $data) {
                             DB::transaction(function () use ($record, $data) {
@@ -161,6 +172,7 @@ class FollowUpResource extends Resource
                                     'user_id' => auth()->id(),
                                     'called_at' => now(),
                                     'outcome' => $data['outcome'],
+                                    'notes' => $data['notes'],
                                 ]);
 
                                 $record->update(['status' => FollowUpStatus::Completed]);
