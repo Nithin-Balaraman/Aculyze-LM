@@ -20,4 +20,12 @@ class EditLead extends EditRecord
                 ->before(fn (Lead $record) => DeletionGuard::guardRecord($record, 'lead')),
         ];
     }
+
+    // Return to the list instead of Filament's default (stay on this same
+    // Edit page) — same destination "Cancel" already goes to (mirrors the
+    // Create*.php redirect fix).
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
+    }
 }
