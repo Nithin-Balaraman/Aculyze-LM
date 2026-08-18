@@ -17,4 +17,12 @@ class EditFollowUp extends EditRecord
             Actions\DeleteAction::make(),
         ];
     }
+
+    // Return to the list instead of Filament's default (stay on this same
+    // Edit page) — same destination "Cancel" already goes to (mirrors the
+    // Create*.php redirect fix).
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
+    }
 }
