@@ -174,48 +174,50 @@ class LeadResource extends Resource
                     ->placeholder('All leads'),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\Action::make('assign')
-                    ->label('Reassign')
-                    ->icon('heroicon-o-user-plus')
-                    ->color('gray')
-                    ->visible(fn (Lead $record) => auth()->user()->can('assign', $record))
-                    ->form([
-                        Forms\Components\Select::make('assigned_to')
-                            ->label('Assign To')
-                            ->options(fn () => User::query()->pluck('name', 'id'))
-                            ->required()
-                            ->searchable(),
-                    ])
-                    ->action(fn (Lead $record, array $data) => $record->update(['assigned_to' => $data['assigned_to']])),
-                Tables\Actions\Action::make('createProposal')
-                    ->label('Create Proposal')
-                    ->icon('heroicon-o-document-text')
-                    ->color('success')
-                    ->visible(fn (Lead $record) => ! $record->is_lost
-                        && $record->stage->isEligibleForProposal()
-                        && $record->hasMeaningfulNotes()
-                        && $record->proposal === null
-                        && auth()->user()->can('update', $record))
-                    ->url(fn (Lead $record) => ProposalResource::getUrl('create', ['lead_id' => $record->id])),
-                Tables\Actions\Action::make('markLost')
-                    ->label('Mark Lost')
-                    ->icon('heroicon-o-x-circle')
-                    ->color('coral')
-                    ->requiresConfirmation(false)
-                    ->visible(fn (Lead $record) => ! $record->is_lost && auth()->user()->can('update', $record))
-                    ->form([
-                        Forms\Components\Textarea::make('reason')
-                            ->label('Reason')
-                            ->required()
-                            ->rows(3)
-                            ->helperText('Required — why this Lead is being marked Lost.'),
-                    ])
-                    ->action(fn (Lead $record, array $data) => $record->markLost($data['reason'])),
-                Tables\Actions\DeleteAction::make()
-                    ->visible(fn () => auth()->user()->isAdmin())
-                    ->before(fn (Lead $record) => DeletionGuard::guardRecord($record, 'lead')),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make(),
+                    Tables\Actions\EditAction::make(),
+                    Tables\Actions\Action::make('assign')
+                        ->label('Reassign')
+                        ->icon('heroicon-o-user-plus')
+                        ->color('gray')
+                        ->visible(fn (Lead $record) => auth()->user()->can('assign', $record))
+                        ->form([
+                            Forms\Components\Select::make('assigned_to')
+                                ->label('Assign To')
+                                ->options(fn () => User::query()->pluck('name', 'id'))
+                                ->required()
+                                ->searchable(),
+                        ])
+                        ->action(fn (Lead $record, array $data) => $record->update(['assigned_to' => $data['assigned_to']])),
+                    Tables\Actions\Action::make('createProposal')
+                        ->label('Create Proposal')
+                        ->icon('heroicon-o-document-text')
+                        ->color('success')
+                        ->visible(fn (Lead $record) => ! $record->is_lost
+                            && $record->stage->isEligibleForProposal()
+                            && $record->hasMeaningfulNotes()
+                            && $record->proposal === null
+                            && auth()->user()->can('update', $record))
+                        ->url(fn (Lead $record) => ProposalResource::getUrl('create', ['lead_id' => $record->id])),
+                    Tables\Actions\Action::make('markLost')
+                        ->label('Mark Lost')
+                        ->icon('heroicon-o-x-circle')
+                        ->color('coral')
+                        ->requiresConfirmation(false)
+                        ->visible(fn (Lead $record) => ! $record->is_lost && auth()->user()->can('update', $record))
+                        ->form([
+                            Forms\Components\Textarea::make('reason')
+                                ->label('Reason')
+                                ->required()
+                                ->rows(3)
+                                ->helperText('Required — why this Lead is being marked Lost.'),
+                        ])
+                        ->action(fn (Lead $record, array $data) => $record->markLost($data['reason'])),
+                    Tables\Actions\DeleteAction::make()
+                        ->visible(fn () => auth()->user()->isAdmin())
+                        ->before(fn (Lead $record) => DeletionGuard::guardRecord($record, 'lead')),
+                ]),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

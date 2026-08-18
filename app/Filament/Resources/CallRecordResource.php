@@ -333,11 +333,13 @@ class CallRecordResource extends Resource
                     }),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make()
-                    ->visible(fn () => auth()->user()->isAdmin())
-                    ->before(fn (CallRecord $record) => DeletionGuard::guardRecord($record, 'call record')),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make(),
+                    Tables\Actions\EditAction::make(),
+                    Tables\Actions\DeleteAction::make()
+                        ->visible(fn () => auth()->user()->isAdmin())
+                        ->before(fn (CallRecord $record) => DeletionGuard::guardRecord($record, 'call record')),
+                ]),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

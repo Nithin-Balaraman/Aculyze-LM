@@ -81,24 +81,26 @@ class ExportRequestResource extends Resource
                     ->options(ExportableResource::class),
             ])
             ->actions([
-                Tables\Actions\Action::make('approve')
-                    ->label('Approve')
-                    ->icon('heroicon-o-check-circle')
-                    ->color('success')
-                    ->requiresConfirmation()
-                    ->visible(fn (ExportRequest $record) => $record->status === ExportRequestStatus::Pending && auth()->user()->can('decide', $record))
-                    ->action(fn (ExportRequest $record) => static::decide($record, fn (User $admin) => $record->approve($admin))),
-                Tables\Actions\Action::make('deny')
-                    ->label('Deny')
-                    ->icon('heroicon-o-x-circle')
-                    ->color('danger')
-                    ->visible(fn (ExportRequest $record) => $record->status === ExportRequestStatus::Pending && auth()->user()->can('decide', $record))
-                    ->form([
-                        Forms\Components\Textarea::make('reason')
-                            ->label('Reason (optional)')
-                            ->rows(3),
-                    ])
-                    ->action(fn (ExportRequest $record, array $data) => static::decide($record, fn (User $admin) => $record->deny($admin, $data['reason'] ?? null))),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\Action::make('approve')
+                        ->label('Approve')
+                        ->icon('heroicon-o-check-circle')
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->visible(fn (ExportRequest $record) => $record->status === ExportRequestStatus::Pending && auth()->user()->can('decide', $record))
+                        ->action(fn (ExportRequest $record) => static::decide($record, fn (User $admin) => $record->approve($admin))),
+                    Tables\Actions\Action::make('deny')
+                        ->label('Deny')
+                        ->icon('heroicon-o-x-circle')
+                        ->color('danger')
+                        ->visible(fn (ExportRequest $record) => $record->status === ExportRequestStatus::Pending && auth()->user()->can('decide', $record))
+                        ->form([
+                            Forms\Components\Textarea::make('reason')
+                                ->label('Reason (optional)')
+                                ->rows(3),
+                        ])
+                        ->action(fn (ExportRequest $record, array $data) => static::decide($record, fn (User $admin) => $record->deny($admin, $data['reason'] ?? null))),
+                ]),
             ])
             ->defaultSort('created_at', 'desc')
             ->emptyStateHeading('No export requests yet.')

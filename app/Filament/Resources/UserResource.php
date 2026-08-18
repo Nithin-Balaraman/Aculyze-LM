@@ -113,14 +113,16 @@ class UserResource extends Resource
                     ->options(UserRole::class),
             ])
             ->actions([
-                Tables\Actions\Action::make('dashboard')
-                    ->label('Dashboard')
-                    ->icon('heroicon-o-chart-bar')
-                    ->url(fn (User $record) => EmployeeDashboard::getUrl(['employee' => $record->id]))
-                    ->color('gray'),
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                static::tableDeleteAction(),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\Action::make('dashboard')
+                        ->label('Dashboard')
+                        ->icon('heroicon-o-chart-bar')
+                        ->url(fn (User $record) => EmployeeDashboard::getUrl(['employee' => $record->id]))
+                        ->color('gray'),
+                    Tables\Actions\ViewAction::make(),
+                    Tables\Actions\EditAction::make(),
+                    static::tableDeleteAction(),
+                ]),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
