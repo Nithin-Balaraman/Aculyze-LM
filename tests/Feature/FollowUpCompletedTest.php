@@ -114,10 +114,30 @@ class FollowUpCompletedTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(ListFollowUps::class)
-            ->callTableAction('close', $followUp);
+            ->callTableAction('close', $followUp, data: [
+                'notes' => 'Prospect asked not to be contacted again.',
+            ])
+            ->assertHasNoTableActionErrors();
 
         $followUp->refresh();
         $this->assertSame(FollowUpStatus::Cancelled, $followUp->status);
+        $this->assertSame('Prospect asked not to be contacted again.', $followUp->notes);
+        $this->assertSame(1, CallRecord::where('prospect_id', $followUp->prospect_id)->count());
+    }
+
+    public function test_close_action_requires_notes(): void
+    {
+        $employee = User::factory()->create();
+        $followUp = $this->makeFollowUp($employee);
+
+        $this->actingAs($employee);
+
+        Livewire::test(ListFollowUps::class)
+            ->callTableAction('close', $followUp, data: ['notes' => ''])
+            ->assertHasTableActionErrors(['notes' => 'required']);
+
+        $followUp->refresh();
+        $this->assertSame(FollowUpStatus::Pending, $followUp->status);
         $this->assertSame(1, CallRecord::where('prospect_id', $followUp->prospect_id)->count());
     }
 
