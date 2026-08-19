@@ -120,7 +120,16 @@ class AppointmentResource extends Resource
             ->actions([
                 Tables\Actions\ActionGroup::make([
                     Tables\Actions\ViewAction::make(),
-                    Tables\Actions\EditAction::make(),
+                    // Carries the tab the user is currently on through to
+                    // the Edit page as ?activeTab=..., so getRedirectUrl()
+                    // on EditAppointment can send them back to the same
+                    // tab (History/Lost) instead of always Pending — see
+                    // that page for the other half of this.
+                    Tables\Actions\EditAction::make()
+                        ->url(fn (Appointment $record, $livewire): string => static::getUrl('edit', [
+                            'record' => $record,
+                            'activeTab' => $livewire->activeTab,
+                        ])),
                     Tables\Actions\Action::make('assign')
                         ->label('Reassign')
                         ->icon('heroicon-o-user-plus')
