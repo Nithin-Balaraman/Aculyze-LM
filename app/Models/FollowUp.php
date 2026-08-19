@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class FollowUp extends Model
@@ -87,6 +88,16 @@ class FollowUp extends Model
         return $this->belongsTo(CallRecord::class);
     }
 
+    /**
+     * The Call Record this Follow-Up's own "Completed" action created
+     * (the reverse of CallRecord::generatedByFollowUp()) — exists only
+     * once the Follow-Up has actually been completed.
+     */
+    public function generatedCallRecord(): HasOne
+    {
+        return $this->hasOne(CallRecord::class, 'follow_up_id');
+    }
+
     public function responsibleEmployee(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
@@ -95,5 +106,21 @@ class FollowUp extends Model
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         return $user->isAdmin() ? $query : $query->where('user_id', $user->id);
+    }
+
+    /**
+     * A completed Follow-Up's generated Call Record (call_records.
+     * follow_up_id) is a plain RESTRICT foreign key like everything else
+     * in this schema — deleting a completed Follow-Up would otherwise fail
+     * as a raw, uncaught 500 rather than the friendly DeletionGuard
+     * message every other RESTRICT relationship gets.
+     *
+     * @return array<string, int>
+     */
+    public function deletionBlockers(): array
+    {
+        return [
+            'Call Record' => (int) $this->generatedCallRecord()->exists(),
+        ];
     }
 }
