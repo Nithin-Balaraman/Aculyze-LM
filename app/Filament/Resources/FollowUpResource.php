@@ -214,7 +214,10 @@ class FollowUpResource extends Resource
                         ])),
                     Tables\Actions\DeleteAction::make()
                         ->visible(fn () => auth()->user()->isAdmin())
-                        ->before(fn (FollowUp $record) => DeletionGuard::guardRecord($record, 'follow-up')),
+                        ->before(function (FollowUp $record) {
+                            $record->deleteHarmlessGeneratedCallRecord();
+                            DeletionGuard::guardRecord($record, 'follow-up');
+                        }),
                 ]),
             ])
             ->bulkActions([
