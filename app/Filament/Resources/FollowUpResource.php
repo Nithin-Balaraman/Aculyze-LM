@@ -200,7 +200,17 @@ class FollowUpResource extends Resource
                         ->requiresConfirmation()
                         ->modalDescription('This follow-up will be archived and removed from your default list. It is not deleted — history is retained.')
                         ->visible(fn (FollowUp $record) => $record->status === FollowUpStatus::Pending && auth()->user()->can('update', $record))
-                        ->action(fn (FollowUp $record) => $record->update(['status' => FollowUpStatus::Cancelled])),
+                        ->form([
+                            Forms\Components\Textarea::make('notes')
+                                ->label('Notes')
+                                ->required()
+                                ->rows(3)
+                                ->helperText('Required — why this follow-up is being closed.'),
+                        ])
+                        ->action(fn (FollowUp $record, array $data) => $record->update([
+                            'status' => FollowUpStatus::Cancelled,
+                            'notes' => $data['notes'],
+                        ])),
                     Tables\Actions\DeleteAction::make()
                         ->visible(fn () => auth()->user()->isAdmin())
                         ->before(fn (FollowUp $record) => DeletionGuard::guardRecord($record, 'follow-up')),
