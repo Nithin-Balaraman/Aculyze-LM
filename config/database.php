@@ -57,6 +57,21 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+            // Dashboard "Today" KPI fix: the server's own MySQL instance
+            // runs on UTC (confirmed via SELECT NOW() — see the migration
+            // in database/migrations that corrects existing TIMESTAMP data
+            // for this same reason), while the app generates and compares
+            // timestamps in APP_TIMEZONE=Asia/Kolkata. Without this, every
+            // TIMESTAMP column silently mislabels IST wall-clock values as
+            // UTC — invisible across wide date ranges, but enough to miss
+            // most of a day's data in a ~24h "Today" window. A fixed
+            // offset (not the named zone 'Asia/Kolkata') is used
+            // deliberately — MySQL's named-timezone support depends on the
+            // server's mysql.time_zone_name tables being loaded, which
+            // isn't guaranteed on shared hosting; a fixed offset has no
+            // such dependency and India has no DST to drift out of sync
+            // with anyway.
+            'timezone' => env('DB_TIMEZONE', '+05:30'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
