@@ -8,6 +8,7 @@ use App\Enums\FollowUpStatus;
 use App\Filament\Resources\FollowUpResource\Pages;
 use App\Models\CallRecord;
 use App\Models\FollowUp;
+use App\Support\DeletionGuard;
 use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -16,6 +17,7 @@ use Filament\Tables;
 use Filament\Tables\Grouping\Group;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -173,6 +175,10 @@ class FollowUpResource extends Resource
                                     'called_at' => now(),
                                     'outcome' => $data['outcome'],
                                     'notes' => $data['notes'],
+                                    // Marks this Call Record as existing
+                                    // purely to drive CallRoutingService —
+                                    // see CallRecord::scopeDirectlyLogged().
+                                    'follow_up_id' => $record->id,
                                 ]);
 
                                 $record->update(['status' => FollowUpStatus::Completed]);
@@ -187,14 +193,20 @@ class FollowUpResource extends Resource
                         ->visible(fn (FollowUp $record) => $record->status === FollowUpStatus::Pending && auth()->user()->can('update', $record))
                         ->action(fn (FollowUp $record) => $record->update(['status' => FollowUpStatus::Cancelled])),
                     Tables\Actions\DeleteAction::make()
-                        ->visible(fn () => auth()->user()->isAdmin()),
+                        ->visible(fn () => auth()->user()->isAdmin())
+                        ->before(fn (FollowUp $record) => DeletionGuard::guardRecord($record, 'follow-up')),
                 ]),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     TableBulkActions::deselectAll(),
                     Tables\Actions\DeleteBulkAction::make()
-                        ->visible(fn () => auth()->user()->isAdmin()),
+                        ->visible(fn () => auth()->user()->isAdmin())
+                        ->before(fn (Collection $records) => DeletionGuard::guardRecords(
+                            $records,
+                            'follow-ups',
+                            fn (FollowUp $followUp) => $followUp->prospect->company_name,
+                        )),
                 ]),
             ])
             ->defaultSort('follow_up_at', 'asc')
