@@ -123,4 +123,33 @@ class FollowUp extends Model
             'Call Record' => (int) $this->generatedCallRecord()->exists(),
         ];
     }
+
+    /**
+     * Deletion Cascade fix: the generated Call Record (see
+     * generatedCallRecord() above) has zero visibility anywhere else in
+     * the app — Call Record history, KPIs, Pipeline Pulse, employee
+     * deletion counts (see CallRecord::scopeDirectlyLogged()). Treating it
+     * as a real blocking dependent the way DeletionGuard treats everything
+     * else would force deleting this Follow-Up to first hunt down and
+     * delete a record the user can never actually see. If it has no
+     * downstream dependents of its own (CallRecord::deletionBlockers() —
+     * i.e. it never routed to a Lead/Appointment/new Follow-Up), it's
+     * purely an invisible byproduct and gets deleted along with this
+     * Follow-Up. If it DID trigger downstream routing, that's real
+     * history — this intentionally leaves it alone, so
+     * deletionBlockers() above still reports it and DeletionGuard still
+     * blocks the delete exactly as before.
+     *
+     * Intended to run in a DeleteAction's ->before() hook, ahead of
+     * DeletionGuard::guardRecord() — see FollowUpResource::table() and
+     * EditFollowUp::getHeaderActions().
+     */
+    public function deleteHarmlessGeneratedCallRecord(): void
+    {
+        $callRecord = $this->generatedCallRecord;
+
+        if ($callRecord && array_filter($callRecord->deletionBlockers()) === []) {
+            $callRecord->delete();
+        }
+    }
 }

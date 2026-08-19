@@ -3,6 +3,8 @@
 namespace App\Filament\Resources\FollowUpResource\Pages;
 
 use App\Filament\Resources\FollowUpResource;
+use App\Models\FollowUp;
+use App\Support\DeletionGuard;
 use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
 use Livewire\Attributes\Url;
@@ -22,7 +24,18 @@ class EditFollowUp extends EditRecord
     {
         return [
             Actions\ViewAction::make(),
-            Actions\DeleteAction::make(),
+            // Mirrors the row-level table action exactly (same admin-only
+            // visibility, same cascade-check-then-guard ->before()) — this
+            // used to have neither: any user could reach this button, and
+            // deleting a Follow-Up with a real dependent raw-threw a 500
+            // instead of the friendly DeletionGuard message, since nothing
+            // here ever called DeletionGuard::guardRecord().
+            Actions\DeleteAction::make()
+                ->visible(fn () => auth()->user()->isAdmin())
+                ->before(function (FollowUp $record) {
+                    $record->deleteHarmlessGeneratedCallRecord();
+                    DeletionGuard::guardRecord($record, 'follow-up');
+                }),
         ];
     }
 
