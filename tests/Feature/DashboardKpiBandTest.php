@@ -3,11 +3,13 @@
 namespace Tests\Feature;
 
 use App\Enums\CallOutcome;
+use App\Enums\FollowUpStatus;
 use App\Enums\ProposalOutcome;
 use App\Enums\ProposalStage;
 use App\Filament\Widgets\KpiBand;
 use App\Filament\Widgets\ProposalOutcomeChart;
 use App\Models\CallRecord;
+use App\Models\FollowUp;
 use App\Models\Lead;
 use App\Models\Proposal;
 use App\Models\Prospect;
@@ -136,6 +138,59 @@ class DashboardKpiBandTest extends TestCase
         $this->assertCount(7, $sparkline);
         $this->assertSame(1, $sparkline[6]);
         $this->assertSame(0, array_sum(array_slice($sparkline, 0, 6)));
+    }
+
+    public function test_follow_ups_tile_reports_pending_and_completed_as_separate_counts(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $prospect = Prospect::factory()->create();
+
+        FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+        FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+        FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Completed]);
+        FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Cancelled]);
+
+        $this->actingAs($admin);
+
+        $followUpsTile = Livewire::test(KpiBand::class)->instance()->getFollowUpsTile();
+
+        $this->assertSame(2, $followUpsTile['pending']);
+        $this->assertSame(1, $followUpsTile['completed']);
+    }
+
+    public function test_follow_ups_tile_respects_employee_scoping(): void
+    {
+        $nithin = User::factory()->create();
+        $kural = User::factory()->create();
+        $nithinProspect = Prospect::factory()->create(['assigned_to' => $nithin->id, 'created_by' => $nithin->id]);
+        $kuralProspect = Prospect::factory()->create(['assigned_to' => $kural->id, 'created_by' => $kural->id]);
+
+        FollowUp::create(['prospect_id' => $nithinProspect->id, 'user_id' => $nithin->id, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+        FollowUp::create(['prospect_id' => $kuralProspect->id, 'user_id' => $kural->id, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+        FollowUp::create(['prospect_id' => $kuralProspect->id, 'user_id' => $kural->id, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+
+        $this->actingAs($nithin);
+
+        $followUpsTile = Livewire::test(KpiBand::class, ['employeeId' => $nithin->id])->instance()->getFollowUpsTile();
+
+        $this->assertSame(1, $followUpsTile['pending']);
+    }
+
+    public function test_follow_ups_tile_respects_the_selected_period(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $prospect = Prospect::factory()->create();
+
+        $yesterday = FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+        $yesterday->forceFill(['created_at' => now()->subDay()])->saveQuietly();
+
+        FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+
+        $this->actingAs($admin);
+
+        $followUpsTile = Livewire::test(KpiBand::class, ['filters' => ['period' => 'today']])->instance()->getFollowUpsTile();
+
+        $this->assertSame(1, $followUpsTile['pending']);
     }
 
     public function test_proposal_outcome_chart_respects_employee_scoping(): void

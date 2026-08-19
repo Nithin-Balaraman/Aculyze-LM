@@ -74,6 +74,29 @@
                     @endif
                 </div>
             @endforeach
+
+            @php($followUpTile = $this->getFollowUpsTile())
+            <div class="rounded-lg border border-gray-200 p-4 dark:border-white/10">
+                <div class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    <x-filament::icon :icon="$followUpTile['icon']" class="h-3.5 w-3.5 shrink-0" />
+                    {{ $followUpTile['label'] }}
+                </div>
+
+                <div class="mt-1 grid grid-cols-2 gap-4">
+                    <div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">Pending</div>
+                        <div class="font-mono text-3xl font-semibold tabular-nums leading-none text-gray-950 dark:text-white">
+                            {{ $followUpTile['pending'] }}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">Completed</div>
+                        <div class="font-mono text-3xl font-semibold tabular-nums leading-none text-gray-950 dark:text-white">
+                            {{ $followUpTile['completed'] }}
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </x-filament::section>
 </x-filament-widgets::widget>

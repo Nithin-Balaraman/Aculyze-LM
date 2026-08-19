@@ -2,9 +2,11 @@
 
 namespace App\Filament\Widgets;
 
+use App\Enums\FollowUpStatus;
 use App\Enums\LeadTemperature;
 use App\Models\Appointment;
 use App\Models\CallRecord;
+use App\Models\FollowUp;
 use App\Models\Lead;
 use App\Models\Proposal;
 use App\Models\User;
@@ -59,6 +61,36 @@ class KpiBand extends Widget
             $this->buildTile('Appointments', 'heroicon-o-calendar-days', Appointment::query(), 'assigned_to', 'created_at', $from, $until, $prevFrom, $prevUntil),
             $this->buildTile('Leads', 'heroicon-o-fire', Lead::query(), 'assigned_to', 'created_at', $from, $until, $prevFrom, $prevUntil, $hotLeads > 0 ? "{$hotLeads} hot" : null),
             $this->buildTile('Proposals', 'heroicon-o-document-text', Proposal::query(), 'assigned_to', 'created_at', $from, $until, $prevFrom, $prevUntil),
+        ];
+    }
+
+    /**
+     * A separate tile shape from getTiles() — two distinct sub-counts
+     * (Pending, Completed) side by side in one card, rather than a single
+     * hero number + trend + sparkline, so rendered separately in the view
+     * rather than forced into buildTile()'s single-value contract.
+     * Scoped/dated identically to the other tiles (employeeId + selected
+     * period, via `created_at`, same date column the other tiles use).
+     *
+     * @return array{label: string, icon: string, pending: int, completed: int}
+     */
+    public function getFollowUpsTile(): array
+    {
+        [$from, $until] = DashboardPeriod::resolve($this->filters);
+
+        $countByStatus = function (FollowUpStatus $status) use ($from, $until): int {
+            return $this->scoped(FollowUp::query(), 'user_id')
+                ->where('status', $status)
+                ->when($from, fn (Builder $q) => $q->where('created_at', '>=', $from))
+                ->when($until, fn (Builder $q) => $q->where('created_at', '<=', $until))
+                ->count();
+        };
+
+        return [
+            'label' => 'Follow-Ups',
+            'icon' => 'heroicon-o-arrow-path',
+            'pending' => $countByStatus(FollowUpStatus::Pending),
+            'completed' => $countByStatus(FollowUpStatus::Completed),
         ];
     }
 
