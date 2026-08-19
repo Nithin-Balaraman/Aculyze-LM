@@ -84,6 +84,40 @@ class ListFollowUps extends ListRecords
     }
 
     /**
+     * Powers the "Summary" button FollowUpResource::groupSummary() embeds
+     * into each company's History/Lost group header row. A page-level
+     * action (auto-discovered by name via Filament's mountAction(), never
+     * placed in getHeaderActions() or any other rendered slot) rather than
+     * a table row action — see groupSummary()'s comment for why a table
+     * action bound ->visible(false) doesn't work here. Since it's never
+     * bound to a row record, the target Follow-Up travels as an
+     * `arguments` payload instead (the button's wire:click sets
+     * `followUpId`), and visibleTo() re-derives the same record-level
+     * authorization a bound table action would normally get for free.
+     */
+    public function summaryAction(): Actions\Action
+    {
+        return Actions\Action::make('summary')
+            ->modalHeading(fn (array $arguments) => ($this->summaryFollowUp($arguments)?->prospect?->company_name ?? 'Unknown Company').' — Follow-Up History')
+            ->modalContent(function (array $arguments) {
+                $followUp = $this->summaryFollowUp($arguments);
+
+                return view('filament.resources.follow-up-resource.pages.follow-up-summary-modal', [
+                    'entries' => $followUp ? FollowUpResource::companyFollowUpHistory($followUp) : collect(),
+                ]);
+            })
+            ->modalSubmitAction(false)
+            ->modalCancelActionLabel('Close');
+    }
+
+    private function summaryFollowUp(array $arguments): ?FollowUp
+    {
+        return FollowUp::query()
+            ->visibleTo(auth()->user())
+            ->find($arguments['followUpId'] ?? null);
+    }
+
+    /**
      * Filament's table grouping has no "collapsed by default" config
      * option — see the view for the full explanation of why this is a
      * small client-side script rather than a PHP-level setting.
