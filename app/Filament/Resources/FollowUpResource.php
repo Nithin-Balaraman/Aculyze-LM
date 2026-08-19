@@ -20,6 +20,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\HtmlString;
 
 /**
  * Follow-Ups panel (AGENTS.md section 17). Mostly populated automatically
@@ -249,8 +250,32 @@ class FollowUpResource extends Resource
      * recent one was — mirrors ListFollowUps::getTabs()'s own status
      * filtering rather than a raw all-time count, so it matches what's
      * actually on screen.
+     *
+     * Also carries the "Summary" button. Filament's group header partial
+     * (vendor/filament/tables/.../components/group/header.blade.php) has
+     * no slot for extra actions, and this app has already deliberately
+     * chosen not to eject/override that view once before (see
+     * list-follow-ups-footer.blade.php's comment) since it's shared by
+     * every grouped table in the app, not just this one. Blade's `{{ }}`
+     * calls e(), which passes Htmlable values through unescaped — so
+     * returning an HtmlString here (instead of a plain string) lets a real
+     * <button wire:click="mountAction(...)"> ride along inside the
+     * description `<p>` Filament already renders, with zero vendor files
+     * touched. $countLabel/$recentLabel are both derived from a count and
+     * a formatted date, never free text, so this is safe without a
+     * separate e() pass over them.
+     *
+     * This calls the page-level mountAction() (see ListFollowUps::
+     * summaryAction()), not mountTableAction() — a *table row* action
+     * bound ->visible(false) also comes back isDisabled() === true in
+     * this Filament version (isDisabled() folds in isHidden()), so a
+     * hidden table action can never actually be mounted, only rendered
+     * or not. A page-level action sidesteps that entirely: it's simply
+     * never placed in any auto-rendering slot (getHeaderActions() etc.),
+     * so it needs no ->visible(false) and stays mountable. It carries the
+     * target Follow-Up as an argument rather than a bound $record.
      */
-    private static function groupSummary(FollowUp $record, $livewire): string
+    private static function groupSummary(FollowUp $record, $livewire): HtmlString
     {
         $statuses = ($livewire->activeTab ?? 'pending') === 'lost'
             ? [FollowUpStatus::Cancelled]
@@ -267,7 +292,52 @@ class FollowUpResource extends Resource
         $countLabel = $count === 1 ? '1 follow-up' : "{$count} follow-ups";
         $recentLabel = $mostRecent ? Carbon::parse($mostRecent)->format('d M Y') : '—';
 
-        return "{$countLabel} · most recent {$recentLabel}";
+        // Single-quoted HTML attribute since the JSON arguments payload
+        // itself only ever contains double quotes.
+        $summaryButton = sprintf(
+            '<button type="button" wire:click=\'mountAction("summary", %s)\' class="follow-up-summary-button ms-2 text-sm font-medium text-primary-600 hover:underline dark:text-primary-400">Summary</button>',
+            json_encode(['followUpId' => $record->id]),
+        );
+
+        return new HtmlString("{$countLabel} · most recent {$recentLabel}{$summaryButton}");
+    }
+
+    /**
+     * Every Completed/Cancelled Follow-Up against this record's company,
+     * most recent first, for the "Summary" modal (see ListFollowUps::
+     * summaryAction(), which is what actually calls this). A Completed
+     * Follow-Up's date/notes live on the Call Record its "Completed"
+     * action generated (generatedCallRecord — see App\Models\FollowUp); a
+     * Cancelled one has no dedicated cancelled_at column, so updated_at
+     * (set the moment the "Close" action flips the status) and its own
+     * notes column are all there is. Two different date sources per
+     * status means "most recent first" has to be resolved in PHP rather
+     * than a single ORDER BY.
+     *
+     * map() downgrades to a plain \Illuminate\Support\Collection here (not
+     * Eloquent's) since the mapped items are arrays, not Models.
+     *
+     * @return \Illuminate\Support\Collection<int, array{status: FollowUpStatus, occurred_at: ?Carbon, notes: ?string}>
+     */
+    public static function companyFollowUpHistory(FollowUp $record): \Illuminate\Support\Collection
+    {
+        return FollowUp::query()
+            ->visibleTo(auth()->user())
+            ->where('prospect_id', $record->prospect_id)
+            ->whereIn('status', [FollowUpStatus::Completed, FollowUpStatus::Cancelled])
+            ->with('generatedCallRecord')
+            ->get()
+            ->map(fn (FollowUp $followUp) => [
+                'status' => $followUp->status,
+                'occurred_at' => $followUp->status === FollowUpStatus::Completed
+                    ? $followUp->generatedCallRecord?->called_at
+                    : $followUp->updated_at,
+                'notes' => $followUp->status === FollowUpStatus::Completed
+                    ? $followUp->generatedCallRecord?->notes
+                    : $followUp->notes,
+            ])
+            ->sortByDesc('occurred_at')
+            ->values();
     }
 
     public static function getPages(): array
