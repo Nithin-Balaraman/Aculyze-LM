@@ -71,11 +71,14 @@ class KpiBand extends Widget
      * A separate tile shape from getTiles() — two distinct sub-counts
      * (Pending, Completed) side by side in one card, rather than a single
      * hero number + trend + sparkline, so rendered separately in the view
-     * rather than forced into buildTile()'s single-value contract.
+     * rather than forced into buildTile()'s single-value contract. Each
+     * sub-count gets its own narrower 7-day sparkline (always the trailing
+     * 7 days, same as every other tile's — independent of the selected
+     * period, exactly like buildTile()'s).
      * Scoped/dated identically to the other tiles (employeeId + selected
      * period, via `created_at`, same date column the other tiles use).
      *
-     * @return array{label: string, icon: string, pending: int, completed: int}
+     * @return array{label: string, icon: string, pending: int, completed: int, pendingSparkline: array<int, int>, completedSparkline: array<int, int>}
      */
     public function getFollowUpsTile(): array
     {
@@ -89,11 +92,18 @@ class KpiBand extends Widget
                 ->count();
         };
 
+        $sparklineByStatus = fn (FollowUpStatus $status) => $this->sparklineFor(
+            $this->scoped(FollowUp::query(), 'user_id')->where('status', $status),
+            'created_at',
+        );
+
         return [
             'label' => 'Follow-Ups',
             'icon' => 'heroicon-o-arrow-path',
             'pending' => $countByStatus(FollowUpStatus::Pending),
             'completed' => $countByStatus(FollowUpStatus::Completed),
+            'pendingSparkline' => $sparklineByStatus(FollowUpStatus::Pending),
+            'completedSparkline' => $sparklineByStatus(FollowUpStatus::Completed),
         ];
     }
 
@@ -149,25 +159,36 @@ class KpiBand extends Widget
             }
         }
 
-        $sparklineStart = Date::now()->subDays(6)->startOfDay();
-        $dailyCounts = $this->scoped(clone $baseQuery, $ownerColumn)
-            ->where($dateColumn, '>=', $sparklineStart)
-            ->selectRaw("DATE({$dateColumn}) as d, count(*) as c")
-            ->groupBy('d')
-            ->pluck('c', 'd');
-
-        $sparkline = collect(range(6, 0))
-            ->map(fn (int $daysAgo) => (int) ($dailyCounts[Date::now()->subDays($daysAgo)->format('Y-m-d')] ?? 0))
-            ->values()
-            ->all();
-
         return [
             'label' => $label,
             'icon' => $icon,
             'value' => $value,
             'delta' => $delta,
-            'sparkline' => $sparkline,
+            'sparkline' => $this->sparklineFor($this->scoped(clone $baseQuery, $ownerColumn), $dateColumn),
             'context' => $context,
         ];
+    }
+
+    /**
+     * A day-by-day count for the trailing 7 days (today inclusive), always
+     * anchored to "now" — deliberately independent of whatever dashboard
+     * period is selected, same as it's always been for the single-value
+     * tiles. One grouped-by-day query, not seven separate counts.
+     *
+     * @return array<int, int>
+     */
+    private function sparklineFor(Builder $query, string $dateColumn): array
+    {
+        $sparklineStart = Date::now()->subDays(6)->startOfDay();
+        $dailyCounts = $query
+            ->where($dateColumn, '>=', $sparklineStart)
+            ->selectRaw("DATE({$dateColumn}) as d, count(*) as c")
+            ->groupBy('d')
+            ->pluck('c', 'd');
+
+        return collect(range(6, 0))
+            ->map(fn (int $daysAgo) => (int) ($dailyCounts[Date::now()->subDays($daysAgo)->format('Y-m-d')] ?? 0))
+            ->values()
+            ->all();
     }
 }

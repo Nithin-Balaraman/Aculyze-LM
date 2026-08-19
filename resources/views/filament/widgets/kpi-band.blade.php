@@ -26,19 +26,16 @@
                         <div class="font-mono text-3xl font-semibold tabular-nums leading-none text-gray-950 dark:text-white">
                             {{ $followUpsTile['pending'] }}
                         </div>
+                        @include('filament.widgets.kpi-sparkline', ['sparkline' => $followUpsTile['pendingSparkline']])
                     </div>
                     <div class="min-w-0">
                         <div class="text-xs text-gray-500 dark:text-gray-400">Completed</div>
                         <div class="font-mono text-3xl font-semibold tabular-nums leading-none text-gray-950 dark:text-white">
                             {{ $followUpsTile['completed'] }}
                         </div>
+                        @include('filament.widgets.kpi-sparkline', ['sparkline' => $followUpsTile['completedSparkline']])
                     </div>
                 </div>
-
-                {{-- No trend line for two separate sub-counts — this spacer
-                     just keeps the card's height in line with every other
-                     tile's sparkline area. --}}
-                <div class="mt-2 text-xs text-gray-400 dark:text-gray-500" style="height: 32px"></div>
             </div>
 
             @foreach ($tiles as $tile)

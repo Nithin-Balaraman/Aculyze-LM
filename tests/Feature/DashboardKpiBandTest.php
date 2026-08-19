@@ -158,6 +158,28 @@ class DashboardKpiBandTest extends TestCase
         $this->assertSame(1, $followUpsTile['completed']);
     }
 
+    public function test_follow_ups_tile_sparklines_place_todays_activity_in_the_last_bucket_and_dont_mix_statuses(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $prospect = Prospect::factory()->create();
+
+        FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+        FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Completed]);
+        FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Completed]);
+
+        $this->actingAs($admin);
+
+        $followUpsTile = Livewire::test(KpiBand::class)->instance()->getFollowUpsTile();
+
+        $this->assertCount(7, $followUpsTile['pendingSparkline']);
+        $this->assertSame(1, $followUpsTile['pendingSparkline'][6]);
+        $this->assertSame(0, array_sum(array_slice($followUpsTile['pendingSparkline'], 0, 6)));
+
+        $this->assertCount(7, $followUpsTile['completedSparkline']);
+        $this->assertSame(2, $followUpsTile['completedSparkline'][6]);
+        $this->assertSame(0, array_sum(array_slice($followUpsTile['completedSparkline'], 0, 6)));
+    }
+
     public function test_follow_ups_tile_respects_employee_scoping(): void
     {
         $nithin = User::factory()->create();
