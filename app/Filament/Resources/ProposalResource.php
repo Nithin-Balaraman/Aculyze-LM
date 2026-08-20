@@ -200,8 +200,43 @@ class ProposalResource extends Resource
             ->visible(fn (Proposal $record) => filled($record->pdf_path))
             ->action(fn (Proposal $record) => Storage::disk('local')->download(
                 $record->pdf_path,
-                "proposal-{$record->getKey()}.pdf",
+                self::pdfDownloadFilename($record),
             ));
+    }
+
+    /**
+     * "{Company Name} - {Proposal ID}.pdf" — the ID is the Proposal's own
+     * database id (no separate reference system), and the company name is
+     * free text, so it's sanitized here since a raw '/' or similarly
+     * filesystem-unsafe character would otherwise end up in a saved
+     * filename (Symfony's Content-Disposition header encoding already
+     * makes the HTTP response itself safe for any UTF-8 text — this is
+     * purely about what the browser actually names the saved file).
+     */
+    private static function pdfDownloadFilename(Proposal $record): string
+    {
+        // Characters invalid in Windows filenames (also the ones most
+        // likely to confuse a browser's own "save as" naming) become a
+        // space; collapses any run of whitespace that creates (including
+        // ones already in the company name) down to one before trimming.
+        $companyName = trim(preg_replace(
+            '/\s+/',
+            ' ',
+            preg_replace('/[\/\\\\:*?"<>|]+/', ' ', $record->prospect->company_name),
+        ));
+
+        return "{$companyName} - {$record->getKey()}.pdf";
+    }
+
+    /**
+     * Shown on the Edit/View pages (as the page subheading, next to the
+     * main heading) so the Proposal's own database ID is visible before
+     * ever downloading its PDF — the same ID used in
+     * pdfDownloadFilename() above, not a separate reference number.
+     */
+    public static function recordSubheading(Proposal $record): string
+    {
+        return "Proposal #{$record->getKey()}";
     }
 
     /**

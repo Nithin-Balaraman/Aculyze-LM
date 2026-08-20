@@ -27,6 +27,14 @@ class EditProposal extends EditRecord
         ];
     }
 
+    // Surfaces the Proposal's own database ID next to the page heading —
+    // the same ID used in ProposalResource::pdfDownloadFilename() — so
+    // it's visible before ever downloading the PDF, not just after.
+    public function getSubheading(): ?string
+    {
+        return ProposalResource::recordSubheading($this->getRecord());
+    }
+
     // Return to the list instead of Filament's default (stay on this same
     // Edit page) — same destination "Cancel" already goes to (mirrors the
     // Create*.php redirect fix). Reattaches $activeTab so the user lands
