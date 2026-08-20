@@ -205,6 +205,31 @@ class ProposalResource extends Resource
     }
 
     /**
+     * Same visibility condition and download logic as downloadPdfAction()
+     * above — just wrapped in Filament\Tables\Actions\Action instead of
+     * Filament\Actions\Action, since a table's own ->actions([...]) needs
+     * the former (the two are unrelated classes, so one Action instance
+     * can't serve both a page header and a table row). No additional
+     * admin/owner check is needed here either: both call sites for this
+     * (ProposalResource::table() and ProspectProposalsTable) build their
+     * query on top of ProposalResource::getEloquentQuery(), which already
+     * applies the same visibleTo() scoping the Edit/View pages rely on —
+     * an employee's own table rows are already only their own Proposals.
+     */
+    public static function downloadPdfTableAction(): Tables\Actions\Action
+    {
+        return Tables\Actions\Action::make('downloadPdf')
+            ->label('Download PDF')
+            ->icon('heroicon-o-arrow-down-tray')
+            ->color('gray')
+            ->visible(fn (Proposal $record) => filled($record->pdf_path))
+            ->action(fn (Proposal $record) => Storage::disk('local')->download(
+                $record->pdf_path,
+                self::pdfDownloadFilename($record),
+            ));
+    }
+
+    /**
      * "{Company Name} - {Proposal ID}.pdf" — the ID is the Proposal's own
      * database id (no separate reference system), and the company name is
      * free text, so it's sanitized here since a raw '/' or similarly
@@ -331,6 +356,7 @@ class ProposalResource extends Resource
                                 ->searchable(),
                         ])
                         ->action(fn (Proposal $record, array $data) => $record->update(['assigned_to' => $data['assigned_to']])),
+                    static::downloadPdfTableAction(),
                     Tables\Actions\DeleteAction::make()
                         ->visible(fn () => auth()->user()->isAdmin()),
                 ]),
