@@ -115,7 +115,13 @@ class ProposalResource extends Resource
                             ->maxSize(10240)
                             ->previewable(false)
                             ->columnSpanFull()
-                            ->visible(fn (Get $get) => self::stageIsSent($get('stage')))
+                            // Visible once Sent OR once a PDF already
+                            // exists — so a Proposal that moves on to a
+                            // later stage (Customer Accepted, or a Lost
+                            // outcome) doesn't lose sight of the PDF it
+                            // already has; required-ness is untouched and
+                            // still keys only off Sent.
+                            ->visible(fn (Get $get) => self::stageIsSent($get('stage')) || filled($get('pdf_path')))
                             ->required(fn (Get $get) => self::stageIsSent($get('stage')))
                             ->validationMessages([
                                 'required' => 'A PDF must be uploaded once the Proposal stage is Proposal Sent.',

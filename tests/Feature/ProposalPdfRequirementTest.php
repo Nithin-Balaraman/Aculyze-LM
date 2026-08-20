@@ -194,7 +194,32 @@ class ProposalPdfRequirementTest extends TestCase
             ->assertHasNoFormErrors();
     }
 
-    public function test_moving_a_sent_proposal_back_to_another_stage_no_longer_requires_or_shows_the_pdf_field(): void
+    public function test_moving_a_sent_proposal_back_to_another_stage_no_longer_requires_the_pdf_field(): void
+    {
+        $employee = User::factory()->create();
+        $proposal = $this->proposal($employee, ProposalStage::Sent, pdfPath: 'proposal-pdfs/existing.pdf');
+        Storage::disk('local')->put('proposal-pdfs/existing.pdf', 'fake pdf contents');
+
+        $this->actingAs($employee);
+
+        // required() still keys only off stage === Sent — moving away from
+        // Sent drops the requirement even though the field itself stays
+        // visible (see the visibility test below), and saving without
+        // touching pdf_path at all must not fail.
+        Livewire::test(EditProposal::class, ['record' => $proposal->getRouteKey()])
+            ->fillForm(['stage' => ProposalStage::BeingPrepared->value])
+            ->call('save')
+            ->assertHasNoFormErrors();
+    }
+
+    /**
+     * Follow-up fix: the field previously disappeared entirely once stage
+     * moved on from Sent, even though the PDF was still attached and still
+     * downloadable via downloadPdfAction() — now visible() also accounts
+     * for an existing upload, so it stays visible/reviewable regardless of
+     * which stage the record later moves to.
+     */
+    public function test_a_proposal_with_an_existing_pdf_still_shows_the_field_after_moving_to_a_later_stage(): void
     {
         $employee = User::factory()->create();
         $proposal = $this->proposal($employee, ProposalStage::Sent, pdfPath: 'proposal-pdfs/existing.pdf');
@@ -203,7 +228,26 @@ class ProposalPdfRequirementTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(EditProposal::class, ['record' => $proposal->getRouteKey()])
-            ->fillForm(['stage' => ProposalStage::BeingPrepared->value])
+            ->fillForm(['stage' => ProposalStage::CustomerAccepted->value])
+            ->assertFormFieldIsVisible('pdf_path')
+            ->call('save')
+            ->assertHasNoFormErrors();
+    }
+
+    /**
+     * Unchanged regression guard: a Proposal with no PDF at all, in a
+     * non-Sent stage, still hides the field exactly as before — the field
+     * only appears once EITHER condition (Sent, or an existing upload) is
+     * true, not simply because a non-Sent stage was touched.
+     */
+    public function test_a_proposal_with_no_pdf_in_a_non_sent_stage_still_hides_the_field(): void
+    {
+        $employee = User::factory()->create();
+        $proposal = $this->proposal($employee, ProposalStage::BeingPrepared, pdfPath: null);
+
+        $this->actingAs($employee);
+
+        Livewire::test(EditProposal::class, ['record' => $proposal->getRouteKey()])
             ->assertFormFieldIsHidden('pdf_path')
             ->call('save')
             ->assertHasNoFormErrors();
