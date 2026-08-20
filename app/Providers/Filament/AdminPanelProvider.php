@@ -46,6 +46,22 @@ class AdminPanelProvider extends PanelProvider
              * longest nav label ("Stage Dropout Report") without wrapping.
              */
             ->sidebarWidth('16rem')
+            /*
+             * Collapsible sidebar: adds the built-in desktop collapse
+             * toggle (a chevron button in the sidebar header, alongside
+             * the existing mobile hamburger/open-close button in the
+             * topbar) — entirely Filament's own feature, driven by the
+             * same Alpine $store.sidebar.isOpen used for the mobile
+             * toggle. State defaults to expanded and persists via
+             * Alpine's $persist (browser localStorage), so it survives
+             * reloads/logins on the same browser without any server-side
+             * storage or migration. Independent of sidebarWidth() above —
+             * that's the expanded width; the separate collapsed-rail width
+             * (collapsedSidebarWidth(), Filament's own 4.5rem default) was
+             * checked visually against this app's branding/nav icons and
+             * looked correct as-is, so it's left unset here.
+             */
+            ->sidebarCollapsibleOnDesktop()
             ->brandName('Aculyze LM')
             ->defaultAvatarProvider(InitialsAvatarProvider::class)
             /*
