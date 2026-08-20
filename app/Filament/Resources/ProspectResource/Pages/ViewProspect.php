@@ -50,6 +50,26 @@ class ViewProspect extends ViewRecord
 
     public ?array $filters = null;
 
+    /**
+     * Filament's own Dashboard pages (see vendor/filament/filament/src/
+     * Pages/Dashboard/Concerns/HasFilters::mountHasFilters()) explicitly
+     * fill their filters form during mount, which is what actually turns
+     * $filters from null into a populated array (schema defaults resolved
+     * in). Skipping this step — as this page did before — left $filters
+     * as raw null client-side: Livewire's JS then threw
+     * "Cannot set properties of null" the moment the Period select's
+     * wire:model.live tried to write filters.period, silently aborting
+     * the request before it was ever sent (so updatedFilters() never
+     * fired), and Alpine's entangle() for the Employee select failed
+     * outright since filters.employee_id didn't exist on a null filters.
+     */
+    public function mount(int|string $record): void
+    {
+        parent::mount($record);
+
+        $this->getFiltersForm()->fill($this->filters);
+    }
+
     protected function getHeaderActions(): array
     {
         return [

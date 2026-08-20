@@ -93,6 +93,42 @@ class ProspectViewPageTest extends TestCase
     }
 
     /**
+     * Root cause of the Period/Employee filters silently doing nothing in
+     * the browser: $filters started, and stayed, raw PHP null — nothing
+     * ever filled the filters form with its own resolved defaults (unlike
+     * Filament's own Dashboard pages, see vendor/filament/filament/src/
+     * Pages/Dashboard/Concerns/HasFilters::mountHasFilters(), which calls
+     * $this->getFiltersForm()->fill($this->filters) during mount for
+     * exactly this reason). Confirmed via a real headless-Chromium session
+     * (Livewire::test() can't reach this — it only exercises a single
+     * PHP-side interaction, not the browser's own JS runtime): with
+     * $filters left null, Livewire's client-side JS threw "Cannot set
+     * properties of null" the instant the Period select's
+     * wire:model.live tried to write filters.period, aborting the
+     * request before it was ever sent — so the Period select did nothing,
+     * and the Employee select (a searchable Select, entangled via Alpine
+     * rather than a plain wire:model) failed outright with "Livewire
+     * property ['filters.employee_id'] cannot be found". Once mount()
+     * fills the form, $filters becomes a proper array immediately and
+     * both selects work end-to-end in the browser.
+     */
+    public function test_the_filters_property_is_populated_with_resolved_defaults_after_mount(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $prospect = Prospect::factory()->create(['assigned_to' => $admin->id, 'created_by' => $admin->id]);
+
+        $this->actingAs($admin);
+
+        $filters = Livewire::test(ViewProspect::class, ['record' => $prospect->getRouteKey()])
+            ->instance()
+            ->filters;
+
+        $this->assertIsArray($filters, '$filters must not be left null after mount, or the filters form is unusable client-side.');
+        $this->assertSame('all_time', $filters['period'] ?? null);
+        $this->assertArrayHasKey('employee_id', $filters);
+    }
+
+    /**
      * <x-filament-panels::page> IS Filament's generic page template (see
      * vendor/filament/filament/resources/views/components/page/index.blade.
      * php) — it already renders getVisibleFooterWidgets() itself right
