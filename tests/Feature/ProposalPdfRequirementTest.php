@@ -192,6 +192,88 @@ class ProposalPdfRequirementTest extends TestCase
             ->fillForm(['stage' => ProposalStage::Sent->value])
             ->call('save')
             ->assertHasNoFormErrors();
+
+        $proposal->refresh();
+        $this->assertSame('proposal-pdfs/existing.pdf', $proposal->pdf_path);
+        Storage::disk('local')->assertExists('proposal-pdfs/existing.pdf');
+    }
+
+    /**
+     * Filament's FileUpload doesn't dehydrate a hidden field by default
+     * (isDehydratedWhenHidden() is false unless opted in) — and this
+     * field's visible() depends on pdf_path's own value, so clearing it
+     * while also moving stage away from Sent makes the field hidden in
+     * that very save. Without ->dehydratedWhenHidden(), the cleared state
+     * would never overwrite the model, silently leaving the stale path
+     * (and the "Download PDF" action) behind — this is the bug this test
+     * guards against.
+     */
+    public function test_removing_an_uploaded_pdf_and_saving_clears_pdf_path_and_deletes_the_file(): void
+    {
+        $employee = User::factory()->create();
+        $proposal = $this->proposal($employee, ProposalStage::Sent, pdfPath: 'proposal-pdfs/existing.pdf');
+        Storage::disk('local')->put('proposal-pdfs/existing.pdf', 'fake pdf contents');
+
+        $this->actingAs($employee);
+
+        $test = Livewire::test(EditProposal::class, ['record' => $proposal->getRouteKey()]);
+
+        // Mirrors the actual "x" button, which calls
+        // $wire.deleteUploadedFile(statePath, fileKey) — the file is
+        // deleted from storage immediately on click, independent of
+        // whether the form is ever saved.
+        $fileKey = array_key_first($test->get('data.pdf_path'));
+        $test->call('deleteUploadedFile', 'data.pdf_path', $fileKey);
+        Storage::disk('local')->assertMissing('proposal-pdfs/existing.pdf');
+
+        $test->fillForm(['stage' => ProposalStage::BeingPrepared->value])
+            ->call('save')
+            ->assertHasNoFormErrors();
+
+        $proposal->refresh();
+        $this->assertNull($proposal->pdf_path);
+    }
+
+    public function test_the_download_pdf_action_is_hidden_after_the_pdf_is_removed_and_saved(): void
+    {
+        $employee = User::factory()->create();
+        $proposal = $this->proposal($employee, ProposalStage::Sent, pdfPath: 'proposal-pdfs/existing.pdf');
+        Storage::disk('local')->put('proposal-pdfs/existing.pdf', 'fake pdf contents');
+
+        $this->actingAs($employee);
+
+        $test = Livewire::test(EditProposal::class, ['record' => $proposal->getRouteKey()]);
+        $fileKey = array_key_first($test->get('data.pdf_path'));
+        $test->call('deleteUploadedFile', 'data.pdf_path', $fileKey)
+            ->fillForm(['stage' => ProposalStage::BeingPrepared->value])
+            ->call('save')
+            ->assertHasNoFormErrors();
+
+        Livewire::test(EditProposal::class, ['record' => $proposal->getRouteKey()])
+            ->assertActionHidden('downloadPdf');
+        Livewire::test(ViewProposal::class, ['record' => $proposal->getRouteKey()])
+            ->assertActionHidden('downloadPdf');
+    }
+
+    /**
+     * Removing the PDF while stage stays Sent must still block the save —
+     * the field remains visible in that case (stage alone already keeps
+     * it so), and required() correctly has nothing to dehydrate around.
+     */
+    public function test_removing_the_pdf_while_stage_stays_sent_still_fails_validation(): void
+    {
+        $employee = User::factory()->create();
+        $proposal = $this->proposal($employee, ProposalStage::Sent, pdfPath: 'proposal-pdfs/existing.pdf');
+        Storage::disk('local')->put('proposal-pdfs/existing.pdf', 'fake pdf contents');
+
+        $this->actingAs($employee);
+
+        $test = Livewire::test(EditProposal::class, ['record' => $proposal->getRouteKey()]);
+        $fileKey = array_key_first($test->get('data.pdf_path'));
+
+        $test->call('deleteUploadedFile', 'data.pdf_path', $fileKey)
+            ->call('save')
+            ->assertHasFormErrors(['pdf_path' => 'required']);
     }
 
     public function test_moving_a_sent_proposal_back_to_another_stage_no_longer_requires_the_pdf_field(): void

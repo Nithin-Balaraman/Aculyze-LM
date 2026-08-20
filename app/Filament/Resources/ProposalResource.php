@@ -18,6 +18,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 /**
  * Proposal processing (AGENTS.md sections 24-27, 44). Stage names/order are
@@ -125,7 +126,29 @@ class ProposalResource extends Resource
                             ->required(fn (Get $get) => self::stageIsSent($get('stage')))
                             ->validationMessages([
                                 'required' => 'A PDF must be uploaded once the Proposal stage is Proposal Sent.',
-                            ]),
+                            ])
+                            // visible() above depends on pdf_path's own
+                            // value, so removing the file (clearing it to
+                            // empty) can itself make the field hidden in
+                            // the same save (stage moved away from Sent at
+                            // the same time) — and Filament's fields don't
+                            // dehydrate while hidden by default, which
+                            // would silently keep the stale path in the
+                            // database. dehydratedWhenHidden() makes sure
+                            // the cleared state still overwrites pdf_path
+                            // regardless of visibility at save time.
+                            ->dehydratedWhenHidden()
+                            // Filament's FileUpload does NOT delete the
+                            // underlying stored file when removed via the
+                            // form's own "x" button unless this is set —
+                            // without it, clicking "x" only detaches the
+                            // reference, leaving the file itself orphaned
+                            // on the 'local' disk indefinitely.
+                            ->deleteUploadedFileUsing(function (string|TemporaryUploadedFile $file): void {
+                                if (is_string($file)) {
+                                    Storage::disk('local')->delete($file);
+                                }
+                            }),
                     ]),
             ]);
     }
