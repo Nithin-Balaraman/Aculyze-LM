@@ -331,6 +331,11 @@ class ProposalResource extends Resource
                     ->query(fn (Builder $query) => $query->stale()),
             ])
             ->actions([
+                // Standalone (not inside the "⋮" ActionGroup below) —
+                // matches the Prospect View page's Proposals mini-table,
+                // where this is already a plain row icon, not a dropdown
+                // item. Placed first so it renders to the left of "⋮".
+                static::downloadPdfTableAction(),
                 Tables\Actions\ActionGroup::make([
                     Tables\Actions\ViewAction::make(),
                     // Carries the tab the user is currently on through to
@@ -356,7 +361,6 @@ class ProposalResource extends Resource
                                 ->searchable(),
                         ])
                         ->action(fn (Proposal $record, array $data) => $record->update(['assigned_to' => $data['assigned_to']])),
-                    static::downloadPdfTableAction(),
                     Tables\Actions\DeleteAction::make()
                         ->visible(fn () => auth()->user()->isAdmin()),
                 ]),
