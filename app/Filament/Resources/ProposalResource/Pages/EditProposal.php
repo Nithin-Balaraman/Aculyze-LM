@@ -22,6 +22,7 @@ class EditProposal extends EditRecord
     {
         return [
             Actions\ViewAction::make(),
+            ProposalResource::downloadPdfAction(),
             Actions\DeleteAction::make(),
         ];
     }

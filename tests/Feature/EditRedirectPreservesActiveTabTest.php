@@ -26,6 +26,7 @@ use App\Models\Proposal;
 use App\Models\Prospect;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -348,7 +349,16 @@ class EditRedirectPreservesActiveTabTest extends TestCase
             'created_by' => $employee->id,
             'stage' => ProposalStage::Sent,
             'outcome' => ProposalOutcome::Lost,
+            // A Sent Proposal requires a PDF on every save (strict, no
+            // grandfathering — see ProposalPdfRequirementTest) — unrelated
+            // to what this test actually covers (the redirect), so the
+            // fixture just already has one rather than exercising the
+            // upload here. The file must actually exist on the (faked)
+            // disk, or Filament's FileUpload hydration treats it as
+            // missing and required() fails anyway.
+            'pdf_path' => 'proposal-pdfs/existing.pdf',
         ]);
+        Storage::fake('local')->put('proposal-pdfs/existing.pdf', 'fake pdf contents');
 
         $this->actingAs($employee);
 
@@ -369,7 +379,16 @@ class EditRedirectPreservesActiveTabTest extends TestCase
             'created_by' => $employee->id,
             'stage' => ProposalStage::Sent,
             'outcome' => ProposalOutcome::Lost,
+            // A Sent Proposal requires a PDF on every save (strict, no
+            // grandfathering — see ProposalPdfRequirementTest) — unrelated
+            // to what this test actually covers (the redirect), so the
+            // fixture just already has one rather than exercising the
+            // upload here. The file must actually exist on the (faked)
+            // disk, or Filament's FileUpload hydration treats it as
+            // missing and required() fails anyway.
+            'pdf_path' => 'proposal-pdfs/existing.pdf',
         ]);
+        Storage::fake('local')->put('proposal-pdfs/existing.pdf', 'fake pdf contents');
 
         $this->actingAs($employee);
 

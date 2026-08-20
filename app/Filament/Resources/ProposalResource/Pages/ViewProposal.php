@@ -14,6 +14,7 @@ class ViewProposal extends ViewRecord
     {
         return [
             Actions\EditAction::make(),
+            ProposalResource::downloadPdfAction(),
         ];
     }
 }

@@ -9,12 +9,15 @@ use App\Models\Lead;
 use App\Models\Proposal;
 use App\Models\User;
 use App\Support\TableBulkActions;
+use Filament\Actions;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Proposal processing (AGENTS.md sections 24-27, 44). Stage names/order are
@@ -64,10 +67,15 @@ class ProposalResource extends Resource
                             ->searchable()
                             ->disabled(fn () => ! auth()->user()->isAdmin())
                             ->dehydrated(),
+                        // ->live() so pdf_path's visible()/required() below
+                        // react the moment Stage changes — same mechanism as
+                        // CallRecordResource's outcome-driven fields and
+                        // LeadResource's stage-driven Notes requirement.
                         Forms\Components\Select::make('stage')
                             ->options(ProposalStage::class)
                             ->required()
-                            ->default(ProposalStage::BeingPrepared),
+                            ->default(ProposalStage::BeingPrepared)
+                            ->live(),
                         Forms\Components\Select::make('outcome')
                             ->label('Final Outcome')
                             ->options(ProposalOutcome::class)
@@ -80,8 +88,74 @@ class ProposalResource extends Resource
                         Forms\Components\Textarea::make('notes')
                             ->rows(3)
                             ->columnSpanFull(),
+                        // Required the moment Stage is "Proposal Sent" — on
+                        // every save, including an already-Sent Proposal
+                        // from before this field existed, the next time it's
+                        // opened and saved (deliberate: no backfill/grandfathering).
+                        // Stored on the 'local' disk (private, already
+                        // signature-protected by Laravel's own storage.local
+                        // route — see config/filesystems.php) rather than
+                        // the public 'avatars' disk. previewable(false)
+                        // because Filament's private-file preview link calls
+                        // $storage->temporaryUrl(), which the stock local
+                        // Flysystem adapter doesn't support — it would throw
+                        // and silently fall back to a plain unsigned URL
+                        // that the signature-checking route would then
+                        // reject. Viewing/downloading instead goes through
+                        // downloadPdfAction() below, which streams the file
+                        // directly and rides the same page-level
+                        // authorization Filament already applies to reach
+                        // this Resource's Edit/View pages.
+                        Forms\Components\FileUpload::make('pdf_path')
+                            ->label('Proposal PDF')
+                            ->disk('local')
+                            ->directory('proposal-pdfs')
+                            ->visibility('private')
+                            ->acceptedFileTypes(['application/pdf'])
+                            ->maxSize(10240)
+                            ->previewable(false)
+                            ->columnSpanFull()
+                            ->visible(fn (Get $get) => self::stageIsSent($get('stage')))
+                            ->required(fn (Get $get) => self::stageIsSent($get('stage')))
+                            ->validationMessages([
+                                'required' => 'A PDF must be uploaded once the Proposal stage is Proposal Sent.',
+                            ]),
                     ]),
             ]);
+    }
+
+    /**
+     * $get() may hand back either the raw string value or the hydrated
+     * ProposalStage case depending on how the form state got there — see
+     * LeadResource::stageIsValidated()'s docblock for the same nuance.
+     */
+    private static function stageIsSent(mixed $stage): bool
+    {
+        return ($stage instanceof ProposalStage ? $stage : ProposalStage::tryFrom((string) $stage)) === ProposalStage::Sent;
+    }
+
+    /**
+     * Shared by ViewProposal's and EditProposal's header actions. Streams
+     * the file straight from the 'local' disk rather than relying on
+     * Filament's own private-file preview link (see the pdf_path field's
+     * comment in form() for why that link doesn't work out of the box for
+     * this disk) — and since this only ever runs from inside this
+     * Resource's own Edit/View pages, it automatically rides the same
+     * ProposalPolicy::view() / getEloquentQuery() scoping already gating
+     * access to those pages, with no separate authorization check needed
+     * here.
+     */
+    public static function downloadPdfAction(): Actions\Action
+    {
+        return Actions\Action::make('downloadPdf')
+            ->label('Download PDF')
+            ->icon('heroicon-o-arrow-down-tray')
+            ->color('gray')
+            ->visible(fn (Proposal $record) => filled($record->pdf_path))
+            ->action(fn (Proposal $record) => Storage::disk('local')->download(
+                $record->pdf_path,
+                "proposal-{$record->getKey()}.pdf",
+            ));
     }
 
     /**
