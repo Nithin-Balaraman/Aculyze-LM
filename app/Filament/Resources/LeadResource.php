@@ -117,45 +117,58 @@ class LeadResource extends Resource
         return ($stage instanceof LeadStage ? $stage : LeadStage::tryFrom((string) $stage)) === LeadStage::Validated;
     }
 
+    /**
+     * Extracted from table() so the Prospect View page's Leads mini-table
+     * (see App\Filament\Widgets\ProspectLeadsTable) can reuse the exact
+     * same column set rather than duplicating it — matches the
+     * ProspectResource::formSchema() precedent for form fields.
+     *
+     * @return array<int, Tables\Columns\Column>
+     */
+    public static function columns(): array
+    {
+        return [
+            Tables\Columns\TextColumn::make('prospect.company_name')
+                ->label('Company')
+                ->searchable()
+                ->sortable(),
+            Tables\Columns\TextColumn::make('stage')
+                ->badge()
+                ->sortable(),
+            Tables\Columns\TextColumn::make('temperature')
+                ->badge()
+                ->sortable(),
+            Tables\Columns\TextColumn::make('is_lost')
+                ->label('Current Status')
+                ->badge()
+                ->formatStateUsing(fn (bool $state) => $state ? 'Lost' : 'Active')
+                ->color(fn (bool $state) => $state ? 'coral' : 'gray')
+                ->sortable()
+                ->toggleable(isToggledHiddenByDefault: true),
+            Tables\Columns\TextColumn::make('assignedEmployee.name')
+                ->label('Assigned To')
+                ->badge()
+                ->sortable(),
+            Tables\Columns\TextColumn::make('stage_changed_at')
+                ->label('Stage Since')
+                ->dateTime('d M Y')
+                ->sortable()
+                ->toggleable(isToggledHiddenByDefault: true),
+            Tables\Columns\IconColumn::make('is_stale')
+                ->label('Stale')
+                ->boolean()
+                ->getStateUsing(fn (Lead $record) => $record->isStale())
+                ->trueColor('coral')
+                ->trueIcon('heroicon-o-exclamation-triangle')
+                ->falseIcon('heroicon-o-check-circle')
+                ->falseColor('gray'),
+        ];
+    }
+
     public static function table(Table $table): Table
     {
         return $table
-            ->columns([
-                Tables\Columns\TextColumn::make('prospect.company_name')
-                    ->label('Company')
-                    ->searchable()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('stage')
-                    ->badge()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('temperature')
-                    ->badge()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('is_lost')
-                    ->label('Current Status')
-                    ->badge()
-                    ->formatStateUsing(fn (bool $state) => $state ? 'Lost' : 'Active')
-                    ->color(fn (bool $state) => $state ? 'coral' : 'gray')
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('assignedEmployee.name')
-                    ->label('Assigned To')
-                    ->badge()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('stage_changed_at')
-                    ->label('Stage Since')
-                    ->dateTime('d M Y')
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\IconColumn::make('is_stale')
-                    ->label('Stale')
-                    ->boolean()
-                    ->getStateUsing(fn (Lead $record) => $record->isStale())
-                    ->trueColor('coral')
-                    ->trueIcon('heroicon-o-exclamation-triangle')
-                    ->falseIcon('heroicon-o-check-circle')
-                    ->falseColor('gray'),
-            ])
+            ->columns(static::columns())
             ->filters([
                 Tables\Filters\SelectFilter::make('stage')
                     ->options(LeadStage::class),

@@ -84,45 +84,59 @@ class ProposalResource extends Resource
             ]);
     }
 
+    /**
+     * Extracted from table() so the Prospect View page's Proposals
+     * mini-table (see App\Filament\Widgets\ProspectProposalsTable) can
+     * reuse the exact same column set rather than duplicating it —
+     * matches the ProspectResource::formSchema() precedent for form
+     * fields.
+     *
+     * @return array<int, Tables\Columns\Column>
+     */
+    public static function columns(): array
+    {
+        return [
+            Tables\Columns\TextColumn::make('prospect.company_name')
+                ->label('Company')
+                ->searchable()
+                ->sortable(),
+            Tables\Columns\TextColumn::make('stage')
+                ->badge()
+                ->sortable(),
+            Tables\Columns\TextColumn::make('outcome')
+                ->badge()
+                ->placeholder('In Progress')
+                ->sortable(),
+            Tables\Columns\TextColumn::make('value')
+                ->label('Value')
+                ->money('INR')
+                ->placeholder('—')
+                ->sortable(),
+            Tables\Columns\TextColumn::make('assignedEmployee.name')
+                ->label('Assigned To')
+                ->badge()
+                ->sortable(),
+            Tables\Columns\TextColumn::make('stage_changed_at')
+                ->label('Stage Since')
+                ->dateTime('d M Y')
+                ->sortable()
+                ->toggleable(isToggledHiddenByDefault: true),
+            Tables\Columns\IconColumn::make('is_stale')
+                ->label('Stale')
+                ->boolean()
+                ->getStateUsing(fn (Proposal $record) => $record->isStale())
+                ->trueColor('coral')
+                ->trueIcon('heroicon-o-exclamation-triangle')
+                ->falseIcon('heroicon-o-check-circle')
+                ->falseColor('gray')
+                ->toggleable(isToggledHiddenByDefault: true),
+        ];
+    }
+
     public static function table(Table $table): Table
     {
         return $table
-            ->columns([
-                Tables\Columns\TextColumn::make('prospect.company_name')
-                    ->label('Company')
-                    ->searchable()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('stage')
-                    ->badge()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('outcome')
-                    ->badge()
-                    ->placeholder('In Progress')
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('value')
-                    ->label('Value')
-                    ->money('INR')
-                    ->placeholder('—')
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('assignedEmployee.name')
-                    ->label('Assigned To')
-                    ->badge()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('stage_changed_at')
-                    ->label('Stage Since')
-                    ->dateTime('d M Y')
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\IconColumn::make('is_stale')
-                    ->label('Stale')
-                    ->boolean()
-                    ->getStateUsing(fn (Proposal $record) => $record->isStale())
-                    ->trueColor('coral')
-                    ->trueIcon('heroicon-o-exclamation-triangle')
-                    ->falseIcon('heroicon-o-check-circle')
-                    ->falseColor('gray')
-                    ->toggleable(isToggledHiddenByDefault: true),
-            ])
+            ->columns(static::columns())
             ->filters([
                 Tables\Filters\SelectFilter::make('stage')
                     ->options(ProposalStage::class),

@@ -72,38 +72,52 @@ class AppointmentResource extends Resource
             ]);
     }
 
+    /**
+     * Extracted from table() so the Prospect View page's Appointments
+     * mini-table (see App\Filament\Widgets\ProspectAppointmentsTable) can
+     * reuse the exact same column set rather than duplicating it —
+     * matches the ProspectResource::formSchema() precedent for form
+     * fields.
+     *
+     * @return array<int, Tables\Columns\Column>
+     */
+    public static function columns(): array
+    {
+        return [
+            Tables\Columns\TextColumn::make('prospect.company_name')
+                ->label('Company')
+                ->searchable()
+                ->sortable(),
+            Tables\Columns\TextColumn::make('appointment_at')
+                ->dateTime('d M Y, h:i A')
+                ->sortable()
+                ->placeholder('Not scheduled'),
+            Tables\Columns\TextColumn::make('stage')
+                ->badge()
+                ->sortable(),
+            Tables\Columns\TextColumn::make('is_lost')
+                ->label('Current Status')
+                ->badge()
+                ->formatStateUsing(fn (bool $state) => $state ? 'Lost' : 'Active')
+                ->color(fn (bool $state) => $state ? 'coral' : 'gray')
+                ->sortable()
+                ->toggleable(isToggledHiddenByDefault: true),
+            Tables\Columns\TextColumn::make('assignedEmployee.name')
+                ->label('Assigned To')
+                ->badge()
+                ->sortable(),
+            Tables\Columns\TextColumn::make('stage_changed_at')
+                ->label('Stage Since')
+                ->dateTime('d M Y')
+                ->sortable()
+                ->toggleable(isToggledHiddenByDefault: true),
+        ];
+    }
+
     public static function table(Table $table): Table
     {
         return $table
-            ->columns([
-                Tables\Columns\TextColumn::make('prospect.company_name')
-                    ->label('Company')
-                    ->searchable()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('appointment_at')
-                    ->dateTime('d M Y, h:i A')
-                    ->sortable()
-                    ->placeholder('Not scheduled'),
-                Tables\Columns\TextColumn::make('stage')
-                    ->badge()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('is_lost')
-                    ->label('Current Status')
-                    ->badge()
-                    ->formatStateUsing(fn (bool $state) => $state ? 'Lost' : 'Active')
-                    ->color(fn (bool $state) => $state ? 'coral' : 'gray')
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('assignedEmployee.name')
-                    ->label('Assigned To')
-                    ->badge()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('stage_changed_at')
-                    ->label('Stage Since')
-                    ->dateTime('d M Y')
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-            ])
+            ->columns(static::columns())
             ->filters([
                 Tables\Filters\SelectFilter::make('stage')
                     ->options(AppointmentStage::class),

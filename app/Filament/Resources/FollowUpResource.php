@@ -93,29 +93,43 @@ class FollowUpResource extends Resource
             ]);
     }
 
+    /**
+     * Extracted from table() so the Prospect View page's Follow-Ups
+     * mini-table (see App\Filament\Widgets\ProspectFollowUpsTable) can
+     * reuse the exact same column set rather than duplicating it —
+     * matches the ProspectResource::formSchema() precedent for form
+     * fields.
+     *
+     * @return array<int, Tables\Columns\Column>
+     */
+    public static function columns(): array
+    {
+        return [
+            Tables\Columns\TextColumn::make('prospect.company_name')
+                ->label('Company')
+                ->searchable()
+                ->sortable(),
+            Tables\Columns\TextColumn::make('reason')
+                ->searchable()
+                ->toggleable(isToggledHiddenByDefault: true),
+            Tables\Columns\TextColumn::make('follow_up_at')
+                ->dateTime('d M Y, h:i A')
+                ->sortable()
+                ->placeholder('Not scheduled'),
+            Tables\Columns\TextColumn::make('status')
+                ->badge()
+                ->sortable(),
+            Tables\Columns\TextColumn::make('responsibleEmployee.name')
+                ->label('Employee')
+                ->badge()
+                ->sortable(),
+        ];
+    }
+
     public static function table(Table $table): Table
     {
         return $table
-            ->columns([
-                Tables\Columns\TextColumn::make('prospect.company_name')
-                    ->label('Company')
-                    ->searchable()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('reason')
-                    ->searchable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('follow_up_at')
-                    ->dateTime('d M Y, h:i A')
-                    ->sortable()
-                    ->placeholder('Not scheduled'),
-                Tables\Columns\TextColumn::make('status')
-                    ->badge()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('responsibleEmployee.name')
-                    ->label('Employee')
-                    ->badge()
-                    ->sortable(),
-            ])
+            ->columns(static::columns())
             ->filters([
                 // Pending vs. History is now owned by the page's tabs (UX
                 // Fixes Batch Issue 3) rather than this filter, so there is

@@ -279,42 +279,56 @@ class CallRecordResource extends Resource
         return $outcome instanceof CallOutcome ? $outcome : CallOutcome::tryFrom((string) $outcome);
     }
 
+    /**
+     * Extracted from table() so the Prospect View page's Call Records
+     * mini-table (see App\Filament\Widgets\ProspectCallRecordsTable) can
+     * reuse the exact same column set rather than duplicating it —
+     * matches the ProspectResource::formSchema() precedent for form
+     * fields.
+     *
+     * @return array<int, Tables\Columns\Column>
+     */
+    public static function columns(): array
+    {
+        return [
+            Tables\Columns\TextColumn::make('called_at')
+                ->dateTime('d M Y, h:i A')
+                ->sortable(),
+            Tables\Columns\TextColumn::make('prospect.company_name')
+                ->label('Company')
+                ->searchable()
+                ->sortable(),
+            Tables\Columns\TextColumn::make('outcome')
+                ->badge()
+                ->sortable(),
+            Tables\Columns\TextColumn::make('caller.name')
+                ->label('Called By')
+                ->badge()
+                ->sortable()
+                // Employees only ever see their own calls (see
+                // CallRecord::scopeVisibleTo()), so this column always
+                // just shows their own name for them — redundant, not
+                // a toggleable default like the others, just hidden
+                // outright for non-admins.
+                ->visible(fn () => auth()->user()->isAdmin()),
+            Tables\Columns\TextColumn::make('follow_up_at')
+                ->dateTime('d M Y, h:i A')
+                ->placeholder('—')
+                ->toggleable(isToggledHiddenByDefault: true),
+            Tables\Columns\TextColumn::make('appointment_at')
+                ->dateTime('d M Y, h:i A')
+                ->placeholder('—')
+                ->toggleable(isToggledHiddenByDefault: true),
+            Tables\Columns\TextColumn::make('notes')
+                ->limit(40)
+                ->toggleable(isToggledHiddenByDefault: true),
+        ];
+    }
+
     public static function table(Table $table): Table
     {
         return $table
-            ->columns([
-                Tables\Columns\TextColumn::make('called_at')
-                    ->dateTime('d M Y, h:i A')
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('prospect.company_name')
-                    ->label('Company')
-                    ->searchable()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('outcome')
-                    ->badge()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('caller.name')
-                    ->label('Called By')
-                    ->badge()
-                    ->sortable()
-                    // Employees only ever see their own calls (see
-                    // CallRecord::scopeVisibleTo()), so this column always
-                    // just shows their own name for them — redundant, not
-                    // a toggleable default like the others, just hidden
-                    // outright for non-admins.
-                    ->visible(fn () => auth()->user()->isAdmin()),
-                Tables\Columns\TextColumn::make('follow_up_at')
-                    ->dateTime('d M Y, h:i A')
-                    ->placeholder('—')
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('appointment_at')
-                    ->dateTime('d M Y, h:i A')
-                    ->placeholder('—')
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('notes')
-                    ->limit(40)
-                    ->toggleable(isToggledHiddenByDefault: true),
-            ])
+            ->columns(static::columns())
             ->filters([
                 Tables\Filters\SelectFilter::make('outcome')
                     ->options(CallOutcome::class),
