@@ -25,6 +25,7 @@ class Proposal extends Model
         'value',
         'sent_at',
         'notes',
+        'pdf_path',
     ];
 
     protected function casts(): array
