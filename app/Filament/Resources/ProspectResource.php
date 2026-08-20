@@ -12,6 +12,7 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * The Database module (AGENTS.md section 10) — the master list of
@@ -209,5 +210,19 @@ class ProspectResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()->visibleTo(auth()->user());
+    }
+
+    /**
+     * Global search only — clicking a company from the top-right search bar
+     * now lands on the read-only View page (details + the five mini-tables)
+     * instead of jumping straight to Edit. This is a completely separate
+     * mechanism from the Database list's own row click/->actions(), which
+     * are untouched: Filament's default here (see Resource::
+     * getGlobalSearchResultUrl()) prefers the 'edit' page whenever the user
+     * can edit, which is why search used to skip View entirely.
+     */
+    public static function getGlobalSearchResultUrl(Model $record): ?string
+    {
+        return static::getUrl('view', ['record' => $record]);
     }
 }
