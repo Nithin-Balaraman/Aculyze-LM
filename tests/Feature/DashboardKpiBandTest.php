@@ -215,6 +215,99 @@ class DashboardKpiBandTest extends TestCase
         $this->assertSame(1, $followUpsTile['pending']);
     }
 
+    /**
+     * The exact bug: the real "⋮ → Completed" row action never touches
+     * created_at (a plain Eloquent update()), so a Follow-Up
+     * CallRoutingService auto-created weeks ago but only actually
+     * completed today was silently missing from Today's Completed count.
+     * generatedCallRecord's called_at (set once, at the real moment of
+     * completion) is what the Completed sub-count is dated by now.
+     */
+    public function test_follow_ups_tile_completed_count_uses_when_it_was_actually_completed_not_when_it_was_created(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $prospect = Prospect::factory()->create();
+
+        $followUp = FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+        $followUp->forceFill(['created_at' => now()->subWeeks(3)])->saveQuietly();
+
+        CallRecord::create([
+            'prospect_id' => $prospect->id,
+            'user_id' => $prospect->assigned_to,
+            'called_at' => now(),
+            'outcome' => CallOutcome::RequirementIdentified,
+            'notes' => 'Ready to move forward.',
+            'follow_up_id' => $followUp->id,
+        ]);
+        $followUp->update(['status' => FollowUpStatus::Completed]);
+
+        $this->actingAs($admin);
+
+        $followUpsTile = Livewire::test(KpiBand::class, ['filters' => ['period' => 'today']])->instance()->getFollowUpsTile();
+
+        $this->assertSame(1, $followUpsTile['completed']);
+    }
+
+    /**
+     * A Follow-Up completed by directly setting Status via the Create/Edit
+     * form (no "⋮ → Completed" action, so no generated Call Record) has
+     * nothing for the COALESCE to prefer, so it falls back to updated_at
+     * — still correctly attributed to the period it was actually
+     * completed in, not the period it was originally created in.
+     */
+    public function test_follow_ups_tile_completed_count_falls_back_to_updated_at_without_a_generated_call_record(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $prospect = Prospect::factory()->create();
+
+        $followUp = FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+        $followUp->forceFill(['created_at' => now()->subWeeks(3)])->saveQuietly();
+
+        $followUp->update(['status' => FollowUpStatus::Completed]);
+
+        $this->actingAs($admin);
+
+        $followUpsTile = Livewire::test(KpiBand::class, ['filters' => ['period' => 'today']])->instance()->getFollowUpsTile();
+
+        $this->assertSame(1, $followUpsTile['completed']);
+    }
+
+    /**
+     * Pending must stay exactly as before (dated by created_at) even in
+     * the presence of a Completed Follow-Up that's old-created-but-
+     * newly-completed — the two sub-counts' date logic must not bleed
+     * into each other.
+     */
+    public function test_follow_ups_tile_pending_count_is_unaffected_by_the_completed_date_fix(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $prospect = Prospect::factory()->create();
+
+        $oldPending = FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+        $oldPending->forceFill(['created_at' => now()->subWeeks(3)])->saveQuietly();
+
+        FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+
+        $completedViaRowAction = FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+        $completedViaRowAction->forceFill(['created_at' => now()->subWeeks(3)])->saveQuietly();
+        CallRecord::create([
+            'prospect_id' => $prospect->id,
+            'user_id' => $prospect->assigned_to,
+            'called_at' => now(),
+            'outcome' => CallOutcome::RequirementIdentified,
+            'notes' => 'Ready to move forward.',
+            'follow_up_id' => $completedViaRowAction->id,
+        ]);
+        $completedViaRowAction->update(['status' => FollowUpStatus::Completed]);
+
+        $this->actingAs($admin);
+
+        $followUpsTile = Livewire::test(KpiBand::class, ['filters' => ['period' => 'today']])->instance()->getFollowUpsTile();
+
+        $this->assertSame(1, $followUpsTile['pending']);
+        $this->assertSame(1, $followUpsTile['completed']);
+    }
+
     public function test_proposal_outcome_chart_respects_employee_scoping(): void
     {
         $nithin = User::factory()->create();
