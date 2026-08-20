@@ -45,14 +45,31 @@ class ProposalResource extends Resource
                 Forms\Components\Section::make()
                     ->columns(2)
                     ->schema([
+                        // whereDoesntHave('proposal') is what keeps
+                        // already-claimed Leads out of the options list on
+                        // Create — but on Edit/View, this field's own
+                        // record's Lead already has a Proposal (this one!),
+                        // so without the orWhere() escape hatch below, this
+                        // Select's own current value was excluded from the
+                        // very query used to resolve its display label —
+                        // Filament's async getFormSelectOptionLabel() call
+                        // came back null, and the JS fell back to showing
+                        // the raw lead_id instead of the company name.
                         Forms\Components\Select::make('lead_id')
                             ->label('Lead')
                             ->relationship(
                                 'lead',
                                 'id',
-                                modifyQueryUsing: fn (Builder $query) => $query
+                                modifyQueryUsing: fn (Builder $query, ?Proposal $record) => $query
                                     ->visibleTo(auth()->user())
-                                    ->whereDoesntHave('proposal'),
+                                    ->where(
+                                        fn (Builder $query) => $query
+                                            ->whereDoesntHave('proposal')
+                                            ->when($record, fn (Builder $query) => $query->orWhere(
+                                                $query->getModel()->getQualifiedKeyName(),
+                                                $record->lead_id,
+                                            ))
+                                    ),
                             )
                             ->getOptionLabelFromRecordUsing(fn (Lead $record) => $record->prospect->company_name.' — '.$record->stage->getLabel())
                             ->required()
@@ -183,8 +200,43 @@ class ProposalResource extends Resource
             ->visible(fn (Proposal $record) => filled($record->pdf_path))
             ->action(fn (Proposal $record) => Storage::disk('local')->download(
                 $record->pdf_path,
-                "proposal-{$record->getKey()}.pdf",
+                self::pdfDownloadFilename($record),
             ));
+    }
+
+    /**
+     * "{Company Name} - {Proposal ID}.pdf" — the ID is the Proposal's own
+     * database id (no separate reference system), and the company name is
+     * free text, so it's sanitized here since a raw '/' or similarly
+     * filesystem-unsafe character would otherwise end up in a saved
+     * filename (Symfony's Content-Disposition header encoding already
+     * makes the HTTP response itself safe for any UTF-8 text — this is
+     * purely about what the browser actually names the saved file).
+     */
+    private static function pdfDownloadFilename(Proposal $record): string
+    {
+        // Characters invalid in Windows filenames (also the ones most
+        // likely to confuse a browser's own "save as" naming) become a
+        // space; collapses any run of whitespace that creates (including
+        // ones already in the company name) down to one before trimming.
+        $companyName = trim(preg_replace(
+            '/\s+/',
+            ' ',
+            preg_replace('/[\/\\\\:*?"<>|]+/', ' ', $record->prospect->company_name),
+        ));
+
+        return "{$companyName} - {$record->getKey()}.pdf";
+    }
+
+    /**
+     * Shown on the Edit/View pages (as the page subheading, next to the
+     * main heading) so the Proposal's own database ID is visible before
+     * ever downloading its PDF — the same ID used in
+     * pdfDownloadFilename() above, not a separate reference number.
+     */
+    public static function recordSubheading(Proposal $record): string
+    {
+        return "Proposal #{$record->getKey()}";
     }
 
     /**

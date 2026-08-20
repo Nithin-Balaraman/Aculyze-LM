@@ -17,4 +17,12 @@ class ViewProposal extends ViewRecord
             ProposalResource::downloadPdfAction(),
         ];
     }
+
+    // Surfaces the Proposal's own database ID next to the page heading —
+    // the same ID used in ProposalResource::pdfDownloadFilename() — so
+    // it's visible before ever downloading the PDF, not just after.
+    public function getSubheading(): ?string
+    {
+        return ProposalResource::recordSubheading($this->getRecord());
+    }
 }
