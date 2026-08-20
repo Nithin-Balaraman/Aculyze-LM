@@ -45,14 +45,31 @@ class ProposalResource extends Resource
                 Forms\Components\Section::make()
                     ->columns(2)
                     ->schema([
+                        // whereDoesntHave('proposal') is what keeps
+                        // already-claimed Leads out of the options list on
+                        // Create — but on Edit/View, this field's own
+                        // record's Lead already has a Proposal (this one!),
+                        // so without the orWhere() escape hatch below, this
+                        // Select's own current value was excluded from the
+                        // very query used to resolve its display label —
+                        // Filament's async getFormSelectOptionLabel() call
+                        // came back null, and the JS fell back to showing
+                        // the raw lead_id instead of the company name.
                         Forms\Components\Select::make('lead_id')
                             ->label('Lead')
                             ->relationship(
                                 'lead',
                                 'id',
-                                modifyQueryUsing: fn (Builder $query) => $query
+                                modifyQueryUsing: fn (Builder $query, ?Proposal $record) => $query
                                     ->visibleTo(auth()->user())
-                                    ->whereDoesntHave('proposal'),
+                                    ->where(
+                                        fn (Builder $query) => $query
+                                            ->whereDoesntHave('proposal')
+                                            ->when($record, fn (Builder $query) => $query->orWhere(
+                                                $query->getModel()->getQualifiedKeyName(),
+                                                $record->lead_id,
+                                            ))
+                                    ),
                             )
                             ->getOptionLabelFromRecordUsing(fn (Lead $record) => $record->prospect->company_name.' — '.$record->stage->getLabel())
                             ->required()
