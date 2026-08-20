@@ -92,6 +92,45 @@ class ProspectViewPageTest extends TestCase
         $this->assertSame('Acme Textiles', $test->instance()->getHeading());
     }
 
+    /**
+     * <x-filament-panels::page> IS Filament's generic page template (see
+     * vendor/filament/filament/resources/views/components/page/index.blade.
+     * php) — it already renders getVisibleFooterWidgets() itself right
+     * after the page's slot, using the page's own getWidgetData(). The
+     * page's own view must not *also* render the footer widgets inside
+     * that slot, or every widget mounts twice with an identical Livewire
+     * key each (Filament's widgets.blade.php keys each @livewire() call by
+     * "{$widgetClass}-{$widgetKey}" alone) — an invalid duplicate-key state
+     * that, in the browser, broke the Period/Employee filters' reactive
+     * DOM updates as well as visibly doubling the widgets. This asserts
+     * against the actual rendered HTML precisely because that's the one
+     * thing a single-widget-in-isolation test (see the other tests in this
+     * file) structurally cannot catch.
+     */
+    public function test_the_view_page_does_not_render_each_mini_table_widget_twice(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $prospect = Prospect::factory()->create(['company_name' => 'Acme Textiles']);
+
+        $this->actingAs($admin);
+
+        $html = Livewire::test(ViewProspect::class, ['record' => $prospect->getRouteKey()])->html();
+
+        foreach ([
+            'Call Records — Acme Textiles',
+            'Follow-Ups — Acme Textiles',
+            'Appointments — Acme Textiles',
+            'Leads — Acme Textiles',
+            'Proposals — Acme Textiles',
+        ] as $heading) {
+            $this->assertSame(
+                1,
+                substr_count($html, $heading),
+                "\"{$heading}\" should appear exactly once in the rendered page, not duplicated.",
+            );
+        }
+    }
+
     public function test_each_mini_table_only_shows_this_companys_records(): void
     {
         $admin = User::factory()->admin()->create();
