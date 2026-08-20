@@ -42,6 +42,21 @@ class KpiBand extends Widget
     public ?int $employeeId = null;
 
     /**
+     * When a Follow-Up was actually completed — the "⋮ → Completed" row
+     * action's own generated Call Record (called_at, set exactly once at
+     * the real moment of completion; see FollowUp::generatedCallRecord()
+     * and FollowUpResource::companyFollowUpHistory(), which reads the same
+     * relationship for the "Summary" modal). Falls back to updated_at for
+     * a Follow-Up completed by directly setting Status via the Create/Edit
+     * form instead, which never creates a Call Record. Deliberately NOT
+     * created_at — that's when the Follow-Up was first auto-routed, which
+     * for the real "⋮ → Completed" workflow is routinely days or weeks
+     * before it's actually completed, and was silently undercounting the
+     * Completed sub-count as a result.
+     */
+    private const COMPLETED_AT_EXPRESSION = 'COALESCE(call_records.called_at, follow_ups.updated_at)';
+
+    /**
      * @return array<int, array{label: string, icon: string, value: int, delta: ?int, sparkline: array<int, int>, context: ?string}>
      */
     public function getTiles(): array
@@ -75,8 +90,12 @@ class KpiBand extends Widget
      * sub-count gets its own narrower 7-day sparkline (always the trailing
      * 7 days, same as every other tile's — independent of the selected
      * period, exactly like buildTile()'s).
-     * Scoped/dated identically to the other tiles (employeeId + selected
-     * period, via `created_at`, same date column the other tiles use).
+     *
+     * Pending is dated by `created_at` (when it entered the queue) — that
+     * part was always correct. Completed is dated by
+     * self::COMPLETED_AT_EXPRESSION (see its docblock) instead — both are
+     * still evaluated against whichever period is currently selected, same
+     * as every other tile.
      *
      * @return array{label: string, icon: string, pending: int, completed: int, pendingSparkline: array<int, int>, completedSparkline: array<int, int>}
      */
@@ -84,27 +103,44 @@ class KpiBand extends Widget
     {
         [$from, $until] = DashboardPeriod::resolve($this->filters);
 
-        $countByStatus = function (FollowUpStatus $status) use ($from, $until): int {
-            return $this->scoped(FollowUp::query(), 'user_id')
-                ->where('status', $status)
-                ->when($from, fn (Builder $q) => $q->where('created_at', '>=', $from))
-                ->when($until, fn (Builder $q) => $q->where('created_at', '<=', $until))
-                ->count();
-        };
+        $pending = $this->scoped(FollowUp::query(), 'user_id')
+            ->where('status', FollowUpStatus::Pending)
+            ->when($from, fn (Builder $q) => $q->where('created_at', '>=', $from))
+            ->when($until, fn (Builder $q) => $q->where('created_at', '<=', $until))
+            ->count();
 
-        $sparklineByStatus = fn (FollowUpStatus $status) => $this->sparklineFor(
-            $this->scoped(FollowUp::query(), 'user_id')->where('status', $status),
-            'created_at',
-        );
+        $completed = $this->completedFollowUpsQuery()
+            ->when($from, fn (Builder $q) => $q->whereRaw(self::COMPLETED_AT_EXPRESSION.' >= ?', [$from]))
+            ->when($until, fn (Builder $q) => $q->whereRaw(self::COMPLETED_AT_EXPRESSION.' <= ?', [$until]))
+            ->count();
 
         return [
             'label' => 'Follow-Ups',
             'icon' => 'heroicon-o-arrow-path',
-            'pending' => $countByStatus(FollowUpStatus::Pending),
-            'completed' => $countByStatus(FollowUpStatus::Completed),
-            'pendingSparkline' => $sparklineByStatus(FollowUpStatus::Pending),
-            'completedSparkline' => $sparklineByStatus(FollowUpStatus::Completed),
+            'pending' => $pending,
+            'completed' => $completed,
+            'pendingSparkline' => $this->sparklineFor(
+                $this->scoped(FollowUp::query(), 'user_id')->where('status', FollowUpStatus::Pending),
+                'created_at',
+            ),
+            'completedSparkline' => $this->sparklineFor($this->completedFollowUpsQuery(), self::COMPLETED_AT_EXPRESSION),
         ];
+    }
+
+    /**
+     * Completed Follow-Ups, left-joined to whichever Call Record their
+     * "⋮ → Completed" action generated (there is at most one per
+     * Follow-Up — see FollowUp::generatedCallRecord()), for
+     * self::COMPLETED_AT_EXPRESSION to read from. The join means every
+     * column reference from here on needs its table qualified (both
+     * tables have their own user_id/created_at/updated_at), including
+     * scoped()'s own employeeId filter.
+     */
+    private function completedFollowUpsQuery(): Builder
+    {
+        return $this->scoped(FollowUp::query(), 'follow_ups.user_id')
+            ->leftJoin('call_records', 'call_records.follow_up_id', '=', 'follow_ups.id')
+            ->where('follow_ups.status', FollowUpStatus::Completed);
     }
 
     public function getHeading(): string
@@ -175,14 +211,21 @@ class KpiBand extends Widget
      * period is selected, same as it's always been for the single-value
      * tiles. One grouped-by-day query, not seven separate counts.
      *
+     * $dateExpression is a raw SQL fragment, not necessarily a bare column
+     * name — a plain column name (e.g. 'created_at') is valid SQL on its
+     * own, so every existing call site keeps working unchanged; this is
+     * what lets the Completed sub-count pass
+     * self::COMPLETED_AT_EXPRESSION's COALESCE(...) through the same
+     * method rather than needing a parallel implementation.
+     *
      * @return array<int, int>
      */
-    private function sparklineFor(Builder $query, string $dateColumn): array
+    private function sparklineFor(Builder $query, string $dateExpression): array
     {
         $sparklineStart = Date::now()->subDays(6)->startOfDay();
         $dailyCounts = $query
-            ->where($dateColumn, '>=', $sparklineStart)
-            ->selectRaw("DATE({$dateColumn}) as d, count(*) as c")
+            ->whereRaw("{$dateExpression} >= ?", [$sparklineStart])
+            ->selectRaw("DATE({$dateExpression}) as d, count(*) as c")
             ->groupBy('d')
             ->pluck('c', 'd');
 
