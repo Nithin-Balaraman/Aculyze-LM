@@ -24,9 +24,14 @@ class ProspectAppointmentsTable extends BaseWidget
 
     public ?Prospect $record = null;
 
-    protected static ?string $heading = 'Appointments';
-
     protected int|string|array $columnSpan = 'full';
+
+    protected static bool $isLazy = false;
+
+    public function updatedFilters(): void
+    {
+        $this->resetTable();
+    }
 
     public function table(Table $table): Table
     {
@@ -34,6 +39,7 @@ class ProspectAppointmentsTable extends BaseWidget
         $employeeId = $this->filters['employee_id'] ?? null;
 
         return $table
+            ->heading("Appointments — {$this->record?->company_name}")
             ->query(
                 AppointmentResource::getEloquentQuery()
                     ->where('prospect_id', $this->record?->id)
@@ -47,6 +53,7 @@ class ProspectAppointmentsTable extends BaseWidget
                     ->values()
                     ->all()
             )
+            ->searchable(false)
             ->defaultSort('appointment_at', 'asc')
             ->paginated([5, 10, 25])
             ->defaultPaginationPageOption(5)

@@ -24,9 +24,14 @@ class ProspectLeadsTable extends BaseWidget
 
     public ?Prospect $record = null;
 
-    protected static ?string $heading = 'Leads';
-
     protected int|string|array $columnSpan = 'full';
+
+    protected static bool $isLazy = false;
+
+    public function updatedFilters(): void
+    {
+        $this->resetTable();
+    }
 
     public function table(Table $table): Table
     {
@@ -34,6 +39,7 @@ class ProspectLeadsTable extends BaseWidget
         $employeeId = $this->filters['employee_id'] ?? null;
 
         return $table
+            ->heading("Leads — {$this->record?->company_name}")
             ->query(
                 LeadResource::getEloquentQuery()
                     ->where('prospect_id', $this->record?->id)
@@ -47,6 +53,7 @@ class ProspectLeadsTable extends BaseWidget
                     ->values()
                     ->all()
             )
+            ->searchable(false)
             ->defaultSort('created_at', 'desc')
             ->paginated([5, 10, 25])
             ->defaultPaginationPageOption(5)

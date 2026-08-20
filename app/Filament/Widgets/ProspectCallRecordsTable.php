@@ -28,9 +28,26 @@ class ProspectCallRecordsTable extends BaseWidget
 
     public ?Prospect $record = null;
 
-    protected static ?string $heading = 'Call Records';
-
     protected int|string|array $columnSpan = 'full';
+
+    // These ARE the page's main content, not a below-the-fold nicety, so
+    // there's no reason to make the user wait on a second request to see
+    // them — and it removes one extra hop from the already
+    // cross-component reactive chain the Period/Employee filters rely on.
+    protected static bool $isLazy = false;
+
+    /**
+     * $filters is reactive (see InteractsWithPageFilters), but Filament's
+     * Table has its own internal caching — nothing about a sibling
+     * property changing tells it to re-query on its own. resetTable() is
+     * the same mechanism Filament's own table filters use internally
+     * (HasFilters::updatedTableFilters()) for a table's *own* filters,
+     * applied here since these filters live on the parent page instead.
+     */
+    public function updatedFilters(): void
+    {
+        $this->resetTable();
+    }
 
     public function table(Table $table): Table
     {
@@ -38,6 +55,7 @@ class ProspectCallRecordsTable extends BaseWidget
         $employeeId = $this->filters['employee_id'] ?? null;
 
         return $table
+            ->heading("Call Records — {$this->record?->company_name}")
             ->query(
                 CallRecordResource::getEloquentQuery()
                     ->where('prospect_id', $this->record?->id)
@@ -51,6 +69,14 @@ class ProspectCallRecordsTable extends BaseWidget
                     ->values()
                     ->all()
             )
+            // No column here is searchable once Company (the only one
+            // that ever was) is excluded above — except Follow-Ups'
+            // `reason`, which is why that one table alone had a search
+            // bar. Disabling search at the table level, not per column,
+            // means a resource adding a new searchable column later can't
+            // silently reintroduce one here — there's nothing to search
+            // by when every row is already this one company anyway.
+            ->searchable(false)
             ->defaultSort('called_at', 'desc')
             ->paginated([5, 10, 25])
             ->defaultPaginationPageOption(5)

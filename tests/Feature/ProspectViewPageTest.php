@@ -25,6 +25,7 @@ use App\Models\Prospect;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
+use Mockery;
 use Tests\TestCase;
 
 /**
@@ -71,19 +72,24 @@ class ProspectViewPageTest extends TestCase
     public function test_view_page_shows_the_prospects_own_details_with_an_edit_action(): void
     {
         $admin = User::factory()->admin()->create();
-        $prospect = Prospect::factory()->create(['company_name' => 'Acme Textiles']);
+        $prospect = Prospect::factory()->create([
+            'company_name' => 'Acme Textiles',
+            'contact_person' => 'Jane Doe',
+        ]);
 
         $this->actingAs($admin);
 
-        // The details section is still ProspectResource::form() rendered
-        // disabled (unchanged) — its field values are bound via Alpine/
-        // Livewire entanglement rather than plain server-rendered text
-        // nodes, so asserting against the form's own state (what the
-        // browser will hydrate from) is the correct check here, not
-        // scraping rendered HTML for the company name.
-        Livewire::test(ViewProspect::class, ['record' => $prospect->getRouteKey()])
+        // The details section is now a read-only infolist (collapsed by
+        // default), not a form, so there's no form state to assert against
+        // — the company name is instead the page's own native heading
+        // (always visible regardless of the section's collapse state), and
+        // the infolist's own field values are checked via the rendered
+        // output instead.
+        $test = Livewire::test(ViewProspect::class, ['record' => $prospect->getRouteKey()])
             ->assertActionVisible('edit')
-            ->assertFormSet(['company_name' => 'Acme Textiles']);
+            ->assertSee('Jane Doe');
+
+        $this->assertSame('Acme Textiles', $test->instance()->getHeading());
     }
 
     public function test_each_mini_table_only_shows_this_companys_records(): void
@@ -232,5 +238,80 @@ class ProspectViewPageTest extends TestCase
         Livewire::test(ProspectCallRecordsTable::class, ['record' => $prospect, 'filters' => []])
             ->assertCanSeeTableRecords([$ownersCall])
             ->assertCanNotSeeTableRecords([$intrudersCall]);
+    }
+
+    /**
+     * @return array<class-string>
+     */
+    private function miniTableWidgetClasses(): array
+    {
+        return [
+            ProspectCallRecordsTable::class,
+            ProspectFollowUpsTable::class,
+            ProspectAppointmentsTable::class,
+            ProspectLeadsTable::class,
+            ProspectProposalsTable::class,
+        ];
+    }
+
+    /**
+     * Filters live on the parent ViewProspect page, not on each mini-table's
+     * own Table object, so nothing tells a table to re-query when $filters
+     * changes except this explicit hook — this is the actual fix for the
+     * "filters don't affect the mini-tables" bug, so it's asserted directly
+     * (a Mockery partial mock in place of the real Livewire/Table lifecycle,
+     * since resetTable() itself requires that full lifecycle to run
+     * un-mocked) rather than only inferred from the end-to-end behavior,
+     * which the PHP test harness can't reliably exercise across components
+     * (see class docblock note below).
+     */
+    public function test_updated_filters_resets_the_table_on_all_five_mini_table_widgets(): void
+    {
+        foreach ($this->miniTableWidgetClasses() as $widgetClass) {
+            $widget = Mockery::mock($widgetClass)->makePartial();
+            $widget->shouldReceive('resetTable')->once();
+
+            $widget->updatedFilters();
+        }
+    }
+
+    /**
+     * These mini-tables are the page's main content, not a below-the-fold
+     * nicety, and $isLazy = true (Filament's default) would mean their real
+     * content only appears after a follow-up request — an extra hop the
+     * already cross-component filter reactivity doesn't need.
+     */
+    public function test_all_five_mini_table_widgets_are_not_lazy(): void
+    {
+        foreach ($this->miniTableWidgetClasses() as $widgetClass) {
+            $reflection = new \ReflectionClass($widgetClass);
+            $property = $reflection->getProperty('isLazy');
+            $property->setAccessible(true);
+
+            $this->assertFalse($property->getValue());
+        }
+    }
+
+    /**
+     * Every row in each mini-table already belongs to this one company, so
+     * a search bar has nothing meaningful to search by — the Follow-Ups
+     * table's `reason` column was the only one left searchable once Company
+     * is excluded, which is why it alone had shown a search bar.
+     */
+    public function test_all_five_mini_table_widgets_disable_search(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $prospect = Prospect::factory()->create(['assigned_to' => $admin->id, 'created_by' => $admin->id]);
+
+        $this->actingAs($admin);
+
+        foreach ($this->miniTableWidgetClasses() as $widgetClass) {
+            $isSearchable = Livewire::test($widgetClass, ['record' => $prospect, 'filters' => []])
+                ->instance()
+                ->getTable()
+                ->isSearchable();
+
+            $this->assertFalse($isSearchable, "{$widgetClass} should not be searchable.");
+        }
     }
 }
