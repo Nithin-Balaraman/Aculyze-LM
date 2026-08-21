@@ -107,6 +107,31 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::SCRIPTS_AFTER,
                 fn (): string => view('filament.scripts.bulk-select-store')->render(),
             )
+            /*
+             * Reliability notifications: an offline notice (reacting to
+             * the browser's native online/offline events) and an
+             * unmistakable, manually-dismissed save-failure notice with a
+             * Retry button (Livewire.hook('request'|'commit', ...) —
+             * nothing in this app listened to either hook before, so a
+             * network-level save failure was previously completely silent
+             * by Livewire's own default behavior). Both reuse Filament's
+             * own "Saved"-toast mechanism (its notification container +
+             * Alpine component) rather than a custom banner — an earlier
+             * bespoke fixed-position banner had to be registered on two
+             * separate hooks to avoid overlapping the page heading, and
+             * still broke the login page's simpler layout. Reusing
+             * Filament's own toast stack needs only this one hook: it's
+             * already reliably positioned regardless of scroll/layout, so
+             * there's no positioning code of our own to get wrong. See
+             * the view for the full mechanism, including why this can't
+             * just be Notification::make()->send() or even its JS
+             * equivalent (both require a live request to the server,
+             * which is exactly what's unavailable when actually offline).
+             */
+            ->renderHook(
+                PanelsRenderHook::SCRIPTS_AFTER,
+                fn (): string => view('filament.scripts.reliability-notifications')->render(),
+            )
             ->renderHook(
                 TablesRenderHook::TOOLBAR_START,
                 fn (): string => auth()->user()?->isAdmin()
