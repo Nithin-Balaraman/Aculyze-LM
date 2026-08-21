@@ -115,6 +115,42 @@ class ReliabilityBannersTest extends TestCase
         $response->assertSee('Save failed', false);
     }
 
+    /**
+     * The offline notification must not be manually dismissible — it
+     * should only disappear once the 'online' event actually fires (see
+     * closeReliabilityNotification('fi-reliability-offline') in the
+     * script). The save-failure notification is the opposite: it keeps
+     * its close button, since that one *is* meant to be dismissible by
+     * hand (in addition to Retry).
+     */
+    public function test_only_the_offline_notification_has_no_close_button(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        $response = $this->get('/admin');
+        $response->assertOk();
+
+        $html = $response->getContent();
+
+        $offlineTemplate = $this->extractTemplate($html, 'fi-reliability-offline-template');
+        $saveFailureTemplate = $this->extractTemplate($html, 'fi-reliability-save-failure-template');
+
+        $this->assertStringNotContainsString('fi-no-notification-close-btn', $offlineTemplate);
+        $this->assertStringContainsString('fi-no-notification-close-btn', $saveFailureTemplate);
+    }
+
+    private function extractTemplate(string $html, string $templateId): string
+    {
+        $start = strpos($html, '<template id="'.$templateId.'">');
+        $this->assertNotFalse($start, "Could not find <template id=\"{$templateId}\"> in the response.");
+
+        $end = strpos($html, '</template>', $start);
+        $this->assertNotFalse($end, "Could not find the closing </template> for \"{$templateId}\".");
+
+        return substr($html, $start, $end - $start);
+    }
+
     public function test_notifications_are_cloned_into_filaments_own_notification_container(): void
     {
         $user = User::factory()->create();

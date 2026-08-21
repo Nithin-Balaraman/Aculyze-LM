@@ -79,7 +79,14 @@
                 </x-filament-notifications::body>
             </div>
 
-            <x-filament-notifications::close-button />
+            {{--
+                Deliberately no close-button here — unlike the
+                save-failure notification below, this one must not be
+                dismissible by the user; it should only ever disappear
+                once the 'online' event actually fires (see
+                closeReliabilityNotification('fi-reliability-offline')
+                in the script below).
+            --}}
         </div>
     </div>
 </template>
