@@ -83,34 +83,10 @@ class AdminPanelProvider extends PanelProvider
              * only for the Warm/Cold lead-temperature badges, so none of
              * the three temperatures reuses Filament's generic
              * danger/warning/info palette.
-             *
-             * Phase 1 theme overhaul: `navy` updated to the exact brand
-             * "Deep navy" (#0F1B3D) — it was previously unused anywhere
-             * except this registration, so there was no reason to keep a
-             * slightly-off placeholder value once the real brand hex was
-             * confirmed. It's the base of the sidebar's gradient (see
-             * theme.css) via its own generated shades, computed the same
-             * way Filament computes every other color's shades, rather
-             * than hand-picked gradient stops.
-             *
-             * `accent` is new: the brand's "Vivid cyan" (#29C5E6),
-             * deliberately kept separate from `info` (already a near-
-             * identical cyan, #2DC4ED, used today for informational
-             * badges/text) — this one is reserved for the sidebar
-             * active-item glow and other brand-highlight moments (see
-             * theme.css), so recoloring an informational badge later
-             * can't accidentally also change the brand glow, and vice
-             * versa. `primary` and `info` are intentionally left as they
-             * already are — both are already close to the brand spec
-             * (Steel blue #4A72B8, Vivid cyan #29C5E6), and per Phase 1's
-             * scope neither needed changing. `danger`/`success`/`warning`
-             * are deliberately untouched too, left at Filament's own
-             * stock Red/Green/Amber.
              */
             ->colors([
                 'primary' => Color::hex('#4174B9'),
-                'navy' => Color::hex('#0F1B3D'),
-                'accent' => Color::hex('#29C5E6'),
+                'navy' => Color::hex('#0E1131'),
                 'info' => Color::hex('#2DC4ED'),
                 'coral' => Color::hex('#F0653C'),
                 'gold' => Color::hex('#C99A3D'),
