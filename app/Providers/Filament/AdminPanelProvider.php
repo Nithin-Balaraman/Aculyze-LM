@@ -107,6 +107,22 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::SCRIPTS_AFTER,
                 fn (): string => view('filament.scripts.bulk-select-store')->render(),
             )
+            /*
+             * Reliability banners: an offline banner (Livewire's own
+             * wire:offline directive, reacting to the browser's native
+             * online/offline events) and an unmistakable, manually-
+             * dismissed save-failure banner with a Retry button
+             * (Livewire.hook('request'|'commit', ...) — nothing in this
+             * app listened to either hook before, so a network-level save
+             * failure was previously completely silent by Livewire's own
+             * default behavior). See the view for the full mechanism.
+             * Registered here, once, panel-wide, same as the bulk-select
+             * store above.
+             */
+            ->renderHook(
+                PanelsRenderHook::SCRIPTS_AFTER,
+                fn (): string => view('filament.scripts.reliability-banners')->render(),
+            )
             ->renderHook(
                 TablesRenderHook::TOOLBAR_START,
                 fn (): string => auth()->user()?->isAdmin()
