@@ -1,7 +1,11 @@
 {{--
-    Two related reliability banners, registered once, panel-wide, via
-    AdminPanelProvider on PanelsRenderHook::SCRIPTS_AFTER — same pattern
-    as the existing bulk-select-store script.
+    Behavior for the two reliability banners whose markup lives in
+    resources/views/filament/reliability-banners.blade.php (registered
+    separately, on PanelsRenderHook::CONTENT_START — see that file for
+    why the markup and this script are deliberately split across two
+    render hooks). Registered once, panel-wide, via AdminPanelProvider on
+    PanelsRenderHook::SCRIPTS_AFTER — same pattern as the existing
+    bulk-select-store script.
 
     A) Offline banner: reacts to the browser's own native online/offline
     events. Livewire ships a wire:offline *directive* that does exactly
@@ -50,48 +54,19 @@
     if the failed commit had no calls at all (e.g. a plain reactive
     property sync, not an action click).
 --}}
-<div class="fixed inset-x-0 top-0 z-[70] flex flex-col">
-    <div
-        id="fi-offline-banner"
-        style="display: none;"
-        class="items-center justify-center gap-2 bg-red-600 px-4 py-3 text-center text-sm font-semibold text-white shadow-lg"
-    >
-        <x-filament::icon icon="heroicon-o-signal-slash" class="h-5 w-5 shrink-0" />
-        You&rsquo;re offline &mdash; changes won&rsquo;t save until connection is restored.
-    </div>
-
-    <div
-        id="fi-save-failure-banner"
-        style="display: none;"
-        class="items-center justify-center gap-3 bg-amber-600 px-4 py-3 text-center text-sm font-semibold text-white shadow-lg"
-    >
-        <x-filament::icon icon="heroicon-o-exclamation-triangle" class="h-5 w-5 shrink-0" />
-        <span id="fi-save-failure-banner-message">Save failed &mdash; please try again.</span>
-        <button
-            type="button"
-            id="fi-save-failure-banner-retry"
-            class="rounded-md bg-white/20 px-3 py-1 font-semibold transition hover:bg-white/30"
-        >
-            Retry
-        </button>
-        <button
-            type="button"
-            id="fi-save-failure-banner-dismiss"
-            class="rounded-md bg-white/10 px-2 py-1 font-semibold transition hover:bg-white/20"
-            aria-label="Dismiss"
-        >
-            &times;
-        </button>
-    </div>
-</div>
-
 <script>
+    // The markup (resources/views/filament/reliability-banners.blade.php)
+    // only renders on pages using the main app layout — this script,
+    // registered on SCRIPTS_AFTER, additionally reaches auth pages
+    // (login, etc.) that use a simpler layout without it, so every DOM
+    // lookup here is null-guarded rather than assuming the elements
+    // exist.
     window.addEventListener('offline', () => {
-        document.getElementById('fi-offline-banner').style.display = 'flex';
+        document.getElementById('fi-offline-banner')?.style.setProperty('display', 'flex');
     });
 
     window.addEventListener('online', () => {
-        document.getElementById('fi-offline-banner').style.display = 'none';
+        document.getElementById('fi-offline-banner')?.style.setProperty('display', 'none');
     });
 
     document.addEventListener('livewire:init', () => {
@@ -102,17 +77,22 @@
         const banner = () => document.getElementById('fi-save-failure-banner');
 
         const showSaveFailureBanner = (message) => {
-            document.getElementById('fi-save-failure-banner-message').textContent = message;
-            banner().style.display = 'flex';
+            const bannerEl = banner();
+            const messageEl = document.getElementById('fi-save-failure-banner-message');
+
+            if (! bannerEl || ! messageEl) return;
+
+            messageEl.textContent = message;
+            bannerEl.style.display = 'flex';
         };
 
         const hideSaveFailureBanner = () => {
-            banner().style.display = 'none';
+            banner()?.style.setProperty('display', 'none');
         };
 
-        document.getElementById('fi-save-failure-banner-dismiss').addEventListener('click', hideSaveFailureBanner);
+        document.getElementById('fi-save-failure-banner-dismiss')?.addEventListener('click', hideSaveFailureBanner);
 
-        document.getElementById('fi-save-failure-banner-retry').addEventListener('click', () => {
+        document.getElementById('fi-save-failure-banner-retry')?.addEventListener('click', () => {
             hideSaveFailureBanner();
 
             if (! lastFailedCommit) return;

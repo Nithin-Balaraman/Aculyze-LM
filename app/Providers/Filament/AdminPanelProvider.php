@@ -108,17 +108,27 @@ class AdminPanelProvider extends PanelProvider
                 fn (): string => view('filament.scripts.bulk-select-store')->render(),
             )
             /*
-             * Reliability banners: an offline banner (Livewire's own
-             * wire:offline directive, reacting to the browser's native
-             * online/offline events) and an unmistakable, manually-
-             * dismissed save-failure banner with a Retry button
-             * (Livewire.hook('request'|'commit', ...) — nothing in this
-             * app listened to either hook before, so a network-level save
-             * failure was previously completely silent by Livewire's own
-             * default behavior). See the view for the full mechanism.
-             * Registered here, once, panel-wide, same as the bulk-select
-             * store above.
+             * Reliability banners: an offline banner (reacting to the
+             * browser's native online/offline events) and an
+             * unmistakable, manually-dismissed save-failure banner with a
+             * Retry button (Livewire.hook('request'|'commit', ...) —
+             * nothing in this app listened to either hook before, so a
+             * network-level save failure was previously completely silent
+             * by Livewire's own default behavior). Split across two
+             * hooks: markup on CONTENT_START (inside <main>, ahead of the
+             * page's own heading, so a shown banner pushes it down in
+             * normal document flow instead of overlaying it — an earlier
+             * fixed-position version overlapped the heading), and the
+             * controlling script on SCRIPTS_AFTER (same as the
+             * bulk-select store below — a <script>'s position doesn't
+             * matter, only running once per full page load does, and
+             * CONTENT_START sits inside content that re-renders on every
+             * Livewire update). See both views for the full mechanism.
              */
+            ->renderHook(
+                PanelsRenderHook::CONTENT_START,
+                fn (): string => view('filament.reliability-banners')->render(),
+            )
             ->renderHook(
                 PanelsRenderHook::SCRIPTS_AFTER,
                 fn (): string => view('filament.scripts.reliability-banners')->render(),
