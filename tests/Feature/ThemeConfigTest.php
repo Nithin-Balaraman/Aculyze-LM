@@ -197,6 +197,40 @@ class ThemeConfigTest extends TestCase
         $this->assertStringNotContainsString('.rounded-xl.bg-white', $css);
     }
 
+    /**
+     * Bug fix: the sidebar header's `background: transparent` override
+     * only won in light mode. Tailwind's `dark:bg-gray-900` compiles to
+     * `.dark .dark\:bg-gray-900` (two classes), which outranks a bare
+     * `.fi-sidebar-header` (one class) regardless of stylesheet order —
+     * confirmed live, this left a visible gray seam across the header in
+     * dark mode, exactly where the sidebar collapse-toggle chevron sits,
+     * reading as the chevron being clipped/cut off at a boundary.
+     * `:is(.dark) .fi-sidebar-header` matches that specificity, the same
+     * pattern already used below for the topbar.
+     */
+    public function test_theme_css_keeps_the_sidebar_header_transparent_in_dark_mode(): void
+    {
+        $css = $this->themeCss();
+
+        $this->assertStringContainsString(':is(.dark) .fi-sidebar-header', $css);
+    }
+
+    /**
+     * Bug fix: `.fi-section` (dashboard widgets, form sections) and
+     * `.fi-ta-ctn` (a resource List page's table wrapper) are two
+     * *separate* Filament classes — boosting only `.fi-section`'s shadow
+     * left every resource List page (e.g. Call Records) on Filament's
+     * stock `shadow-sm`, looking flat next to the dashboard. Confirmed
+     * live: `.fi-ta-ctn`'s computed box-shadow matched the plain
+     * Filament default until this fix.
+     */
+    public function test_theme_css_gives_the_table_container_the_same_card_depth_as_sections(): void
+    {
+        $css = $this->themeCss();
+
+        $this->assertStringContainsString('.fi-ta-ctn', $css);
+    }
+
     private function themeCss(): string
     {
         return file_get_contents(resource_path('css/filament/admin/theme.css'));

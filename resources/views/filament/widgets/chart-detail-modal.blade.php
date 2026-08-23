@@ -82,8 +82,19 @@
     <div x-show="show" x-cloak>
     <div class="fi-chart-detail-backdrop fixed inset-0 z-[60] bg-gray-950/60" x-on:click="close()"></div>
 
+    {{--
+        top-20/md:top-24 (5rem/6rem) instead of the plain inset-4/md:inset-10
+        top used for the other 3 edges — keeps the modal's top edge below
+        the sticky topbar's own height (h-16 = 4rem) at every breakpoint,
+        so the modal never geometrically overlaps it at all. Live testing
+        (desktop, mobile-width, light/dark) never reproduced the topbar
+        actually rendering over the modal's heading — z-[61] vs. the
+        topbar's z-20 already wins — but there's no reason for the two to
+        overlap in the first place, and removing the overlap outright is
+        more robust than relying on stacking-context correctness alone.
+    --}}
     <div
-        class="fi-chart-detail-modal fixed inset-4 z-[61] overflow-y-auto rounded-2xl bg-white shadow-2xl dark:bg-gray-900 md:inset-10"
+        class="fi-chart-detail-modal fixed inset-x-4 bottom-4 top-20 z-[61] overflow-y-auto rounded-2xl bg-white shadow-2xl dark:bg-gray-900 md:inset-x-10 md:bottom-10 md:top-24"
         x-bind:style="style"
         x-on:click.outside="close()"
     >

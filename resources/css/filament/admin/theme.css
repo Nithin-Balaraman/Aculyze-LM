@@ -147,8 +147,8 @@
  * else (topbar, cards, table) follows the theme toggle normally.
  *
  * Scoped throughout to Filament's own semantic component classes
- * (.fi-sidebar, .fi-btn.fi-color-primary, .fi-section, .fi-badge,
- * .fi-ta-row, .fi-topbar) plus the two purpose-added hook classes
+ * (.fi-sidebar, .fi-btn.fi-color-primary, .fi-section, .fi-ta-ctn,
+ * .fi-badge, .fi-ta-row, .fi-topbar) plus the two purpose-added hook classes
  * (.fi-kpi-tile, .fi-kpi-tile-icon — see resources/views/filament/
  * widgets/kpi-{tile,band}.blade.php) rather than shared Tailwind utility
  * classes — the reliability toast notifications (resources/views/
@@ -202,8 +202,16 @@
 
 /* The header (logo + collapse toggle) paints its own opaque
    bg-white/dark:bg-gray-900 by default — without this it renders as a
-   solid light box floating over the new navy gradient in light mode. */
-.fi-sidebar-header {
+   solid box floating over the new navy gradient. The plain selector
+   alone only wins in light mode: Tailwind's `dark:bg-gray-900` utility
+   compiles to `.dark .dark\:bg-gray-900` (two classes), which outranks
+   a bare `.fi-sidebar-header` (one class) regardless of cascade order —
+   confirmed live, this left a visible gray seam across the header in
+   dark mode, exactly where the collapse-toggle chevron sits, making it
+   read as clipped/cut off at a boundary. `:is(.dark)` matches that
+   specificity (same fix pattern as the topbar rule below). */
+.fi-sidebar-header,
+:is(.dark) .fi-sidebar-header {
     background: transparent;
     box-shadow: none;
 }
@@ -305,15 +313,30 @@
 /* ----------------------------------------------------------------------
  * Cards: soft drop shadow + subtle hover-lift. `.fi-section` is
  * Filament's own "card" wrapper (dashboard KPI band container, form
- * sections, resource detail panels, ...).
+ * sections, resource detail panels, ...). `.fi-ta-ctn` is the equivalent
+ * wrapper around a resource's table (List pages, relation managers) —
+ * a *separate* Filament class, not a `.fi-section` itself, so it was
+ * being missed entirely: confirmed live, resource List pages (e.g. Call
+ * Records) still had only Filament's stock `shadow-sm` with none of this
+ * round's boosted depth, while every dashboard widget (wrapped in an
+ * actual `.fi-section`) had it — the intensity-boost work never actually
+ * reached table pages. Given the same shadow treatment here, but without
+ * the hover-lift transform: a hover-triggered translateY on a full-width,
+ * page-height table reads as a jarring page-wide jump rather than a
+ * "raised card" cue, unlike a compact, individually-clickable KPI/chart
+ * card — `.fi-ta-row:hover`'s own accent tint already provides the
+ * table's hover feedback.
  * ------------------------------------------------------------------- */
-.fi-section {
+.fi-section,
+.fi-ta-ctn {
     box-shadow:
         0 2px 6px rgba(15, 27, 61, 0.14),
         0 10px 24px -6px rgba(15, 27, 61, 0.22);
-    transition:
-        box-shadow 200ms ease,
-        transform 200ms ease;
+    transition: box-shadow 200ms ease;
+}
+
+.fi-section {
+    transition-property: box-shadow, transform;
 }
 
 .fi-section:hover {
@@ -327,7 +350,8 @@
    dark card background, so depth reads instead via a visible light rim
    (always on, so a card reads as "raised" even at rest) plus a strong
    black shadow for lift, brightening further on hover. */
-:is(.dark) .fi-section {
+:is(.dark) .fi-section,
+:is(.dark) .fi-ta-ctn {
     box-shadow:
         0 0 0 1px rgba(255, 255, 255, 0.08),
         0 10px 24px -6px rgba(0, 0, 0, 0.65),

@@ -293,4 +293,74 @@ class DashboardChartsTest extends TestCase
         $this->assertArrayHasKey('leadsCreated', $detail['table'][0]);
         $this->assertArrayHasKey('proposalsCreated', $detail['table'][0]);
     }
+
+    /**
+     * Bug fix: a doughnut (or any chart) whose datasets sum to zero can't
+     * compute any arc/bar angles (division by zero), so Chart.js silently
+     * draws nothing — confirmed live, "Proposal Outcomes" with zero
+     * matching proposals rendered an empty canvas with only the legend
+     * visible, easily misread as a rendering bug rather than a data one.
+     * Same "No data yet" convention kpi-sparkline.blade.php already uses
+     * for the same underlying reason.
+     */
+    public function test_chart_with_zero_data_shows_a_no_data_placeholder(): void
+    {
+        // No Proposals created at all — ProposalOutcomeChart's four
+        // counts (In Progress/Won/Hold/Lost) are all zero.
+        Livewire::test(ProposalOutcomeChart::class)
+            ->assertSee('No data yet');
+    }
+
+    public function test_chart_with_data_does_not_show_the_no_data_placeholder(): void
+    {
+        $user = User::factory()->create();
+        $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+        $lead = Lead::create(['prospect_id' => $prospect->id, 'assigned_to' => $user->id, 'created_by' => $user->id, 'stage' => LeadStage::Validated, 'temperature' => LeadTemperature::Warm, 'notes' => 'meaningful notes here']);
+        Proposal::create(['lead_id' => $lead->id, 'prospect_id' => $prospect->id, 'assigned_to' => $user->id, 'created_by' => $user->id, 'stage' => ProposalStage::Sent, 'outcome' => ProposalOutcome::Won, 'value' => 1000]);
+
+        Livewire::test(ProposalOutcomeChart::class)
+            ->assertDontSee('No data yet');
+    }
+
+    /**
+     * Bug fix: Chart.js's own per-type default aspect ratio differs
+     * (doughnut/pie default to a square 1:1, bar/line to a wide 2:1) —
+     * with no explicit height, this made "Leads by Stage" (bar) render at
+     * a different natural height than "Leads by Temperature"/"Proposal
+     * Outcomes" (doughnut) in the same dashboard row. Every non-full-width
+     * chart card now gets a fixed 15rem canvas height regardless of type;
+     * the full-width trend charts (not part of any 3-column row) are left
+     * on Chart.js's own natural sizing.
+     */
+    public function test_row_card_charts_get_a_fixed_height_for_consistent_sizing(): void
+    {
+        Livewire::test(LeadsByStageChart::class)->assertSeeHtml('height: 15rem');
+        Livewire::test(ProposalOutcomeChart::class)->assertSeeHtml('height: 15rem');
+    }
+
+    public function test_full_width_trend_charts_keep_their_natural_height(): void
+    {
+        Livewire::test(ConversionTrendChart::class)->assertDontSeeHtml('height: 15rem');
+        Livewire::test(GrowthTrendChart::class)->assertDontSeeHtml('height: 15rem');
+    }
+
+    /**
+     * Bug fix: the modal previously used `inset-4`/`md:inset-10` for all
+     * four edges, placing its top edge (16px/40px) above the sticky
+     * topbar's bottom edge (64px) at every breakpoint — geometrically
+     * overlapping it. Live testing across breakpoints/light+dark never
+     * actually reproduced the topbar rendering over the modal's heading
+     * (z-[61] already wins over the topbar's z-20), but there's no reason
+     * for the two to overlap at all — `top-20`/`md:top-24` keeps the
+     * modal's top edge below the topbar's height (h-16) unconditionally,
+     * removing the overlap regardless of any stacking-context nuance.
+     */
+    public function test_the_chart_detail_modal_never_overlaps_the_topbar(): void
+    {
+        Livewire::test(ChartDetailModal::class)
+            ->assertSeeHtml('top-20')
+            ->assertSeeHtml('md:top-24')
+            ->assertDontSeeHtml('inset-4')
+            ->assertDontSeeHtml('md:inset-10');
+    }
 }

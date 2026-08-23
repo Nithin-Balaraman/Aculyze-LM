@@ -42,6 +42,41 @@
     $description = $this->getDescription();
     $filters = $this->getFilters();
 
+    // A doughnut (or any chart) whose datasets sum to zero across the
+    // board can't compute any arc/bar angles (division by zero), so
+    // Chart.js silently draws nothing — confirmed live: "Proposal
+    // Outcomes" with zero matching proposals rendered an empty canvas
+    // with only the legend visible, easily misread as a rendering bug.
+    // Same "No data yet" convention already used by kpi-sparkline.blade.php
+    // for the same underlying reason.
+    // Some widgets' getData() returns a Collection (not a plain array) for
+    // 'data' (e.g. ConversionTrendChart/GrowthTrendChart's ->values()) —
+    // collect(...)->sum() accepts either, unlike array_sum() (confirmed
+    // live: array_sum() threw a TypeError on a Collection, a 500 on any
+    // dashboard whose trend charts run this same shared view).
+    $cachedData = $this->getCachedData();
+    $hasData = collect($cachedData['datasets'] ?? [])
+        ->sum(fn (array $dataset) => collect($dataset['data'] ?? [])->sum()) > 0;
+
+    // Chart.js's own per-type default aspect ratio differs (doughnut/pie
+    // default to a square 1:1, bar/line to a wide 2:1) — with no explicit
+    // height, this made "Leads by Stage" (bar) render at a different
+    // natural height than "Leads by Temperature"/"Proposal Outcomes"
+    // (doughnut) in the same dashboard row. `maintainAspectRatio: false`
+    // plus the fixed-height wrapper below (same pattern already used by
+    // kpi-sparkline.blade.php) makes every small (non-full-width) chart
+    // card the same height regardless of chart type or data shape. The
+    // full-width trend charts (Conversion Trend, Growth Trend) are left
+    // on Chart.js's own natural sizing — they aren't part of any
+    // 3-column row, so nothing to normalize against, and forcing them to
+    // the same 15rem height as a 1/3-width card would badly squash them.
+    $isRowCard = $this->getColumnSpan() !== 'full';
+
+    $chartOptions = $this->getOptions();
+    if ($isRowCard && is_array($chartOptions)) {
+        $chartOptions['maintainAspectRatio'] ??= false;
+    }
+
     // @js(...) doesn't reliably expand when embedded mid-string inside a
     // Blade *component* tag's plain attribute value (confirmed live: it
     // was left completely unevaluated, literal "@js(...)" text, in the
@@ -94,6 +129,14 @@
                     wire:poll.{{ $pollingInterval }}="updateChartData"
                 @endif
             >
+                @if (! $hasData)
+                    <div
+                        @class(['flex items-center justify-center text-sm text-gray-400 dark:text-gray-500', 'h-60' => $isRowCard])
+                    >
+                        No data yet
+                    </div>
+                @endif
+
                 <div
                     @if (FilamentView::hasSpaMode())
                         x-load="visible"
@@ -103,8 +146,8 @@
                     x-load-src="{{ \Filament\Support\Facades\FilamentAsset::getAlpineComponentSrc('chart', 'filament/widgets') }}"
                     wire:ignore
                     x-data="chart({
-                                cachedData: @js($this->getCachedData()),
-                                options: @js($this->getOptions()),
+                                cachedData: @js($cachedData),
+                                options: @js($chartOptions),
                                 type: @js($this->getType()),
                             })"
                     @class([
@@ -113,7 +156,9 @@
                             default => 'fi-color-custom',
                         },
                         is_string($color) ? "fi-color-{$color}" : null,
+                        'hidden' => ! $hasData,
                     ])
+                    @style(['height: 15rem' => $isRowCard])
                 >
                     <canvas
                         x-ref="canvas"
