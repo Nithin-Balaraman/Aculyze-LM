@@ -272,41 +272,62 @@ class ThemeConfigTest extends TestCase
     }
 
     /**
-     * Bug fix: the dark-mode topbar went through two earlier attempts —
+     * Bug fix: the dark-mode topbar has gone through three attempts now —
      * matched *exactly* to the sidebar's own top gradient stop (fixed a
      * seam, but read as one undifferentiated dark slab with the
-     * sidebar), then a separate, deliberately-lighter shade (fixed the
-     * slab problem, but read as an odd washed-out gray next to the rest
-     * of the palette). Matching the reference mockup precisely: the
-     * topbar isn't a third, separate band at all — it's the same deep
-     * page background (`--dm-bg`) as the content below it, with only the
-     * sidebar standing apart as its own distinct navy.
+     * sidebar); a separate, deliberately-lighter shade (fixed the slab
+     * problem, but read as an odd washed-out gray next to the rest of
+     * the palette); matched exactly to the new deep page background
+     * (closest to the reference mockup, but read as a bit too dark/flat
+     * on its own). `--dm-topbar` is a small, deliberate step up from
+     * `--dm-bg` — same navy hue, not a new tone, unlike the earlier
+     * "washed-out" attempt's much bigger jump.
      */
-    public function test_theme_css_matches_the_dark_mode_topbar_to_the_page_background(): void
+    public function test_theme_css_gives_the_dark_mode_topbar_a_gentle_lighten_from_the_page_background(): void
     {
         $css = $this->themeCss();
 
         $this->assertStringContainsString('--dm-bg:', $css);
-        $this->assertMatchesRegularExpression('/:is\(\.dark\)\s*\.fi-topbar nav\s*\{[^}]*background-color:\s*var\(--dm-bg\);/s', $css);
+        $this->assertStringContainsString('--dm-topbar:', $css);
+        $this->assertMatchesRegularExpression('/:is\(\.dark\)\s*\.fi-topbar nav\s*\{[^}]*background-color:\s*var\(--dm-topbar\);/s', $css);
         $this->assertStringNotContainsString('--topbar-navy-dark', $css);
     }
 
     /**
-     * Bug fix: at desktop widths, Filament's `.fi-sidebar-nav` (the
-     * scrollable nav-item list — a *separate* element below the header)
-     * sets an inline `style="scrollbar-gutter: stable"`, permanently
-     * reserving a scrollbar's worth of width even when nothing is
-     * scrolling — confirmed live, this made `.fi-sidebar-header`
-     * (which has no such reservation) read as extending past the
-     * content area below it, most visible as a native scrollbar-track
-     * widget rendered right at that boundary. `!important` is required
-     * to beat the inline style.
+     * Bug fix: a previous attempt reverted `.fi-sidebar-nav` (the
+     * scrollable nav-item list, below the header) to
+     * `scrollbar-gutter: auto`, so it would only lose width to a real
+     * scrollbar at the moment one is actually needed, rather than
+     * permanently — but confirmed live, this app's nav list genuinely
+     * does overflow at a shorter viewport, and the instant it does, the
+     * exact same header/nav width mismatch reappears (only the nav
+     * shrinks to make room). The robust fix is the opposite: give
+     * `.fi-sidebar-header` the *same permanent* reservation Filament's
+     * nav already has (`scrollbar-gutter: stable`, paired with
+     * `overflow-y: hidden` so no scrollbar is ever actually drawn there)
+     * — with both elements always reserving the identical width, they
+     * can never mismatch again, in any scenario.
      */
-    public function test_theme_css_removes_the_sidebar_navs_permanent_scrollbar_gutter(): void
+    public function test_theme_css_gives_the_sidebar_header_the_same_permanent_scrollbar_gutter_as_the_nav(): void
     {
         $css = $this->themeCss();
 
-        $this->assertMatchesRegularExpression('/\.fi-sidebar-nav\s*\{[^}]*scrollbar-gutter:\s*auto\s*!important;/s', $css);
+        $this->assertMatchesRegularExpression('/\.fi-sidebar-header\s*\{[^}]*overflow-y:\s*hidden;\s*\n\s*scrollbar-gutter:\s*stable;/s', $css);
+    }
+
+    /**
+     * Bug fix: the page background's subtle dot texture (added for List
+     * pages' bare space above their filter tabs) only applied in light
+     * mode — dark mode kept the earlier plain radial glow with no dot
+     * texture at all. A dark-mode dot needs a different color from
+     * light mode's (a dark navy dot is invisible against this near-black
+     * background), so a pale cyan-tinted dot is used instead.
+     */
+    public function test_theme_css_gives_the_dark_mode_page_background_the_same_dot_texture(): void
+    {
+        $css = $this->themeCss();
+
+        $this->assertMatchesRegularExpression('/:is\(\.dark\)\s*\.fi-body\s*\{[^}]*background-image:\s*\n\s*radial-gradient\(rgba\(148, 197, 230,/s', $css);
     }
 
     /**
@@ -378,6 +399,20 @@ class ThemeConfigTest extends TestCase
         $this->assertStringContainsString("'pointRadius' => 0,", $blade);
         $this->assertStringContainsString("'fill' => true,", $blade);
         $this->assertStringNotContainsString('rgba(65, 116, 185, 0.08)', $blade);
+    }
+
+    /**
+     * Bug fix: with no layout padding, Chart.js's auto-computed y-axis
+     * max lands exactly on the data's peak value, drawing the curve
+     * right up to the canvas's own top edge — the line's own borderWidth
+     * then has nowhere to go but off the top of the canvas, clipping the
+     * peak (confirmed live).
+     */
+    public function test_kpi_sparkline_has_top_padding_so_the_peak_is_not_clipped(): void
+    {
+        $blade = file_get_contents(resource_path('views/filament/widgets/kpi-sparkline.blade.php'));
+
+        $this->assertStringContainsString("'layout' => ['padding' => ['top' => 4]],", $blade);
     }
 
     private function themeCss(): string

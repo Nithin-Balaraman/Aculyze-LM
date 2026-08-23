@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Filament\Widgets\ChartDetailModal;
 use App\Filament\Widgets\ConversionTrendChart;
+use App\Filament\Widgets\DashboardGreeting;
 use App\Filament\Widgets\GrowthTrendChart;
 use App\Filament\Widgets\KpiBand;
 use App\Filament\Widgets\LeadsByStageChart;
@@ -73,6 +74,7 @@ class MainDashboard extends BaseDashboard
     public function getWidgets(): array
     {
         return [
+            DashboardGreeting::class,
             PipelinePulse::class,
             KpiBand::class,
             LeadsByTemperatureChart::class,

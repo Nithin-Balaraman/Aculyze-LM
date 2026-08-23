@@ -32,6 +32,14 @@
                         // left visible dot markers on every point despite
                         // `elements.point.radius` being 0 (confirmed live).
                         'pointRadius' => 0,
+                        // Without headroom, Chart.js's auto-computed y-axis max
+                        // lands exactly on the data's peak value, drawing the
+                        // curve right up to the canvas's own top edge — the
+                        // line's own borderWidth then has nowhere to go but
+                        // off the top of the canvas, clipping the peak
+                        // (confirmed live). A few pixels of top layout padding
+                        // gives the peak room to draw fully inside the canvas.
+                        'layout' => ['padding' => ['top' => 4]],
                         'elements' => ['point' => ['radius' => 0], 'line' => ['borderWidth' => 1.5]],
                         'scales' => ['x' => ['display' => false], 'y' => ['display' => false]],
                         'plugins' => ['legend' => ['display' => false], 'tooltip' => ['enabled' => false]],

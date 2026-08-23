@@ -37,9 +37,23 @@
 .fi-section-header-heading,
 .fi-modal-heading,
 .fi-logo,
-.fi-sidebar-group-label {
+.fi-sidebar-group-label,
+.fi-dashboard-greeting-heading {
     font-family: var(--font-heading);
     letter-spacing: -0.01em;
+}
+
+/* Dashboard greeting (resources/views/filament/widgets/
+   dashboard-greeting.blade.php): small date line in the brand accent —
+   primary in light mode, the more vivid cyan `accent` in dark mode
+   (same accent already used for the sidebar active-item glow and the
+   KPI icon badges), matching the reference mockup's cyan date label. */
+.fi-dashboard-greeting-date {
+    color: rgb(var(--primary-500-rgb));
+}
+
+:is(.dark) .fi-dashboard-greeting-date {
+    color: rgb(var(--accent-400-rgb));
 }
 
 .fi-wi-stats-overview-stat-value {
@@ -184,6 +198,12 @@
        cyan-tinted glow/border on those surfaces instead of a plain
        white rim. */
     --dm-bg: rgb(9, 13, 24);
+    /* A gentle step up from `--dm-bg`, same navy hue — for the topbar
+       only (see its rule below). Deliberately a small delta: previous
+       attempts at a topbar-specific shade used a much bigger jump and
+       read as an unrelated washed-out gray; this is a nudge, not a new
+       tone. */
+    --dm-topbar: rgb(16, 21, 36);
     --dark-surface: rgb(22, 29, 48);
     --dark-surface-raised: rgb(30, 39, 62);
 }
@@ -215,13 +235,21 @@
    2-class selector (`.dark .dark\:bg-gray-950`), which outranks a bare
    1-class `.fi-body` rule regardless of cascade order (the same
    specificity fact behind the sidebar-header and topbar rules below) —
-   `:is(.dark)` is required to actually win here. `--dm-bg` plus a very
-   soft cyan glow near the top (where the page heading/greeting sits in
-   the reference mockup) instead of a dot texture — the reference dark
-   screenshot is a clean, smooth dark canvas, not a dotted one. */
+   `:is(.dark)` is required to actually win here. `--dm-bg` plus the same
+   dot texture as light mode (same reasoning: bare List-page space above
+   the filter tabs shouldn't look emptier just because the theme toggle
+   is dark), layered under a soft cyan glow near the top. The dot color
+   itself has to flip for dark mode specifically — a dark navy dot (the
+   light-mode color) would be invisible against this near-black
+   background, so a pale cyan-tinted dot is used instead, at a slightly
+   higher opacity than light mode's, tuned so it reads clearly without
+   looking bright/distracting against navy. */
 :is(.dark) .fi-body {
     background-color: var(--dm-bg);
-    background-image: radial-gradient(ellipse 1200px 500px at top, rgba(41, 197, 230, 0.06), transparent 70%);
+    background-image:
+        radial-gradient(rgba(148, 197, 230, 0.12) 1.2px, transparent 1.6px),
+        radial-gradient(ellipse 1200px 500px at top, rgba(41, 197, 230, 0.06), transparent 70%);
+    background-size: 22px 22px, auto;
 }
 
 /* ----------------------------------------------------------------------
@@ -265,26 +293,33 @@
 
 /* Filament's own `.fi-sidebar-nav` (the scrollable nav-item list, a
    *separate* element below the header — see vendor/filament/filament/
-   resources/views/components/sidebar/index.blade.php) sets
+   resources/views/components/sidebar/index.blade.php) sets an inline
    `scrollbar-gutter: stable`, permanently reserving a scrollbar's worth
-   of width on its right edge even when nothing is scrolling, to avoid a
-   layout shift on the rare page where the nav list actually overflows.
-   The `.fi-sidebar-header` above it has no such reservation — confirmed
-   live (and by reading the box model directly: `.fi-sidebar-nav`'s own
-   clientWidth was ~15px narrower than `.fi-sidebar-header`'s, despite
-   both being the same 256px outer width) that this reserved gutter is
-   what read as the header "extending past" the content area below it,
-   most visible as a real native scrollbar-track widget rendered right
-   at that boundary on browsers/OSes that don't use overlay scrollbars.
-   Reverting to the default `auto` means the nav's content only ever
-   loses that width at the (rare) moment a scrollbar is actually needed,
-   rather than permanently — a far better trade than a permanent
-   mismatch with the header above it. `!important` is required: Filament
-   sets this as an inline `style="scrollbar-gutter: stable"` attribute
-   directly on the element, which otherwise always wins over any
-   external stylesheet rule regardless of selector specificity. */
-.fi-sidebar-nav {
-    scrollbar-gutter: auto !important;
+   of width on its right edge even when nothing is currently scrolling.
+   `.fi-sidebar-header` above it has no such reservation, so its own
+   clientWidth stays the full 256px while the nav's drops to ~241px —
+   read as the header "extending past" the content area below it.
+   A previous attempt reverted the nav to `scrollbar-gutter: auto`
+   instead, so it would only lose that width at the actual moment a
+   scrollbar is needed — but that only hides the mismatch in the common
+   case where the nav list is short enough not to scroll; confirmed
+   live, at a shorter viewport (or simply more nav items than fit) the
+   nav list DOES genuinely overflow — this app already has enough nav
+   groups/items for that — and the moment it does, the exact same
+   mismatch reappears, since only the nav (not the header) shrinks to
+   make room for the now-real scrollbar.
+   The robust fix is the opposite: give the header the *same permanent*
+   reservation as the nav — `overflow-y: hidden` (never actually shows a
+   scrollbar there) plus `scrollbar-gutter: stable` (still reserves the
+   gutter width even with no visible scrollbar, per spec — reservation
+   is driven by having a non-`visible` overflow value, not by whether a
+   scrollbar is actually drawn). With both elements permanently
+   reserving the identical width, they can never mismatch again,
+   regardless of whether the nav list is ever actually short or long
+   enough to scroll. */
+.fi-sidebar-header {
+    overflow-y: hidden;
+    scrollbar-gutter: stable;
 }
 
 /* The header (logo + collapse toggle) paints its own opaque
@@ -588,25 +623,24 @@
 
 /* ----------------------------------------------------------------------
  * Topbar: dark-mode-only navy tint, instead of Filament's default
- * dark:bg-gray-900 (a noticeably different, lighter dark gray). Two
- * earlier attempts here: matched *exactly* to the sidebar's top gradient
+ * dark:bg-gray-900 (a noticeably different, lighter dark gray). Three
+ * attempts here so far: matched *exactly* to the sidebar's top gradient
  * stop (fixed a seam, but read as one undifferentiated dark slab with
- * the sidebar); then a separate, deliberately-lighter "topbar" shade
- * (fixed the slab problem, but that shade read as an odd washed-out
- * gray next to the rest of the palette). The reference mockup's own
- * dark screenshot resolves this differently: the topbar isn't a third,
- * separate band at all — it's the *same* deep page background as the
- * content below it, with only the sidebar standing apart as its own
- * distinct navy (already handled by `.fi-sidebar`'s permanent edge
- * seam above). Matching `--dm-bg` here directly, rather than inventing
- * another intermediate tone, is both simpler and closer to the actual
- * reference. Light mode is left at Filament's own default (bg-white) —
- * only the sidebar is permanently navy; the topbar still follows the
- * theme toggle normally.
+ * the sidebar); a separate, deliberately-lighter "topbar" shade (fixed
+ * the slab problem, but that shade read as an odd washed-out gray next
+ * to the rest of the palette); matched exactly to the new deep page
+ * background (closest to the reference mockup, but read as a bit too
+ * dark/flat on its own). `--dm-topbar` is a small step up from
+ * `--dm-bg` — same navy hue, not a new tone — enough to read as its own
+ * subtly lighter surface against both the sidebar and the page below it,
+ * without repeating the earlier "washed-out" shade's much bigger jump.
+ * Light mode is left at Filament's own default (bg-white) — only the
+ * sidebar is permanently navy; the topbar still follows the theme
+ * toggle normally.
  * ------------------------------------------------------------------- */
 :is(.dark) .fi-topbar nav {
-    background-color: var(--dm-bg);
-    box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.05);
+    background-color: var(--dm-topbar);
+    box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.06);
 }
 
 /* Search bar: a cyan focus ring in dark mode instead of Filament's

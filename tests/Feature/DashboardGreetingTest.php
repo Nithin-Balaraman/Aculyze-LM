@@ -1,0 +1,110 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Enums\CallOutcome;
+use App\Filament\Pages\MainDashboard;
+use App\Filament\Pages\MyDashboard;
+use App\Filament\Widgets\DashboardGreeting;
+use App\Models\CallRecord;
+use App\Models\Prospect;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Date;
+use Livewire\Livewire;
+use Tests\TestCase;
+
+/**
+ * The dashboard's personalized greeting (opening date line/"Good
+ * morning/afternoon/evening, {name}"/subtitle), added to both Main
+ * Dashboard and My Dashboard. Time-of-day is read from Date::now(), which
+ * respects config('app.timezone') (Asia/Kolkata) — not raw UTC — matching
+ * "based on server time" as requested. The subtitle's call count is
+ * exactly App\Filament\Widgets\KpiBand's own "Calls" tile query
+ * (CallRecord::query()->directlyLogged(), scoped/filtered the same way),
+ * not a new metric invented for this widget.
+ */
+class DashboardGreetingTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function tearDown(): void
+    {
+        Date::setTestNow();
+
+        parent::tearDown();
+    }
+
+    public function test_greeting_says_good_morning_before_noon(): void
+    {
+        Date::setTestNow(Date::parse('2026-01-01 09:00:00'));
+        $this->actingAs(User::factory()->create(['name' => 'Priya Sharma']));
+
+        $greeting = Livewire::test(DashboardGreeting::class)->instance()->getGreeting();
+
+        $this->assertSame('Good morning, Priya', $greeting);
+    }
+
+    public function test_greeting_says_good_afternoon_between_noon_and_six(): void
+    {
+        Date::setTestNow(Date::parse('2026-01-01 14:00:00'));
+        $this->actingAs(User::factory()->create(['name' => 'Priya Sharma']));
+
+        $greeting = Livewire::test(DashboardGreeting::class)->instance()->getGreeting();
+
+        $this->assertSame('Good afternoon, Priya', $greeting);
+    }
+
+    public function test_greeting_says_good_evening_after_six(): void
+    {
+        Date::setTestNow(Date::parse('2026-01-01 20:00:00'));
+        $this->actingAs(User::factory()->create(['name' => 'Priya Sharma']));
+
+        $greeting = Livewire::test(DashboardGreeting::class)->instance()->getGreeting();
+
+        $this->assertSame('Good evening, Priya', $greeting);
+    }
+
+    public function test_date_line_matches_the_current_date(): void
+    {
+        Date::setTestNow(Date::parse('2026-08-25 10:00:00'));
+        $this->actingAs(User::factory()->create());
+
+        $dateLine = Livewire::test(DashboardGreeting::class)->instance()->getDateLine();
+
+        $this->assertSame('Tuesday · 25 August', $dateLine);
+    }
+
+    public function test_subtitle_reflects_the_real_directly_logged_call_count_company_wide(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+        CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $user->id, 'called_at' => now(), 'outcome' => CallOutcome::NoAnswer]);
+        CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $user->id, 'called_at' => now(), 'outcome' => CallOutcome::NoAnswer]);
+
+        $subtitle = Livewire::test(DashboardGreeting::class, ['employeeId' => null])->instance()->getSubtitle();
+
+        $this->assertSame("Your team has logged 2 calls this cycle.", $subtitle);
+    }
+
+    public function test_subtitle_is_personal_when_scoped_to_an_employee(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+        CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $user->id, 'called_at' => now(), 'outcome' => CallOutcome::NoAnswer]);
+
+        $subtitle = Livewire::test(DashboardGreeting::class, ['employeeId' => $user->id])->instance()->getSubtitle();
+
+        $this->assertSame("You've logged 1 call this cycle.", $subtitle);
+    }
+
+    public function test_both_dashboards_register_the_greeting_widget(): void
+    {
+        $this->assertContains(DashboardGreeting::class, (new MainDashboard)->getWidgets());
+        $this->assertContains(DashboardGreeting::class, (new MyDashboard)->getWidgets());
+    }
+}

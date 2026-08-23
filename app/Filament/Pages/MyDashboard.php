@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Widgets\ChartDetailModal;
+use App\Filament\Widgets\DashboardGreeting;
 use App\Filament\Widgets\KpiBand;
 use App\Filament\Widgets\LeadsByStageChart;
 use App\Filament\Widgets\ProposalOutcomeChart;
@@ -56,6 +57,7 @@ class MyDashboard extends BaseDashboard
     public function getWidgets(): array
     {
         return [
+            DashboardGreeting::class,
             KpiBand::class,
             LeadsByStageChart::class,
             ProposalOutcomeChart::class,
