@@ -135,3 +135,299 @@
         animation: none;
     }
 }
+
+/*
+ * Visual theme overhaul — styling/interaction polish only (colors, depth,
+ * shadows, glow, transitions, hover states); no content, layout, or data
+ * changes anywhere. Built against a reference mockup + screen recording
+ * (see the investigation this was planned from); recording review
+ * confirmed the sidebar's hover and active states are visually distinct
+ * (hover = plain tint, active = tint + left accent bar + glow), and that
+ * the sidebar stays navy in both light and dark mode while everything
+ * else (topbar, cards, table) follows the theme toggle normally.
+ *
+ * Scoped throughout to Filament's own semantic component classes
+ * (.fi-sidebar, .fi-btn.fi-color-primary, .fi-section, .fi-badge,
+ * .fi-ta-row, .fi-topbar) plus the two purpose-added hook classes
+ * (.fi-kpi-tile, .fi-kpi-tile-icon — see resources/views/filament/
+ * widgets/kpi-{tile,band}.blade.php) rather than shared Tailwind utility
+ * classes — the reliability toast notifications (resources/views/
+ * filament/scripts/reliability-notifications.blade.php) share several of
+ * those utility classes with `.fi-section`/`.fi-badge`, so a utility-based
+ * selector here would risk reaching into them; confirmed live (see PR
+ * notes) that the toasts render identically to before this file changed.
+ */
+
+:root {
+    /* Sidebar gradient stops — Color::hex('#0F1B3D')'s own 500/700/800
+       shades (AdminPanelProvider's `navy`), not arbitrary hex values. */
+    --sidebar-navy-500: rgb(15, 27, 61);
+    --sidebar-navy-700: rgb(11, 20, 46);
+    --sidebar-navy-800: rgb(9, 16, 37);
+
+    /* The dedicated `accent` custom color's shades (Color::hex('#29C5E6')) —
+       used for the sidebar active-item glow/bar and KPI icon badges in
+       dark mode. */
+    --accent-400-rgb: 105, 214, 238;
+    --accent-500-rgb: 41, 197, 230;
+
+    /* `primary`'s own 500 shade (Color::hex('#4174B9')) — used for button
+       depth shadows, table row hover tint, and KPI icon badges in light
+       mode. */
+    --primary-500-rgb: 65, 116, 185;
+}
+
+/* ----------------------------------------------------------------------
+ * Sidebar: permanently navy in both light and dark mode (unlike
+ * Filament's own default, where the sidebar follows the site-wide
+ * light/dark toggle). `.fi-sidebar`'s own classes include `bg-white ...
+ * lg:bg-transparent dark:bg-gray-900 dark:lg:bg-transparent` (see vendor/
+ * filament/filament/resources/views/components/sidebar/index.blade.php)
+ * — a plain, unscoped rule here already wins at every viewport width,
+ * since this file's rules are declared after the entire imported vendor
+ * stylesheet (including its internal responsive blocks) via the @import
+ * at the top of this file, so they come later in the compiled cascade at
+ * equal specificity. Confirmed visually at both the expanded (16rem) and
+ * collapsed (4.5rem) sidebar widths, and with light/dark toggled both
+ * ways.
+ * ------------------------------------------------------------------- */
+.fi-sidebar {
+    background: linear-gradient(
+        180deg,
+        var(--sidebar-navy-500) 0%,
+        var(--sidebar-navy-700) 55%,
+        var(--sidebar-navy-800) 100%
+    );
+}
+
+/* The header (logo + collapse toggle) paints its own opaque
+   bg-white/dark:bg-gray-900 by default — without this it renders as a
+   solid light box floating over the new navy gradient in light mode. */
+.fi-sidebar-header {
+    background: transparent;
+    box-shadow: none;
+}
+
+/* Brand name text defaults to text-gray-950 dark:text-white — since the
+   sidebar no longer follows the light/dark toggle, its own text can't
+   either. Scoped to `.fi-sidebar .fi-logo` (not `.fi-logo` alone) so the
+   login page's own centered logo, outside the sidebar and still
+   following the normal light/dark toggle, is unaffected. */
+.fi-sidebar .fi-logo {
+    color: #fff;
+}
+
+/* Nav item label/icon default to a light-background palette
+   (text-gray-700 dark:text-gray-200 / text-gray-400 dark:text-gray-500)
+   that only becomes dark-mode-appropriate under `dark:` — forced here to
+   always use that reading. Values are Filament's own default Gray scale
+   (Color::Gray, unrelated to this app's custom `gray` semantic color) at
+   the exact shades Filament's own `dark:` classes already resolve to. */
+.fi-sidebar-item-label {
+    color: rgb(229, 231, 235);
+}
+
+.fi-sidebar-item-icon {
+    color: rgb(107, 114, 128);
+}
+
+.fi-sidebar-item-button {
+    transition:
+        background-color 150ms ease,
+        box-shadow 150ms ease;
+}
+
+/* Hover (not the active/current page): a plain tint only — no glow, no
+   accent bar. Kept deliberately distinct from the active state below,
+   confirmed against the reference recording (hovering a non-active item
+   while the real active item stayed elsewhere never showed a bar/glow on
+   the hovered one). */
+.fi-sidebar-item:not(.fi-active) .fi-sidebar-item-button:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Active nav item: a left accent bar on the row itself... */
+.fi-sidebar-item.fi-active {
+    border-inline-start: 3px solid rgb(var(--accent-500-rgb));
+    margin-inline-start: -3px;
+    box-shadow: -2px 0 10px -2px rgba(var(--accent-500-rgb), 0.55);
+}
+
+/* ...and a translucent highlight + soft glow on the pill itself,
+   additive to Filament's own active-state background. */
+.fi-sidebar-item.fi-active .fi-sidebar-item-button {
+    background-color: rgba(255, 255, 255, 0.05);
+    box-shadow:
+        0 0 0 1px rgba(var(--accent-500-rgb), 0.35),
+        0 0 14px 1px rgba(var(--accent-500-rgb), 0.35);
+}
+
+/* Active item's label/icon: Filament's own default already recolors
+   these to `primary` (text-primary-600 dark:text-primary-400) — primary
+   itself is untouched, only pinned to its dark-mode-appropriate shade
+   (400) always, for the same always-dark-sidebar reason as above. The
+   glow/bar above is the new brand touch, not this text color. */
+.fi-sidebar-item.fi-active .fi-sidebar-item-label,
+.fi-sidebar-item.fi-active .fi-sidebar-item-icon {
+    color: rgb(122, 158, 206);
+}
+
+/* ----------------------------------------------------------------------
+ * Buttons: primary buttons get soft shadow/depth instead of flat, plus
+ * distinct hover (deeper) and active/press (flatter, nudged down) states
+ * — matching the reference recording's button-press feel. Excludes the
+ * outlined (ghost-style) variant, which shouldn't get the same solid-
+ * button depth treatment.
+ * ------------------------------------------------------------------- */
+.fi-btn.fi-color-primary:not(.fi-btn-outlined) {
+    box-shadow:
+        0 1px 2px rgba(15, 27, 61, 0.12),
+        0 4px 10px -2px rgba(var(--primary-500-rgb), 0.45);
+    transition:
+        box-shadow 150ms ease,
+        transform 100ms ease;
+}
+
+.fi-btn.fi-color-primary:not(.fi-btn-outlined):hover {
+    box-shadow:
+        0 2px 4px rgba(15, 27, 61, 0.16),
+        0 6px 16px -3px rgba(var(--primary-500-rgb), 0.55);
+}
+
+.fi-btn.fi-color-primary:not(.fi-btn-outlined):active {
+    box-shadow:
+        0 1px 2px rgba(15, 27, 61, 0.14),
+        0 2px 6px -2px rgba(var(--primary-500-rgb), 0.4);
+    transform: translateY(1px);
+}
+
+/* ----------------------------------------------------------------------
+ * Cards: soft drop shadow + subtle hover-lift. `.fi-section` is
+ * Filament's own "card" wrapper (dashboard KPI band container, form
+ * sections, resource detail panels, ...).
+ * ------------------------------------------------------------------- */
+.fi-section {
+    box-shadow:
+        0 1px 3px rgba(15, 27, 61, 0.08),
+        0 1px 2px rgba(15, 27, 61, 0.06);
+    transition:
+        box-shadow 150ms ease,
+        transform 150ms ease;
+}
+
+.fi-section:hover {
+    transform: translateY(-2px);
+    box-shadow:
+        0 10px 20px -6px rgba(15, 27, 61, 0.18),
+        0 4px 8px -2px rgba(15, 27, 61, 0.1);
+}
+
+/* Dark mode: a navy-tinted shadow is barely visible against an already-
+   dark card background, so depth reads instead via a faint light rim
+   plus a straightforward black shadow for lift. */
+:is(.dark) .fi-section {
+    box-shadow:
+        0 1px 0 0 rgba(255, 255, 255, 0.04),
+        0 4px 12px -4px rgba(0, 0, 0, 0.5);
+}
+
+:is(.dark) .fi-section:hover {
+    box-shadow:
+        0 1px 0 0 rgba(255, 255, 255, 0.06),
+        0 12px 24px -6px rgba(0, 0, 0, 0.6);
+}
+
+/* KPI tiles (resources/views/filament/widgets/kpi-{tile,band}.blade.php):
+   their own individual elevation, distinct from the `.fi-section` band
+   they live inside, plus an icon "badge" treatment — a tinted background
+   square behind the existing icon, not a new element. */
+.fi-kpi-tile {
+    border-radius: 0.75rem;
+    transition:
+        box-shadow 150ms ease,
+        transform 150ms ease;
+    box-shadow:
+        0 1px 3px rgba(15, 27, 61, 0.08),
+        0 1px 2px rgba(15, 27, 61, 0.06);
+}
+
+.fi-kpi-tile:hover {
+    transform: translateY(-2px);
+    box-shadow:
+        0 8px 18px -6px rgba(15, 27, 61, 0.18),
+        0 3px 6px -2px rgba(15, 27, 61, 0.1);
+}
+
+:is(.dark) .fi-kpi-tile {
+    box-shadow:
+        0 1px 0 0 rgba(255, 255, 255, 0.04),
+        0 4px 10px -4px rgba(0, 0, 0, 0.5);
+}
+
+:is(.dark) .fi-kpi-tile:hover {
+    box-shadow:
+        0 1px 0 0 rgba(255, 255, 255, 0.06),
+        0 10px 20px -6px rgba(0, 0, 0, 0.6);
+}
+
+.fi-kpi-tile-icon {
+    padding: 0.375rem;
+    border-radius: 0.5rem;
+    background: rgba(var(--primary-500-rgb), 0.12);
+    color: rgb(var(--primary-500-rgb));
+}
+
+:is(.dark) .fi-kpi-tile-icon {
+    background: rgba(var(--accent-500-rgb), 0.15);
+    color: rgb(var(--accent-400-rgb));
+}
+
+/* ----------------------------------------------------------------------
+ * Badges: a soft depth touch on the existing pill shape. Colors are
+ * untouched — still driven entirely by each enum's own getColor()
+ * (danger/success/warning/gray/info/coral/gold/slateblue), so semantic
+ * meaning (success = green, danger = red, ...) is unaffected.
+ * ------------------------------------------------------------------- */
+.fi-badge {
+    box-shadow: 0 1px 2px rgba(15, 27, 61, 0.06);
+}
+
+/* ----------------------------------------------------------------------
+ * Table rows: a subtle brand-tinted hover instead of Filament's plain
+ * gray, overriding its own conditional `hover:bg-gray-50 dark:hover:bg-
+ * white/5` (see vendor/filament/tables/resources/views/components/
+ * row.blade.php) at equal specificity, later in the cascade.
+ * ------------------------------------------------------------------- */
+.fi-ta-row {
+    transition: background-color 100ms ease;
+}
+
+.fi-ta-row:hover {
+    background-color: rgba(var(--primary-500-rgb), 0.04);
+}
+
+:is(.dark) .fi-ta-row:hover {
+    background-color: rgba(var(--accent-500-rgb), 0.06);
+}
+
+/* ----------------------------------------------------------------------
+ * Topbar: dark-mode-only navy tint so it blends with the now-permanently-
+ * navy sidebar, instead of Filament's default dark:bg-gray-900 (a
+ * noticeably different, lighter dark gray). Light mode is left at
+ * Filament's own default (bg-white) — only the sidebar is permanently
+ * navy; the topbar still follows the theme toggle normally.
+ * ------------------------------------------------------------------- */
+:is(.dark) .fi-topbar nav {
+    background-color: var(--sidebar-navy-800);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fi-section:hover,
+    .fi-kpi-tile:hover {
+        transform: none;
+    }
+
+    .fi-btn.fi-color-primary:not(.fi-btn-outlined):active {
+        transform: none;
+    }
+}
