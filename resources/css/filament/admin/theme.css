@@ -176,37 +176,52 @@
        mode. */
     --primary-500-rgb: 65, 116, 185;
 
-    /* Dark-mode-only surfaces, distinct from both the sidebar gradient
-       and the page background (see the topbar/card rules below for why
-       each exists). All three stay in the same navy-gray family so the
-       app still reads as one cohesive palette, not three unrelated
-       grays. */
-    --topbar-navy-dark: rgb(26, 42, 78);
-    --dark-surface: rgb(54, 64, 82);
-    --dark-surface-raised: rgb(66, 78, 98);
+    /* Dark-mode palette, matched to the reference Claude Design mockup
+       (the dark-mode dashboard screenshot used as this theme's original
+       target): a deep, near-black navy page background rather than
+       Filament's stock warm gray-950, with card/table surfaces a
+       distinctly lighter navy so the depth work actually reads, and a
+       cyan-tinted glow/border on those surfaces instead of a plain
+       white rim. */
+    --dm-bg: rgb(9, 13, 24);
+    --dark-surface: rgb(22, 29, 48);
+    --dark-surface-raised: rgb(30, 39, 62);
 }
 
 /* ----------------------------------------------------------------------
- * Page background (light mode only): Filament's own `.fi-body` default
- * is `bg-gray-50` — near-white, and reads as stark/unfinished next to
- * the rest of this theme's depth work. A very subtle brand-tinted
- * gradient instead, applied to `.fi-body` itself (the single root
- * element every panel page renders inside), so it reaches every page —
- * dashboards, resource list/form pages alike — with one rule, not a
- * per-page change. `.fi-body`'s dark-mode background is untouched here:
- * Tailwind's `dark:bg-gray-950` compiles to a 2-class selector
- * (`.dark .dark\:bg-gray-950`), which already outranks this plain
- * 1-class rule regardless of cascade order (the same specificity fact
- * behind the sidebar-header and topbar rules elsewhere in this file) —
- * so this only ever applies in light mode, without needing its own
- * `:not(.dark)` guard.
+ * Page background: Filament's own `.fi-body` default is `bg-gray-50`
+ * (light) / `dark:bg-gray-950` (dark) — near-white/plain-warm-gray, and
+ * both read as stark/unfinished, especially visible as bare blank space
+ * above a resource List page's own filter tabs. Applied to `.fi-body`
+ * itself (the single root element every panel page renders inside), so
+ * it reaches every page — dashboards, resource list/form pages alike —
+ * with one rule each, not a per-page change.
+ *
+ * Light mode: a very subtle brand-tinted gradient plus a faint repeating
+ * dot texture (same spirit as the Pipeline Pulse widget's dotted flow
+ * lines above, at a much fainter/wider spacing here) instead of a flat
+ * tint alone, so empty page areas read as a deliberate subtle texture
+ * rather than blank gaps.
  * ------------------------------------------------------------------- */
 .fi-body {
-    background: linear-gradient(
-        180deg,
-        rgba(65, 116, 185, 0.05) 0%,
-        rgba(15, 27, 61, 0.025) 100%
-    );
+    background-color: rgb(250, 251, 253);
+    background-image:
+        radial-gradient(rgba(65, 116, 185, 0.16) 1.2px, transparent 1.6px),
+        linear-gradient(180deg, rgba(65, 116, 185, 0.05) 0%, rgba(15, 27, 61, 0.025) 100%);
+    background-size: 22px 22px, auto;
+}
+
+/* Dark mode: `.fi-body`'s plain `dark:bg-gray-950` compiles to a
+   2-class selector (`.dark .dark\:bg-gray-950`), which outranks a bare
+   1-class `.fi-body` rule regardless of cascade order (the same
+   specificity fact behind the sidebar-header and topbar rules below) —
+   `:is(.dark)` is required to actually win here. `--dm-bg` plus a very
+   soft cyan glow near the top (where the page heading/greeting sits in
+   the reference mockup) instead of a dot texture — the reference dark
+   screenshot is a clean, smooth dark canvas, not a dotted one. */
+:is(.dark) .fi-body {
+    background-color: var(--dm-bg);
+    background-image: radial-gradient(ellipse 1200px 500px at top, rgba(41, 197, 230, 0.06), transparent 70%);
 }
 
 /* ----------------------------------------------------------------------
@@ -246,6 +261,30 @@
        boundary a real, always-visible line regardless of what color
        sits on the other side of it. */
     box-shadow: 1px 0 0 0 rgba(255, 255, 255, 0.09);
+}
+
+/* Filament's own `.fi-sidebar-nav` (the scrollable nav-item list, a
+   *separate* element below the header — see vendor/filament/filament/
+   resources/views/components/sidebar/index.blade.php) sets
+   `scrollbar-gutter: stable`, permanently reserving a scrollbar's worth
+   of width on its right edge even when nothing is scrolling, to avoid a
+   layout shift on the rare page where the nav list actually overflows.
+   The `.fi-sidebar-header` above it has no such reservation — confirmed
+   live (and by reading the box model directly: `.fi-sidebar-nav`'s own
+   clientWidth was ~15px narrower than `.fi-sidebar-header`'s, despite
+   both being the same 256px outer width) that this reserved gutter is
+   what read as the header "extending past" the content area below it,
+   most visible as a real native scrollbar-track widget rendered right
+   at that boundary on browsers/OSes that don't use overlay scrollbars.
+   Reverting to the default `auto` means the nav's content only ever
+   loses that width at the (rare) moment a scrollbar is actually needed,
+   rather than permanently — a far better trade than a permanent
+   mismatch with the header above it. `!important` is required: Filament
+   sets this as an inline `style="scrollbar-gutter: stable"` attribute
+   directly on the element, which otherwise always wins over any
+   external stylesheet rule regardless of selector specificity. */
+.fi-sidebar-nav {
+    scrollbar-gutter: auto !important;
 }
 
 /* The header (logo + collapse toggle) paints its own opaque
@@ -358,6 +397,38 @@
         0 3px 8px -2px rgba(var(--primary-500-rgb), 0.5);
 }
 
+/* Dark mode: primary buttons render in the vivid cyan accent instead of
+   steel-blue, matching the reference mockup's dark-mode button accent —
+   steel-blue reads as a flat, washed-out gray-blue against the new deep
+   navy-black page background, whereas cyan is the accent already used
+   for the sidebar's active-item glow and (below) the KPI icon badges,
+   so this keeps dark mode's accent language consistent throughout.
+   Filament's own button background comes from a plain `bg-custom-{600,
+   500}` utility class (not an inline style — only the `--c-*` custom
+   properties feeding it are inlined per-element), so overriding
+   `background-color` directly here needs no `!important`: this
+   selector's specificity already exceeds `.dark .dark\:bg-custom-500`. */
+:is(.dark) .fi-btn.fi-color-primary:not(.fi-btn-outlined) {
+    background-color: rgb(var(--accent-500-rgb));
+    color: var(--sidebar-navy-800);
+    box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.4),
+        0 8px 20px -4px rgba(var(--accent-500-rgb), 0.5);
+}
+
+:is(.dark) .fi-btn.fi-color-primary:not(.fi-btn-outlined):hover {
+    background-color: rgb(var(--accent-400-rgb));
+    box-shadow:
+        0 4px 8px rgba(0, 0, 0, 0.45),
+        0 14px 28px -4px rgba(var(--accent-500-rgb), 0.6);
+}
+
+:is(.dark) .fi-btn.fi-color-primary:not(.fi-btn-outlined):active {
+    box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.4),
+        0 3px 8px -2px rgba(var(--accent-500-rgb), 0.4);
+}
+
 /* ----------------------------------------------------------------------
  * Cards: soft drop shadow + subtle hover-lift. `.fi-section` is
  * Filament's own "card" wrapper (dashboard KPI band container, form
@@ -411,9 +482,9 @@
 :is(.dark) .fi-ta-ctn {
     background-color: var(--dark-surface);
     box-shadow:
-        0 0 0 1px rgba(255, 255, 255, 0.08),
-        0 10px 24px -6px rgba(0, 0, 0, 0.65),
-        0 4px 10px rgba(0, 0, 0, 0.5);
+        0 0 0 1px rgba(var(--accent-500-rgb), 0.16),
+        0 10px 24px -6px rgba(0, 0, 0, 0.7),
+        0 4px 10px rgba(0, 0, 0, 0.55);
 }
 
 :is(.dark) .fi-section:hover {
@@ -451,9 +522,9 @@
 :is(.dark) .fi-kpi-tile {
     background-color: var(--dark-surface-raised);
     box-shadow:
-        0 0 0 1px rgba(255, 255, 255, 0.08),
-        0 8px 18px -6px rgba(0, 0, 0, 0.65),
-        0 3px 8px rgba(0, 0, 0, 0.5);
+        0 0 0 1px rgba(var(--accent-500-rgb), 0.18),
+        0 8px 18px -6px rgba(0, 0, 0, 0.7),
+        0 3px 8px rgba(0, 0, 0, 0.55);
 }
 
 :is(.dark) .fi-kpi-tile:hover {
@@ -475,10 +546,14 @@
     box-shadow: 0 3px 8px -1px rgba(var(--primary-500-rgb), 0.65);
 }
 
+/* Dark mode: a translucent cyan "glass" tint instead of a solid fill —
+   matched to the reference mockup's icon badge treatment, which reads as
+   a soft tinted square (the dark surface still shows through) with a
+   bright cyan icon on top, not an inverted solid-color chip. */
 :is(.dark) .fi-kpi-tile-icon {
-    background: rgb(var(--accent-500-rgb));
-    color: var(--sidebar-navy-800);
-    box-shadow: 0 3px 10px -1px rgba(var(--accent-500-rgb), 0.75);
+    background: rgba(var(--accent-500-rgb), 0.16);
+    color: rgb(var(--accent-400-rgb));
+    box-shadow: 0 0 0 1px rgba(var(--accent-500-rgb), 0.25);
 }
 
 /* ----------------------------------------------------------------------
@@ -512,29 +587,41 @@
 }
 
 /* ----------------------------------------------------------------------
- * Topbar: dark-mode-only navy tint, in the same family as the now-
- * permanently-navy sidebar, instead of Filament's default
- * dark:bg-gray-900 (a noticeably different, lighter dark gray). This
- * was originally matched *exactly* to the sidebar gradient's top stop
- * (navy-500) to fix a visible seam of two unrelated shades — but an
- * exact match, it turned out, reads as one undifferentiated dark slab
- * with no visible boundary between "navigation" (sidebar) and "content
- * chrome" (topbar) at all, especially since the sidebar itself gets no
- * border/shadow of its own at desktop widths (see `.fi-sidebar` above,
- * which now adds one). `--topbar-navy-dark` is deliberately lighter
- * than the sidebar's own top stop — still clearly part of the same
- * navy family, not a jarring contrast — so the two read as distinct-
- * but-cohesive regions, matching the reference mockup (sidebar clearly
- * dark, topbar its own subtly lighter tone). The existing bottom
- * box-shadow already separates the topbar from the page content below
- * it; nudged slightly more visible now that it sits on a lighter
- * background. Light mode is left at Filament's own default (bg-white)
- * — only the sidebar is permanently navy; the topbar still follows the
+ * Topbar: dark-mode-only navy tint, instead of Filament's default
+ * dark:bg-gray-900 (a noticeably different, lighter dark gray). Two
+ * earlier attempts here: matched *exactly* to the sidebar's top gradient
+ * stop (fixed a seam, but read as one undifferentiated dark slab with
+ * the sidebar); then a separate, deliberately-lighter "topbar" shade
+ * (fixed the slab problem, but that shade read as an odd washed-out
+ * gray next to the rest of the palette). The reference mockup's own
+ * dark screenshot resolves this differently: the topbar isn't a third,
+ * separate band at all — it's the *same* deep page background as the
+ * content below it, with only the sidebar standing apart as its own
+ * distinct navy (already handled by `.fi-sidebar`'s permanent edge
+ * seam above). Matching `--dm-bg` here directly, rather than inventing
+ * another intermediate tone, is both simpler and closer to the actual
+ * reference. Light mode is left at Filament's own default (bg-white) —
+ * only the sidebar is permanently navy; the topbar still follows the
  * theme toggle normally.
  * ------------------------------------------------------------------- */
 :is(.dark) .fi-topbar nav {
-    background-color: var(--topbar-navy-dark);
-    box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.12);
+    background-color: var(--dm-bg);
+    box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Search bar: a cyan focus ring in dark mode instead of Filament's
+   default primary-color ring, matching the reference mockup's cyan
+   accent on the search input. Scoped to `.fi-global-search` specifically
+   (not `.fi-input-wrp` generally, which every form field also uses) —
+   this is about the topbar search bar's own accent, not a site-wide
+   input recolor. The ring color Tailwind targets here comes from a
+   plain `ring-primary-500` utility class (via the arbitrary variant
+   `[&:not(:has(.fi-ac-action:focus))]:focus-within:ring-primary-500`,
+   not an inlined per-element style), so `!important` is used to
+   guarantee this wins rather than depending on the arbitrary-selector's
+   exact compiled specificity. */
+:is(.dark) .fi-global-search .fi-input-wrp:focus-within {
+    --tw-ring-color: rgb(var(--accent-500-rgb)) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

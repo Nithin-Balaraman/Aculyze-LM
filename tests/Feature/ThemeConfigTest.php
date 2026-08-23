@@ -255,33 +255,89 @@ class ThemeConfigTest extends TestCase
     /**
      * Bug fix: light mode's `.fi-body` background was Filament's stock
      * `bg-gray-50` — near-white, reading as stark next to the rest of
-     * this theme's depth work. A subtle brand-tinted gradient applies to
-     * `.fi-body` itself (the one root element every panel page renders
-     * inside), so it reaches dashboards, resource list pages, and forms
-     * alike with a single rule rather than a per-page change.
+     * this theme's depth work, and leaving bare, texture-less empty space
+     * above a resource List page's own filter tabs. Applies to `.fi-body`
+     * itself (the one root element every panel page renders inside), so
+     * it reaches dashboards, resource list pages, and forms alike with a
+     * single rule rather than a per-page change. A repeating radial-dot
+     * pattern layered under the existing brand-tinted gradient gives
+     * those empty areas a deliberate subtle texture instead of a blank gap.
      */
-    public function test_theme_css_gives_the_page_background_a_subtle_brand_tint(): void
+    public function test_theme_css_gives_the_page_background_a_subtle_brand_tint_and_texture(): void
     {
         $css = $this->themeCss();
 
-        $this->assertMatchesRegularExpression('/\.fi-body\s*\{[^}]*background:\s*linear-gradient/s', $css);
+        $this->assertMatchesRegularExpression('/\.fi-body\s*\{[^}]*background-image:\s*\n\s*radial-gradient/s', $css);
+        $this->assertMatchesRegularExpression('/\.fi-body\s*\{[^}]*linear-gradient/s', $css);
     }
 
     /**
-     * Bug fix: the dark-mode topbar was matched *exactly* to the
-     * sidebar's own top gradient stop to fix an earlier seam bug, but an
-     * exact match made the two read as one undifferentiated dark slab
-     * with no visible boundary between navigation and content chrome.
-     * `--topbar-navy-dark` is a distinct (lighter) shade in the same
-     * navy family, not identical to the sidebar gradient's own stops.
+     * Bug fix: the dark-mode topbar went through two earlier attempts —
+     * matched *exactly* to the sidebar's own top gradient stop (fixed a
+     * seam, but read as one undifferentiated dark slab with the
+     * sidebar), then a separate, deliberately-lighter shade (fixed the
+     * slab problem, but read as an odd washed-out gray next to the rest
+     * of the palette). Matching the reference mockup precisely: the
+     * topbar isn't a third, separate band at all — it's the same deep
+     * page background (`--dm-bg`) as the content below it, with only the
+     * sidebar standing apart as its own distinct navy.
      */
-    public function test_theme_css_gives_the_dark_mode_topbar_its_own_distinct_shade(): void
+    public function test_theme_css_matches_the_dark_mode_topbar_to_the_page_background(): void
     {
         $css = $this->themeCss();
 
-        $this->assertStringContainsString('--topbar-navy-dark:', $css);
-        $this->assertStringContainsString('background-color: var(--topbar-navy-dark);', $css);
-        $this->assertStringNotContainsString('background-color: var(--sidebar-navy-500);', $css);
+        $this->assertStringContainsString('--dm-bg:', $css);
+        $this->assertMatchesRegularExpression('/:is\(\.dark\)\s*\.fi-topbar nav\s*\{[^}]*background-color:\s*var\(--dm-bg\);/s', $css);
+        $this->assertStringNotContainsString('--topbar-navy-dark', $css);
+    }
+
+    /**
+     * Bug fix: at desktop widths, Filament's `.fi-sidebar-nav` (the
+     * scrollable nav-item list — a *separate* element below the header)
+     * sets an inline `style="scrollbar-gutter: stable"`, permanently
+     * reserving a scrollbar's worth of width even when nothing is
+     * scrolling — confirmed live, this made `.fi-sidebar-header`
+     * (which has no such reservation) read as extending past the
+     * content area below it, most visible as a native scrollbar-track
+     * widget rendered right at that boundary. `!important` is required
+     * to beat the inline style.
+     */
+    public function test_theme_css_removes_the_sidebar_navs_permanent_scrollbar_gutter(): void
+    {
+        $css = $this->themeCss();
+
+        $this->assertMatchesRegularExpression('/\.fi-sidebar-nav\s*\{[^}]*scrollbar-gutter:\s*auto\s*!important;/s', $css);
+    }
+
+    /**
+     * Bug fix: dark mode's primary buttons and search-bar focus ring
+     * rendered in the same steel-blue `primary` color as light mode,
+     * which read as a flat, washed-out gray-blue against the new deep
+     * navy-black page background. The reference mockup uses the vivid
+     * cyan accent for both — already the color used for the sidebar's
+     * active-item glow and the KPI icon badges, so this keeps dark
+     * mode's accent language consistent throughout.
+     */
+    public function test_theme_css_gives_dark_mode_buttons_and_search_focus_the_cyan_accent(): void
+    {
+        $css = $this->themeCss();
+
+        $this->assertMatchesRegularExpression('/:is\(\.dark\)\s*\.fi-btn\.fi-color-primary:not\(\.fi-btn-outlined\)\s*\{[^}]*background-color:\s*rgb\(var\(--accent-500-rgb\)\);/s', $css);
+        $this->assertStringContainsString('.fi-global-search .fi-input-wrp:focus-within', $css);
+        $this->assertStringContainsString('--tw-ring-color: rgb(var(--accent-500-rgb)) !important;', $css);
+    }
+
+    /**
+     * Bug fix: dark mode's KPI icon badge was a solid, inverted cyan
+     * fill — the reference mockup instead uses a soft, translucent cyan
+     * "glass" tint (the dark surface still shows through) with a bright
+     * cyan icon on top.
+     */
+    public function test_theme_css_gives_dark_mode_kpi_icon_badges_a_translucent_tint(): void
+    {
+        $css = $this->themeCss();
+
+        $this->assertMatchesRegularExpression('/:is\(\.dark\)\s*\.fi-kpi-tile-icon\s*\{[^}]*background:\s*rgba\(var\(--accent-500-rgb\),\s*0\.16\);/s', $css);
     }
 
     /**
@@ -300,6 +356,28 @@ class ThemeConfigTest extends TestCase
         $this->assertStringContainsString('--dark-surface-raised:', $css);
         $this->assertStringContainsString('background-color: var(--dark-surface);', $css);
         $this->assertStringContainsString('background-color: var(--dark-surface-raised);', $css);
+    }
+
+    /**
+     * Bug fix: the KPI sparkline (resources/views/filament/widgets/
+     * kpi-sparkline.blade.php) already set `fill: true` and
+     * `elements.point.radius: 0`, but rendered live as a thin line with
+     * visible dot markers — Filament's own chart Alpine component
+     * (vendor/filament/widgets/resources/js/components/chart.js) does
+     * `options.pointRadius ??= 2` unconditionally, which only backs off
+     * when that exact top-level key is already present; the nested
+     * `elements.point.radius` alone didn't stop it. Also bumped the fill
+     * opacity from a barely-visible 0.08 to a genuinely-visible 0.3, so
+     * it reads as a filled area chart rather than a line with a faint
+     * tint underneath.
+     */
+    public function test_kpi_sparkline_is_a_filled_area_chart_with_no_point_markers(): void
+    {
+        $blade = file_get_contents(resource_path('views/filament/widgets/kpi-sparkline.blade.php'));
+
+        $this->assertStringContainsString("'pointRadius' => 0,", $blade);
+        $this->assertStringContainsString("'fill' => true,", $blade);
+        $this->assertStringNotContainsString('rgba(65, 116, 185, 0.08)', $blade);
     }
 
     private function themeCss(): string

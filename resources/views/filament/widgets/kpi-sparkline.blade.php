@@ -16,13 +16,22 @@
                         'datasets' => [[
                             'data' => $sparkline,
                             'borderColor' => '#4174B9',
-                            'backgroundColor' => 'rgba(65, 116, 185, 0.08)',
+                            'backgroundColor' => 'rgba(65, 116, 185, 0.3)',
                             'fill' => true,
-                            'tension' => 0.35,
+                            'tension' => 0.4,
                         ]],
                     ]),
                     options: @js([
                         'maintainAspectRatio' => false,
+                        // `pointRadius` has to be set here at the top level, not
+                        // only under `elements.point.radius` — Filament's own
+                        // chart Alpine component (vendor/filament/widgets/
+                        // resources/js/components/chart.js) does
+                        // `options.pointRadius ??= 2`, which only backs off when
+                        // this exact key is already present; leaving it unset
+                        // left visible dot markers on every point despite
+                        // `elements.point.radius` being 0 (confirmed live).
+                        'pointRadius' => 0,
                         'elements' => ['point' => ['radius' => 0], 'line' => ['borderWidth' => 1.5]],
                         'scales' => ['x' => ['display' => false], 'y' => ['display' => false]],
                         'plugins' => ['legend' => ['display' => false], 'tooltip' => ['enabled' => false]],
