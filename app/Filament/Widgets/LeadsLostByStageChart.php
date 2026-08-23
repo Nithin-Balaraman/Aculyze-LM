@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\LeadStage;
+use App\Filament\Widgets\Concerns\HasClickableChartDetail;
 use App\Models\Lead;
 use Filament\Widgets\ChartWidget;
 
@@ -13,9 +14,23 @@ use Filament\Widgets\ChartWidget;
  */
 class LeadsLostByStageChart extends ChartWidget
 {
+    use HasClickableChartDetail;
+
+    protected static string $view = 'filament.widgets.clickable-chart-widget';
+
     protected static ?string $heading = 'Leads Lost by Stage';
 
     public ?int $employeeId = null;
+
+    protected function getChartKey(): string
+    {
+        return 'leads-lost-by-stage';
+    }
+
+    protected function getChartEmployeeId(): ?int
+    {
+        return $this->employeeId;
+    }
 
     protected function getData(): array
     {
@@ -42,5 +57,18 @@ class LeadsLostByStageChart extends ChartWidget
     protected function getType(): string
     {
         return 'bar';
+    }
+
+    /** See LeadsByStageChart::getOptions() for why. */
+    protected function getOptions(): array
+    {
+        return [
+            'indexAxis' => 'y',
+            'scales' => [
+                'x' => [
+                    'ticks' => ['stepSize' => 1],
+                ],
+            ],
+        ];
     }
 }

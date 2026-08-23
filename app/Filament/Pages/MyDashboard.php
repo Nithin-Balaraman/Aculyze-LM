@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Widgets\ChartDetailModal;
 use App\Filament\Widgets\KpiBand;
 use App\Filament\Widgets\LeadsByStageChart;
 use App\Filament\Widgets\ProposalOutcomeChart;
@@ -60,6 +61,7 @@ class MyDashboard extends BaseDashboard
             ProposalOutcomeChart::class,
             StaleLeadsTable::class,
             StaleProposalsTable::class,
+            ChartDetailModal::class,
         ];
     }
 
@@ -68,5 +70,10 @@ class MyDashboard extends BaseDashboard
         return [
             'employeeId' => auth()->id(),
         ];
+    }
+
+    public function getColumns(): int|string|array
+    {
+        return 3;
     }
 }

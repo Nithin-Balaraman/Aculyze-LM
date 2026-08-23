@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Widgets\ChartDetailModal;
 use App\Filament\Widgets\ConversionTrendChart;
 use App\Filament\Widgets\GrowthTrendChart;
 use App\Filament\Widgets\KpiBand;
@@ -82,11 +83,12 @@ class MainDashboard extends BaseDashboard
             GrowthTrendChart::class,
             StaleLeadsTable::class,
             StaleProposalsTable::class,
+            ChartDetailModal::class,
         ];
     }
 
     public function getColumns(): int|string|array
     {
-        return 2;
+        return 3;
     }
 }

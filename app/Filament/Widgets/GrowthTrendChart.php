@@ -2,6 +2,7 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Widgets\Concerns\HasClickableChartDetail;
 use App\Models\Lead;
 use App\Models\Proposal;
 use Filament\Widgets\ChartWidget;
@@ -16,11 +17,20 @@ use Illuminate\Support\Facades\Date;
  */
 class GrowthTrendChart extends ChartWidget
 {
+    use HasClickableChartDetail;
+
+    protected static string $view = 'filament.widgets.clickable-chart-widget';
+
     protected static ?string $heading = 'Lead & Proposal Activity Trend (last 12 weeks)';
 
     protected static ?string $description = 'Provisional activity trend, not a revenue metric — see AGENTS.md §32 for the open "company growth" business question.';
 
     protected int|string|array $columnSpan = 'full';
+
+    protected function getChartKey(): string
+    {
+        return 'growth-trend';
+    }
 
     protected function getData(): array
     {
@@ -56,5 +66,17 @@ class GrowthTrendChart extends ChartWidget
     protected function getType(): string
     {
         return 'line';
+    }
+
+    /** Whole-number ticks regardless of data volume — see LeadsByStageChart::getOptions(). */
+    protected function getOptions(): array
+    {
+        return [
+            'scales' => [
+                'y' => [
+                    'ticks' => ['stepSize' => 1],
+                ],
+            ],
+        ];
     }
 }
