@@ -175,6 +175,38 @@
        depth shadows, table row hover tint, and KPI icon badges in light
        mode. */
     --primary-500-rgb: 65, 116, 185;
+
+    /* Dark-mode-only surfaces, distinct from both the sidebar gradient
+       and the page background (see the topbar/card rules below for why
+       each exists). All three stay in the same navy-gray family so the
+       app still reads as one cohesive palette, not three unrelated
+       grays. */
+    --topbar-navy-dark: rgb(26, 42, 78);
+    --dark-surface: rgb(54, 64, 82);
+    --dark-surface-raised: rgb(66, 78, 98);
+}
+
+/* ----------------------------------------------------------------------
+ * Page background (light mode only): Filament's own `.fi-body` default
+ * is `bg-gray-50` — near-white, and reads as stark/unfinished next to
+ * the rest of this theme's depth work. A very subtle brand-tinted
+ * gradient instead, applied to `.fi-body` itself (the single root
+ * element every panel page renders inside), so it reaches every page —
+ * dashboards, resource list/form pages alike — with one rule, not a
+ * per-page change. `.fi-body`'s dark-mode background is untouched here:
+ * Tailwind's `dark:bg-gray-950` compiles to a 2-class selector
+ * (`.dark .dark\:bg-gray-950`), which already outranks this plain
+ * 1-class rule regardless of cascade order (the same specificity fact
+ * behind the sidebar-header and topbar rules elsewhere in this file) —
+ * so this only ever applies in light mode, without needing its own
+ * `:not(.dark)` guard.
+ * ------------------------------------------------------------------- */
+.fi-body {
+    background: linear-gradient(
+        180deg,
+        rgba(65, 116, 185, 0.05) 0%,
+        rgba(15, 27, 61, 0.025) 100%
+    );
 }
 
 /* ----------------------------------------------------------------------
@@ -198,6 +230,22 @@
         var(--sidebar-navy-700) 55%,
         var(--sidebar-navy-800) 100%
     );
+    /* A crisp, permanent 1px seam along the sidebar's own right edge, in
+       both themes. At desktop widths Filament gives the sidebar no
+       border/shadow of its own at rest (its shadow-xl/ring classes are
+       reset to none via its own `lg:shadow-none`/`lg:ring-0` — meant for
+       the old design, where the sidebar and topbar shared one plain
+       background and needed no seam). With the sidebar now permanently
+       navy against a topbar/content area that changes with the theme,
+       that absence read as the sidebar's edge being ill-defined — soft
+       enough, especially where it meets the near-identical dark-mode
+       topbar tint, to be perceived as the navy "bleeding" past its own
+       boundary rather than stopping cleanly at it. A box-shadow (not a
+       border, which would shift the layout by 1px) draws a hairline
+       highlight just outside the sidebar's true edge, giving that
+       boundary a real, always-visible line regardless of what color
+       sits on the other side of it. */
+    box-shadow: 1px 0 0 0 rgba(255, 255, 255, 0.09);
 }
 
 /* The header (logo + collapse toggle) paints its own opaque
@@ -349,9 +397,19 @@
 /* Dark mode: a navy-tinted shadow is barely visible against an already-
    dark card background, so depth reads instead via a visible light rim
    (always on, so a card reads as "raised" even at rest) plus a strong
-   black shadow for lift, brightening further on hover. */
+   black shadow for lift, brightening further on hover. Filament's own
+   dark card background (`dark:bg-gray-900`, rgb(49, 57, 68) in this
+   app's custom gray scale) sits close enough to the page background
+   (`dark:bg-gray-950`, rgb(30, 35, 42)) that the shadow/rim work above
+   was barely legible against it — confirmed live, the two were hard to
+   tell apart at a glance. `--dark-surface` is a distinctly lighter,
+   navy-tinted surface tone (same family as the sidebar/topbar navy, not
+   an unrelated gray) so the "raised card" depth is actually visible, not
+   just technically present. `:is(.dark)` is required to win here, same
+   specificity reasoning as everywhere else in this file. */
 :is(.dark) .fi-section,
 :is(.dark) .fi-ta-ctn {
+    background-color: var(--dark-surface);
     box-shadow:
         0 0 0 1px rgba(255, 255, 255, 0.08),
         0 10px 24px -6px rgba(0, 0, 0, 0.65),
@@ -386,7 +444,12 @@
         0 6px 12px -2px rgba(15, 27, 61, 0.2);
 }
 
+/* One step lighter again than `--dark-surface` — a KPI tile sits *inside*
+   the `.fi-section` band, which already got its own lighter-than-page
+   surface above, so a tile needs to read as raised again relative to
+   that, not just relative to the page. */
 :is(.dark) .fi-kpi-tile {
+    background-color: var(--dark-surface-raised);
     box-shadow:
         0 0 0 1px rgba(255, 255, 255, 0.08),
         0 8px 18px -6px rgba(0, 0, 0, 0.65),
@@ -449,19 +512,29 @@
 }
 
 /* ----------------------------------------------------------------------
- * Topbar: dark-mode-only navy tint so it blends with the now-permanently-
- * navy sidebar, instead of Filament's default dark:bg-gray-900 (a
- * noticeably different, lighter dark gray). Matched to the sidebar
- * gradient's *top* stop (navy-500) specifically, since the topbar sits
- * at the same height as the top of the sidebar — matching navy-800 (the
- * gradient's darker bottom stop) instead created a visible seam of two
- * different navy shades rather than a blend. Light mode is left at
- * Filament's own default (bg-white) — only the sidebar is permanently
- * navy; the topbar still follows the theme toggle normally.
+ * Topbar: dark-mode-only navy tint, in the same family as the now-
+ * permanently-navy sidebar, instead of Filament's default
+ * dark:bg-gray-900 (a noticeably different, lighter dark gray). This
+ * was originally matched *exactly* to the sidebar gradient's top stop
+ * (navy-500) to fix a visible seam of two unrelated shades — but an
+ * exact match, it turned out, reads as one undifferentiated dark slab
+ * with no visible boundary between "navigation" (sidebar) and "content
+ * chrome" (topbar) at all, especially since the sidebar itself gets no
+ * border/shadow of its own at desktop widths (see `.fi-sidebar` above,
+ * which now adds one). `--topbar-navy-dark` is deliberately lighter
+ * than the sidebar's own top stop — still clearly part of the same
+ * navy family, not a jarring contrast — so the two read as distinct-
+ * but-cohesive regions, matching the reference mockup (sidebar clearly
+ * dark, topbar its own subtly lighter tone). The existing bottom
+ * box-shadow already separates the topbar from the page content below
+ * it; nudged slightly more visible now that it sits on a lighter
+ * background. Light mode is left at Filament's own default (bg-white)
+ * — only the sidebar is permanently navy; the topbar still follows the
+ * theme toggle normally.
  * ------------------------------------------------------------------- */
 :is(.dark) .fi-topbar nav {
-    background-color: var(--sidebar-navy-500);
-    box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.08);
+    background-color: var(--topbar-navy-dark);
+    box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.12);
 }
 
 @media (prefers-reduced-motion: reduce) {

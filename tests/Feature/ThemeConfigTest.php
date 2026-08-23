@@ -231,6 +231,77 @@ class ThemeConfigTest extends TestCase
         $this->assertStringContainsString('.fi-ta-ctn', $css);
     }
 
+    /**
+     * Bug fix: the sidebar got no border/shadow of its own at desktop
+     * widths (Filament resets its shadow-xl/ring classes to none via
+     * `lg:shadow-none`/`lg:ring-0`, meant for the old design where the
+     * sidebar shared the topbar's plain background). With the sidebar
+     * now permanently navy against a topbar/content area that varies by
+     * theme, that missing edge read as the navy visibly "bleeding" past
+     * its own boundary into the topbar, most noticeably right where the
+     * collapse-toggle chevron sits — confirmed live in both collapsed
+     * and expanded states, both themes. A box-shadow (not a border,
+     * which would shift layout by 1px) draws a permanent hairline along
+     * the sidebar's true right edge.
+     */
+    public function test_theme_css_gives_the_sidebar_a_crisp_permanent_edge(): void
+    {
+        $css = $this->themeCss();
+
+        $this->assertStringContainsString('.fi-sidebar {', $css);
+        $this->assertMatchesRegularExpression('/\.fi-sidebar\s*\{[^}]*box-shadow:\s*1px 0 0 0/s', $css);
+    }
+
+    /**
+     * Bug fix: light mode's `.fi-body` background was Filament's stock
+     * `bg-gray-50` — near-white, reading as stark next to the rest of
+     * this theme's depth work. A subtle brand-tinted gradient applies to
+     * `.fi-body` itself (the one root element every panel page renders
+     * inside), so it reaches dashboards, resource list pages, and forms
+     * alike with a single rule rather than a per-page change.
+     */
+    public function test_theme_css_gives_the_page_background_a_subtle_brand_tint(): void
+    {
+        $css = $this->themeCss();
+
+        $this->assertMatchesRegularExpression('/\.fi-body\s*\{[^}]*background:\s*linear-gradient/s', $css);
+    }
+
+    /**
+     * Bug fix: the dark-mode topbar was matched *exactly* to the
+     * sidebar's own top gradient stop to fix an earlier seam bug, but an
+     * exact match made the two read as one undifferentiated dark slab
+     * with no visible boundary between navigation and content chrome.
+     * `--topbar-navy-dark` is a distinct (lighter) shade in the same
+     * navy family, not identical to the sidebar gradient's own stops.
+     */
+    public function test_theme_css_gives_the_dark_mode_topbar_its_own_distinct_shade(): void
+    {
+        $css = $this->themeCss();
+
+        $this->assertStringContainsString('--topbar-navy-dark:', $css);
+        $this->assertStringContainsString('background-color: var(--topbar-navy-dark);', $css);
+        $this->assertStringNotContainsString('background-color: var(--sidebar-navy-500);', $css);
+    }
+
+    /**
+     * Bug fix: dark-mode card/table surfaces relied on Filament's own
+     * `dark:bg-gray-900`, which sits too close to the page's own
+     * `dark:bg-gray-950` for the shadow/rim depth work to actually read
+     * as "raised" — confirmed live, the two were hard to tell apart at a
+     * glance. `--dark-surface`/`--dark-surface-raised` are explicit,
+     * distinctly lighter, navy-tinted surface tones.
+     */
+    public function test_theme_css_gives_dark_mode_cards_a_distinctly_lighter_surface(): void
+    {
+        $css = $this->themeCss();
+
+        $this->assertStringContainsString('--dark-surface:', $css);
+        $this->assertStringContainsString('--dark-surface-raised:', $css);
+        $this->assertStringContainsString('background-color: var(--dark-surface);', $css);
+        $this->assertStringContainsString('background-color: var(--dark-surface-raised);', $css);
+    }
+
     private function themeCss(): string
     {
         return file_get_contents(resource_path('css/filament/admin/theme.css'));
