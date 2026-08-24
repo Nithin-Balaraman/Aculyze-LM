@@ -116,7 +116,7 @@ class DatabaseSeeder extends Seeder
             'notes' => 'Needs Microsoft 365 migration for 80 users.',
         ]);
         $warmLead = $metroCall->lead;
-        $warmLead->update(['stage' => LeadStage::Validated, 'temperature' => LeadTemperature::Warm]);
+        $warmLead->update(['stage' => LeadStage::Validated, 'temperature' => LeadTemperature::Warm, 'notes' => 'Requirement confirmed directly with Divya Prakash; budget approved.']);
 
         Proposal::create([
             'lead_id' => $warmLead->id,
@@ -171,7 +171,7 @@ class DatabaseSeeder extends Seeder
             'notes' => 'Wants a full workflow automation proposal for their quality inspection process.',
         ]);
         $apexLead = $apexCall->lead;
-        $apexLead->update(['stage' => LeadStage::Validated, 'temperature' => LeadTemperature::Hot]);
+        $apexLead->update(['stage' => LeadStage::Validated, 'temperature' => LeadTemperature::Hot, 'notes' => 'Requirement confirmed directly with Vignesh Iyer; proposal in progress.']);
 
         $staleProposal = Proposal::create([
             'lead_id' => $apexLead->id,
