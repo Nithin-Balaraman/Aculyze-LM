@@ -85,7 +85,32 @@ class FollowUpResource extends Resource
                         Forms\Components\Select::make('status')
                             ->options(FollowUpStatus::class)
                             ->required()
-                            ->default(FollowUpStatus::Pending),
+                            ->default(FollowUpStatus::Pending)
+                            ->live(),
+                        // Neither of these two persists to the FollowUp record
+                        // itself — EditFollowUp::handleRecordUpdate() /
+                        // CreateFollowUp::handleRecordCreation() pull them
+                        // back out of the form data and use them to create a
+                        // new Call Record, exactly like the row-action
+                        // "Completed" modal's own outcome/notes fields
+                        // (FollowUpResource::table()) do. Required only when
+                        // Status is being set to Completed here — matching
+                        // the modal's enforcement — so this is both the
+                        // reactive UI validation and, since Livewire
+                        // validates server-side regardless of JS, the actual
+                        // guard against submitting Completed with no outcome
+                        // captured.
+                        Forms\Components\Select::make('outcome')
+                            ->label('Call Outcome')
+                            ->options(CallOutcome::class)
+                            ->visible(fn (Forms\Get $get) => $get('status') === FollowUpStatus::Completed->value)
+                            ->required(fn (Forms\Get $get) => $get('status') === FollowUpStatus::Completed->value)
+                            ->helperText('You reached them — log what happened on this call, same as the row-action Completed modal.'),
+                        Forms\Components\Textarea::make('call_notes')
+                            ->label('Call Notes')
+                            ->rows(3)
+                            ->visible(fn (Forms\Get $get) => $get('status') === FollowUpStatus::Completed->value)
+                            ->required(fn (Forms\Get $get) => $get('status') === FollowUpStatus::Completed->value),
                         Forms\Components\Textarea::make('notes')
                             ->rows(3)
                             ->columnSpanFull(),
