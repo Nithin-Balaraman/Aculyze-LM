@@ -3,6 +3,7 @@
 namespace App\Enums;
 
 use App\Support\Exports\AppointmentExporter;
+use App\Support\Exports\CallRecordExporter;
 use App\Support\Exports\FollowUpExporter;
 use App\Support\Exports\LeadExporter;
 use App\Support\Exports\ProposalExporter;
@@ -20,6 +21,7 @@ enum ExportableResource: string implements HasLabel
     case Appointment = 'appointment';
     case Proposal = 'proposal';
     case FollowUp = 'follow_up';
+    case CallRecord = 'call_record';
 
     public function getLabel(): string
     {
@@ -28,6 +30,7 @@ enum ExportableResource: string implements HasLabel
             self::Appointment => 'Appointments',
             self::Proposal => 'Proposals',
             self::FollowUp => 'Follow-Ups',
+            self::CallRecord => 'Call Records',
         };
     }
 
@@ -38,6 +41,7 @@ enum ExportableResource: string implements HasLabel
             self::Appointment => AppointmentExporter::class,
             self::Proposal => ProposalExporter::class,
             self::FollowUp => FollowUpExporter::class,
+            self::CallRecord => CallRecordExporter::class,
         });
     }
 }

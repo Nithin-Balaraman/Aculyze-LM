@@ -14,9 +14,10 @@
             {{-- Calls -> Follow-Ups -> Appointments -> Leads -> Proposals, matching the process flow. --}}
             @include('filament.widgets.kpi-tile', ['tile' => $callsTile])
 
-            <div class="rounded-lg border border-gray-200 p-4 dark:border-white/10">
+            {{-- fi-kpi-tile/fi-kpi-tile-icon: see the comment in kpi-tile.blade.php — same stable hook classes, added here too since this tile is inlined rather than @include'd. --}}
+            <div class="fi-kpi-tile rounded-lg border border-gray-200 p-4 dark:border-white/10">
                 <div class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    <x-filament::icon :icon="$followUpsTile['icon']" class="h-3.5 w-3.5 shrink-0" />
+                    <x-filament::icon :icon="$followUpsTile['icon']" class="fi-kpi-tile-icon h-3.5 w-3.5 shrink-0" />
                     {{ $followUpsTile['label'] }}
                 </div>
 

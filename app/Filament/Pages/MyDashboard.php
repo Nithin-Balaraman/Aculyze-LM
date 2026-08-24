@@ -2,6 +2,8 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Widgets\ChartDetailModal;
+use App\Filament\Widgets\DashboardGreeting;
 use App\Filament\Widgets\KpiBand;
 use App\Filament\Widgets\LeadsByStageChart;
 use App\Filament\Widgets\ProposalOutcomeChart;
@@ -34,6 +36,21 @@ class MyDashboard extends BaseDashboard
 
     protected static ?int $navigationSort = -2;
 
+    /**
+     * Suppresses the plain "My Dashboard" page heading (and its
+     * breadcrumb row, rendered as part of the same header block — see
+     * vendor/filament/filament/resources/views/components/page/index.
+     * blade.php's `@elseif ($heading = $this->getHeading())`) so
+     * DashboardGreeting's own "Good morning, {name}" occupies that top
+     * position instead, with no redundant plain-text heading above it.
+     * `$title` is untouched — it still drives the browser tab's <title>
+     * via getTitle(), which this doesn't override.
+     */
+    public function getHeading(): string
+    {
+        return '';
+    }
+
     public function filtersForm(Form $form): Form
     {
         return $form->schema([
@@ -55,11 +72,13 @@ class MyDashboard extends BaseDashboard
     public function getWidgets(): array
     {
         return [
+            DashboardGreeting::class,
             KpiBand::class,
             LeadsByStageChart::class,
             ProposalOutcomeChart::class,
             StaleLeadsTable::class,
             StaleProposalsTable::class,
+            ChartDetailModal::class,
         ];
     }
 
@@ -68,5 +87,10 @@ class MyDashboard extends BaseDashboard
         return [
             'employeeId' => auth()->id(),
         ];
+    }
+
+    public function getColumns(): int|string|array
+    {
+        return 3;
     }
 }

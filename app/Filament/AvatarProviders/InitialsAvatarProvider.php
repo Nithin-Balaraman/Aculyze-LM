@@ -18,10 +18,10 @@ class InitialsAvatarProvider implements AvatarProvider
 
         $svg = <<<SVG
             <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
-                <rect width="40" height="40" rx="20" fill="#0E1131" />
+                <rect width="40" height="40" rx="20" fill="#0F1B3D" />
                 <text x="20" y="21" text-anchor="middle" dominant-baseline="central"
                     font-family="ui-sans-serif, system-ui, sans-serif" font-size="16"
-                    font-weight="600" fill="#2DC4ED">{$initial}</text>
+                    font-weight="600" fill="#29C5E6">{$initial}</text>
             </svg>
             SVG;
 

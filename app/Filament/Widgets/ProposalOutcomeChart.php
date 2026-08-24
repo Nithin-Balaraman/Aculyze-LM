@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\ProposalOutcome;
+use App\Filament\Widgets\Concerns\HasClickableChartDetail;
 use App\Models\Proposal;
 use Filament\Widgets\ChartWidget;
 
@@ -15,9 +16,23 @@ use Filament\Widgets\ChartWidget;
  */
 class ProposalOutcomeChart extends ChartWidget
 {
+    use HasClickableChartDetail;
+
+    protected static string $view = 'filament.widgets.clickable-chart-widget';
+
     protected static ?string $heading = 'Proposal Outcomes';
 
     public ?int $employeeId = null;
+
+    protected function getChartKey(): string
+    {
+        return 'proposal-outcomes';
+    }
+
+    protected function getChartEmployeeId(): ?int
+    {
+        return $this->employeeId;
+    }
 
     protected function getData(): array
     {
@@ -49,5 +64,26 @@ class ProposalOutcomeChart extends ChartWidget
     protected function getType(): string
     {
         return 'doughnut';
+    }
+
+    /**
+     * Filament's own chart Alpine component (vendor/filament/widgets/
+     * resources/js/components/chart.js) unconditionally merges in an
+     * x/y scales config for every chart type — it only ever hides the
+     * grid *lines* (`grid.display ??= false`), never the axis itself, so
+     * a doughnut (which normally has no axes at all) was rendering a
+     * spurious numeric 0/1/2/3 axis with meaningless auto-generated
+     * ticks. Explicitly disabling both axes here is the fix; confirmed
+     * live that this also affects every other doughnut chart in this app
+     * (see LeadsByTemperatureChart), not just this one.
+     */
+    protected function getOptions(): array
+    {
+        return [
+            'scales' => [
+                'x' => ['display' => false],
+                'y' => ['display' => false],
+            ],
+        ];
     }
 }

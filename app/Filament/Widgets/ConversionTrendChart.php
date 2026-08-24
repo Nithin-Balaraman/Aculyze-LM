@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\ProposalOutcome;
+use App\Filament\Widgets\Concerns\HasClickableChartDetail;
 use App\Models\Proposal;
 use Filament\Widgets\ChartWidget;
 use Illuminate\Support\Facades\Date;
@@ -15,15 +16,26 @@ use Illuminate\Support\Facades\Date;
  *
  * The built-in ChartWidget filter dropdown (top-right of the widget) is
  * the "time-period selector" the decision asked for — day/week/month
- * granularity, each over a fixed lookback window.
+ * granularity, each over a fixed lookback window. Clicking that dropdown
+ * is explicitly excluded from opening the detail modal — see
+ * clickable-chart-widget.blade.php's click handler.
  */
 class ConversionTrendChart extends ChartWidget
 {
+    use HasClickableChartDetail;
+
+    protected static string $view = 'filament.widgets.clickable-chart-widget';
+
     protected static ?string $heading = 'Conversion Trend (Proposals Won)';
 
     protected int|string|array $columnSpan = 'full';
 
     public ?string $filter = '12w';
+
+    protected function getChartKey(): string
+    {
+        return 'conversion-trend';
+    }
 
     protected function getFilters(): ?array
     {
@@ -77,5 +89,17 @@ class ConversionTrendChart extends ChartWidget
     protected function getType(): string
     {
         return 'line';
+    }
+
+    /** Whole-number ticks regardless of data volume — see LeadsByStageChart::getOptions(). */
+    protected function getOptions(): array
+    {
+        return [
+            'scales' => [
+                'y' => [
+                    'ticks' => ['stepSize' => 1],
+                ],
+            ],
+        ];
     }
 }

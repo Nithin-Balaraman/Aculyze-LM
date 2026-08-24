@@ -3,12 +3,22 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\LeadTemperature;
+use App\Filament\Widgets\Concerns\HasClickableChartDetail;
 use App\Models\Lead;
 use Filament\Widgets\ChartWidget;
 
 class LeadsByTemperatureChart extends ChartWidget
 {
+    use HasClickableChartDetail;
+
+    protected static string $view = 'filament.widgets.clickable-chart-widget';
+
     protected static ?string $heading = 'Leads by Temperature';
+
+    protected function getChartKey(): string
+    {
+        return 'leads-by-temperature';
+    }
 
     protected function getData(): array
     {
@@ -38,5 +48,20 @@ class LeadsByTemperatureChart extends ChartWidget
     protected function getType(): string
     {
         return 'doughnut';
+    }
+
+    /**
+     * See ProposalOutcomeChart::getOptions() for why this is needed —
+     * the same spurious-axis bug affects every doughnut chart in this
+     * app, confirmed live on this one too.
+     */
+    protected function getOptions(): array
+    {
+        return [
+            'scales' => [
+                'x' => ['display' => false],
+                'y' => ['display' => false],
+            ],
+        ];
     }
 }
