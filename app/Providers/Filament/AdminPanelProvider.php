@@ -83,27 +83,10 @@ class AdminPanelProvider extends PanelProvider
              * only for the Warm/Cold lead-temperature badges, so none of
              * the three temperatures reuses Filament's generic
              * danger/warning/info palette.
-             *
-             * Visual theme overhaul (styling/interaction only — see
-             * theme.css for the full mechanism): `navy` is the brand
-             * "Deep navy" (#0F1B3D), base of the sidebar gradient via its
-             * own generated shades. `accent` is the brand "Vivid cyan"
-             * (#29C5E6), deliberately kept separate from `info` (a
-             * different, near-identical cyan already used for
-             * informational badges) — reserved for the sidebar
-             * active-item glow/accent bar and other brand-highlight
-             * moments, so retuning one can't affect the other. `primary`
-             * and `info` are unchanged — both already close to the brand
-             * spec (Steel blue #4A72B8, Vivid cyan #29C5E6).
-             * `danger`/`success`/`warning` are deliberately untouched,
-             * left at Filament's own stock Red/Green/Amber — this pass
-             * only restyles their pill/badge *depth* (theme.css), not
-             * their hue.
              */
             ->colors([
                 'primary' => Color::hex('#4174B9'),
-                'navy' => Color::hex('#0F1B3D'),
-                'accent' => Color::hex('#29C5E6'),
+                'navy' => Color::hex('#0E1131'),
                 'info' => Color::hex('#2DC4ED'),
                 'coral' => Color::hex('#F0653C'),
                 'gold' => Color::hex('#C99A3D'),
