@@ -3,7 +3,9 @@
 namespace App\Filament\Resources\CallRecordResource\Pages;
 
 use App\Enums\CallOutcome;
+use App\Enums\ExportableResource;
 use App\Filament\Resources\CallRecordResource;
+use App\Support\Exports\ExportActions;
 use Filament\Actions;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
@@ -46,6 +48,8 @@ class ListCallRecords extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            ExportActions::immediate(ExportableResource::CallRecord),
+            ExportActions::request(ExportableResource::CallRecord),
             Actions\CreateAction::make(),
         ];
     }
