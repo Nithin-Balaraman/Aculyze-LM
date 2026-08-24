@@ -658,6 +658,81 @@
     --tw-ring-color: rgb(var(--accent-500-rgb)) !important;
 }
 
+/* ----------------------------------------------------------------------
+ * Overlay/floating UI: dropdown panels, modals, and tabs all still used
+ * Filament's stock plain `bg-white dark:bg-gray-900` — unstyled next to
+ * every other surface in the app. `.fi-dropdown-panel` is ONE shared
+ * component covering four separate-looking features: the account/user
+ * menu (components/user-menu.blade.php), a table row's "⋮" action-group
+ * menu (filament/actions' components/group.blade.php), the column-toggle
+ * popover (filament/tables' components/column-toggle/dropdown.blade.php),
+ * and the filter popover (filament/tables' components/filters/dialog.
+ * blade.php) — all four render through `<x-filament::dropdown>`, so one
+ * rule reaches all of them. `.fi-modal-window` is Filament's own
+ * Create/Edit/View/delete-confirmation modal, used throughout every
+ * resource. `.fi-chart-detail-modal` is this app's own chart zoom-in
+ * modal (see App\Filament\Widgets\ChartDetailModal) — same treatment for
+ * consistency with the built-in modals it sits alongside.
+ * ------------------------------------------------------------------- */
+.fi-dropdown-panel,
+.fi-modal-window,
+.fi-chart-detail-modal {
+    box-shadow:
+        0 2px 6px rgba(15, 27, 61, 0.14),
+        0 10px 24px -6px rgba(15, 27, 61, 0.22);
+}
+
+/* Dark mode: same `--dark-surface`/cyan-rim treatment as `.fi-section`/
+   `.fi-ta-ctn` — these are all "raised" surfaces over the page background
+   in the same sense a card or table is, so they get the same depth
+   language rather than Filament's default near-page-color gray-900. */
+:is(.dark) .fi-dropdown-panel,
+:is(.dark) .fi-modal-window,
+:is(.dark) .fi-chart-detail-modal {
+    background-color: var(--dark-surface);
+    box-shadow:
+        0 0 0 1px rgba(var(--accent-500-rgb), 0.16),
+        0 10px 24px -6px rgba(0, 0, 0, 0.7),
+        0 4px 10px rgba(0, 0, 0, 0.55);
+}
+
+/* Sticky header/footer bars *inside* a modal (Filament's own
+   `.fi-modal-header`/`.fi-modal-footer` with `.fi-sticky`, and this
+   app's chart-detail-modal header) paint their own opaque background so
+   content doesn't show through while the modal body scrolls underneath
+   — that background has to match the modal's own new dark surface, not
+   Filament's plain `dark:bg-gray-900`, or the sticky bar would look like
+   a mismatched patch floating over the modal. */
+:is(.dark) .fi-modal-header.fi-sticky,
+:is(.dark) .fi-modal-footer.fi-sticky,
+:is(.dark) .fi-chart-detail-modal-header {
+    background-color: var(--dark-surface);
+}
+
+/* Tabs (e.g. a resource List page's Pending/History-style switcher —
+   `.fi-tabs` without Filament's `.fi-contained` modifier renders as a
+   standalone pill, `bg-white dark:bg-gray-900 ring-1 ...`, the same
+   plain surface as everything else here). */
+:is(.dark) .fi-tabs:not(.fi-contained) {
+    background-color: var(--dark-surface);
+    box-shadow: 0 0 0 1px rgba(var(--accent-500-rgb), 0.16);
+}
+
+/* The active tab's own background/label/icon color come from Filament's
+   `primary` color (text-primary-600 dark:text-primary-400) — already
+   this app's steel-blue in light mode, which is fine, but dark mode's
+   accent language throughout the rest of this file is the cyan
+   `accent` color, not primary, so it's overridden here specifically for
+   dark mode's active tab. */
+:is(.dark) .fi-tabs-item.fi-active {
+    background-color: rgba(var(--accent-500-rgb), 0.14);
+}
+
+:is(.dark) .fi-tabs-item.fi-active .fi-tabs-item-label,
+:is(.dark) .fi-tabs-item.fi-active .fi-tabs-item-icon {
+    color: rgb(var(--accent-400-rgb));
+}
+
 @media (prefers-reduced-motion: reduce) {
     .fi-section:hover,
     .fi-kpi-tile:hover,

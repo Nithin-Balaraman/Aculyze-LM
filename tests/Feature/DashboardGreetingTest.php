@@ -107,4 +107,26 @@ class DashboardGreetingTest extends TestCase
         $this->assertContains(DashboardGreeting::class, (new MainDashboard)->getWidgets());
         $this->assertContains(DashboardGreeting::class, (new MyDashboard)->getWidgets());
     }
+
+    /**
+     * Bug fix (follow-up request): the plain "Main Dashboard"/"My
+     * Dashboard" page heading sat directly above DashboardGreeting's own
+     * "Good morning, {name}" — redundant, since the greeting now serves
+     * as the page's heading. Suppressing getHeading() (not getTitle(),
+     * which still drives the browser tab's <title>) removes it —
+     * vendor/filament/filament/resources/views/components/page/index.
+     * blade.php only renders the header block at all when
+     * `$this->getHeading()` is truthy.
+     */
+    public function test_both_dashboards_suppress_the_plain_page_heading(): void
+    {
+        $this->assertSame('', (new MainDashboard)->getHeading());
+        $this->assertSame('', (new MyDashboard)->getHeading());
+    }
+
+    public function test_both_dashboards_keep_their_browser_tab_title(): void
+    {
+        $this->assertSame('Main Dashboard', (new MainDashboard)->getTitle());
+        $this->assertSame('My Dashboard', (new MyDashboard)->getTitle());
+    }
 }

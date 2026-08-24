@@ -98,7 +98,7 @@
         x-bind:style="style"
         x-on:click.outside="close()"
     >
-        <div class="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4 dark:border-white/10 dark:bg-gray-900">
+        <div class="fi-chart-detail-modal-header sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4 dark:border-white/10 dark:bg-gray-900">
             <h2 class="text-xl font-bold text-gray-950 dark:text-white">
                 {{ $this->isOpen ? ($this->getDetail()['heading'] ?? '') : '' }}
             </h2>

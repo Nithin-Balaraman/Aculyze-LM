@@ -415,6 +415,69 @@ class ThemeConfigTest extends TestCase
         $this->assertStringContainsString("'layout' => ['padding' => ['top' => 4]],", $blade);
     }
 
+    /**
+     * Follow-up request: overlay/floating UI (dropdown panels, modals,
+     * tabs) still used Filament's stock plain `bg-white dark:bg-gray-900`
+     * — unstyled next to every other surface in the app.
+     * `.fi-dropdown-panel` is one shared component covering four
+     * separate-looking features: the account/user menu, a table row's
+     * "⋮" action-group menu, the column-toggle popover, and the filter
+     * popover — all four render through `<x-filament::dropdown>`.
+     * `.fi-modal-window` is Filament's own Create/Edit/View/delete-
+     * confirmation modal.
+     */
+    public function test_theme_css_gives_overlay_panels_the_same_dark_surface_as_cards(): void
+    {
+        $css = $this->themeCss();
+
+        $this->assertMatchesRegularExpression('/\.fi-dropdown-panel,\s*\n\s*\.fi-modal-window,\s*\n\s*\.fi-chart-detail-modal\s*\{/s', $css);
+        $this->assertMatchesRegularExpression('/:is\(\.dark\)\s*\.fi-dropdown-panel,\s*\n:is\(\.dark\)\s*\.fi-modal-window,\s*\n:is\(\.dark\)\s*\.fi-chart-detail-modal\s*\{[^}]*background-color:\s*var\(--dark-surface\);/s', $css);
+    }
+
+    /**
+     * Bug fix: a modal's sticky header/footer bar paints its own opaque
+     * background so content doesn't show through while the body scrolls
+     * underneath — that background has to match the modal's own new
+     * dark surface, or the sticky bar looks like a mismatched patch
+     * floating over the modal.
+     */
+    public function test_theme_css_matches_modal_sticky_bars_to_the_modal_surface(): void
+    {
+        $css = $this->themeCss();
+
+        $this->assertMatchesRegularExpression('/:is\(\.dark\)\s*\.fi-modal-header\.fi-sticky,\s*\n:is\(\.dark\)\s*\.fi-modal-footer\.fi-sticky,\s*\n:is\(\.dark\)\s*\.fi-chart-detail-modal-header\s*\{[^}]*background-color:\s*var\(--dark-surface\);/s', $css);
+    }
+
+    /**
+     * Follow-up request: a resource List page's Pending/History-style
+     * tab switcher (`.fi-tabs` without Filament's `.fi-contained`
+     * modifier) still used the stock plain surface, and its active
+     * tab's label/icon color came from `primary` (this app's steel-blue)
+     * even in dark mode, where the rest of the accent language is the
+     * cyan `accent` color.
+     */
+    public function test_theme_css_gives_dark_mode_tabs_the_dark_surface_and_cyan_active_state(): void
+    {
+        $css = $this->themeCss();
+
+        $this->assertMatchesRegularExpression('/:is\(\.dark\)\s*\.fi-tabs:not\(\.fi-contained\)\s*\{[^}]*background-color:\s*var\(--dark-surface\);/s', $css);
+        $this->assertMatchesRegularExpression('/:is\(\.dark\)\s*\.fi-tabs-item\.fi-active\s*\{[^}]*background-color:\s*rgba\(var\(--accent-500-rgb\),/s', $css);
+        $this->assertStringContainsString('.fi-tabs-item.fi-active .fi-tabs-item-label,', $css);
+    }
+
+    /**
+     * The chart-detail modal's header needed a stable hook class (it had
+     * none beyond bare Tailwind utilities) to be individually targetable
+     * for the dark-surface fix above — same "add a hook class" pattern
+     * already used for the KPI tiles.
+     */
+    public function test_chart_detail_modal_header_carries_a_stable_hook_class(): void
+    {
+        $blade = file_get_contents(resource_path('views/filament/widgets/chart-detail-modal.blade.php'));
+
+        $this->assertStringContainsString('fi-chart-detail-modal-header', $blade);
+    }
+
     private function themeCss(): string
     {
         return file_get_contents(resource_path('css/filament/admin/theme.css'));

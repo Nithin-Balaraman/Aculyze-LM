@@ -53,6 +53,21 @@ class MainDashboard extends BaseDashboard
         return auth()->user()?->isAdmin() ?? false;
     }
 
+    /**
+     * Suppresses the plain "Main Dashboard" page heading (and its
+     * breadcrumb row, rendered as part of the same header block — see
+     * vendor/filament/filament/resources/views/components/page/index.
+     * blade.php's `@elseif ($heading = $this->getHeading())`) so
+     * DashboardGreeting's own "Good morning, {name}" occupies that top
+     * position instead, with no redundant plain-text heading above it.
+     * `$title` is untouched — it still drives the browser tab's <title>
+     * via getTitle(), which this doesn't override.
+     */
+    public function getHeading(): string
+    {
+        return '';
+    }
+
     public function filtersForm(Form $form): Form
     {
         return $form->schema([
