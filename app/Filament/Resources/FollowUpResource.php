@@ -70,10 +70,33 @@ class FollowUpResource extends Resource
                             ->required()
                             ->searchable()
                             ->preload(),
-                        Forms\Components\Grid::make(2)
+                        Forms\Components\Grid::make(3)
                             ->schema([
+                                // In practice this records when the
+                                // interaction actually happened, not a
+                                // future schedule — defaulted to right now
+                                // on every fresh form load (including "Create
+                                // & create another", which re-fills the form
+                                // via $this->form->fill(), re-running this
+                                // closure — confirmed against Filament's own
+                                // CreateRecord::fillForm() source) rather
+                                // than requiring manual entry or carrying
+                                // over the previous record's value.
                                 Forms\Components\DateTimePicker::make('follow_up_at')
+                                    ->label('Followed Up At')
                                     ->required()
+                                    ->seconds(false)
+                                    ->default(fn () => now()),
+                                // Optional, always visible, always persists
+                                // on this same FollowUp record — unrelated to
+                                // `new_follow_up_at` below, which is
+                                // ephemeral, only appears inside the
+                                // Completed flow, and spawns a whole new,
+                                // separate FollowUp row via
+                                // CallRoutingService rather than scheduling
+                                // this one.
+                                Forms\Components\DateTimePicker::make('next_follow_up_at')
+                                    ->label('Next Follow-up Date')
                                     ->seconds(false),
                                 Forms\Components\Select::make('contact_mode')
                                     ->label('Contact Mode')

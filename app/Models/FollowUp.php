@@ -20,6 +20,7 @@ class FollowUp extends Model
         'call_record_id',
         'user_id',
         'follow_up_at',
+        'next_follow_up_at',
         'contact_mode',
         'reason',
         'notes',
@@ -31,6 +32,7 @@ class FollowUp extends Model
         return [
             'status' => FollowUpStatus::class,
             'follow_up_at' => 'datetime',
+            'next_follow_up_at' => 'datetime',
             'contact_mode' => ContactMode::class,
         ];
     }
