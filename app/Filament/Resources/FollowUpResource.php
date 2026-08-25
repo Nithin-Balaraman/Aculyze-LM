@@ -87,35 +87,94 @@ class FollowUpResource extends Resource
                             ->required()
                             ->default(FollowUpStatus::Pending)
                             ->live(),
-                        // Neither of these two persists to the FollowUp record
+                        // Neither of these persists to the FollowUp record
                         // itself — EditFollowUp::handleRecordUpdate() /
                         // CreateFollowUp::handleRecordCreation() pull them
                         // back out of the form data and use them to create a
                         // new Call Record, exactly like the row-action
-                        // "Completed" modal's own outcome/notes fields
-                        // (FollowUpResource::table()) do. Required only when
-                        // Status is being set to Completed here — matching
-                        // the modal's enforcement — so this is both the
-                        // reactive UI validation and, since Livewire
-                        // validates server-side regardless of JS, the actual
-                        // guard against submitting Completed with no outcome
+                        // "Completed" modal's own fields (FollowUpResource::
+                        // table()) do. Required only when Status is being set
+                        // to Completed here — matching the modal's
+                        // enforcement — so this is both the reactive UI
+                        // validation and, since Livewire validates
+                        // server-side regardless of JS, the actual guard
+                        // against submitting Completed with no outcome
                         // captured.
                         Forms\Components\Select::make('outcome')
                             ->label('Call Outcome')
                             ->options(CallOutcome::class)
-                            ->visible(fn (Forms\Get $get) => $get('status') === FollowUpStatus::Completed->value)
-                            ->required(fn (Forms\Get $get) => $get('status') === FollowUpStatus::Completed->value)
+                            ->live()
+                            ->visible(fn (Forms\Get $get) => self::statusIsCompleting($get('status')))
+                            ->required(fn (Forms\Get $get) => self::statusIsCompleting($get('status')))
                             ->helperText('You reached them — log what happened on this call, same as the row-action Completed modal.'),
+                        // Mirrors CallRecordResource::form()'s identical
+                        // appointment_at/follow_up_at pair exactly — same
+                        // routing rules (CallOutcome::routesToAppointment()/
+                        // routesToFollowUp()), same visible-whenever-required
+                        // pairing. "Next Follow-Up At" (not "Follow up at",
+                        // already taken above by *this* Follow-Up's own
+                        // field) since an outcome like No Answer here creates
+                        // a brand new Follow-Up, distinct from the one being
+                        // completed.
+                        Forms\Components\DateTimePicker::make('appointment_at')
+                            ->label('Appointment At')
+                            ->seconds(false)
+                            ->visible(fn (Forms\Get $get) => self::statusIsCompleting($get('status')) && self::outcomeRoutesToAppointment($get('outcome')))
+                            ->required(fn (Forms\Get $get) => self::statusIsCompleting($get('status')) && self::outcomeRoutesToAppointment($get('outcome'))),
+                        Forms\Components\DateTimePicker::make('new_follow_up_at')
+                            ->label('Next Follow-Up At')
+                            ->seconds(false)
+                            ->visible(fn (Forms\Get $get) => self::statusIsCompleting($get('status')) && self::outcomeRoutesToFollowUp($get('outcome')))
+                            ->required(fn (Forms\Get $get) => self::statusIsCompleting($get('status')) && self::outcomeRoutesToFollowUp($get('outcome'))),
                         Forms\Components\Textarea::make('call_notes')
                             ->label('Call Notes')
                             ->rows(3)
-                            ->visible(fn (Forms\Get $get) => $get('status') === FollowUpStatus::Completed->value)
-                            ->required(fn (Forms\Get $get) => $get('status') === FollowUpStatus::Completed->value),
+                            ->visible(fn (Forms\Get $get) => self::statusIsCompleting($get('status')))
+                            ->required(fn (Forms\Get $get) => self::statusIsCompleting($get('status'))),
                         Forms\Components\Textarea::make('notes')
                             ->rows(3)
                             ->columnSpanFull(),
                     ]),
             ]);
+    }
+
+    /**
+     * $get()/form data may hand back either the raw string value or the
+     * hydrated enum case depending on how the form state got there (a
+     * record-hydrated Edit form's initial value is already a plain string —
+     * Eloquent's attributesToArray() normalizes backed enums on the way out
+     * — but a *live* Select-with-enum-options interaction, e.g. picking a
+     * new option in the browser, stores the actual enum instance instead;
+     * confirmed live — a naive `$get('status') === FollowUpStatus::
+     * Completed->value` string comparison silently never matched on the
+     * Create form, whose Status field starts from ->default() rather than a
+     * hydrated record, once the user actually changed it). Mirrors
+     * CallRecordResource::resolveOutcome() / LeadResource::
+     * stageIsValidated() exactly, the same fix already established there.
+     */
+    public static function resolveStatus(mixed $status): ?FollowUpStatus
+    {
+        return $status instanceof FollowUpStatus ? $status : FollowUpStatus::tryFrom((string) $status);
+    }
+
+    private static function resolveOutcome(mixed $outcome): ?CallOutcome
+    {
+        return $outcome instanceof CallOutcome ? $outcome : CallOutcome::tryFrom((string) $outcome);
+    }
+
+    public static function statusIsCompleting(mixed $status): bool
+    {
+        return self::resolveStatus($status) === FollowUpStatus::Completed;
+    }
+
+    private static function outcomeRoutesToAppointment(mixed $outcome): bool
+    {
+        return self::resolveOutcome($outcome)?->routesToAppointment() ?? false;
+    }
+
+    private static function outcomeRoutesToFollowUp(mixed $outcome): bool
+    {
+        return self::resolveOutcome($outcome)?->routesToFollowUp() ?? false;
     }
 
     /**
@@ -206,7 +265,25 @@ class FollowUpResource extends Resource
                                 ->label('Call Outcome')
                                 ->options(CallOutcome::class)
                                 ->required()
+                                ->live()
                                 ->helperText('You reached them — log what happened on this call, same as logging any other call.'),
+                            // Mirrors CallRecordResource::form()'s identical
+                            // pair — an outcome here can route to an
+                            // Appointment and/or a new Follow-Up exactly like
+                            // any other logged call (App\Services\
+                            // CallRoutingService doesn't treat this call any
+                            // differently), so the same date/time it needs
+                            // has to be collected here too, not left blank.
+                            Forms\Components\DateTimePicker::make('appointment_at')
+                                ->label('Appointment At')
+                                ->seconds(false)
+                                ->visible(fn (Forms\Get $get) => static::outcomeRoutesToAppointment($get('outcome')))
+                                ->required(fn (Forms\Get $get) => static::outcomeRoutesToAppointment($get('outcome'))),
+                            Forms\Components\DateTimePicker::make('new_follow_up_at')
+                                ->label('Follow Up At')
+                                ->seconds(false)
+                                ->visible(fn (Forms\Get $get) => static::outcomeRoutesToFollowUp($get('outcome')))
+                                ->required(fn (Forms\Get $get) => static::outcomeRoutesToFollowUp($get('outcome'))),
                             Forms\Components\Textarea::make('notes')
                                 ->label('Notes')
                                 ->required()
@@ -224,6 +301,8 @@ class FollowUpResource extends Resource
                                     'called_at' => now(),
                                     'outcome' => $data['outcome'],
                                     'notes' => $data['notes'],
+                                    'appointment_at' => $data['appointment_at'] ?? null,
+                                    'follow_up_at' => $data['new_follow_up_at'] ?? null,
                                     // Marks this Call Record as existing
                                     // purely to drive CallRoutingService —
                                     // see CallRecord::scopeDirectlyLogged().

@@ -44,10 +44,13 @@ class FollowUpCompletedTest extends TestCase
 
         $this->actingAs($employee);
 
+        $appointmentAt = now()->addDays(3)->startOfMinute();
+
         Livewire::test(ListFollowUps::class)
             ->callTableAction('completed', $followUp, data: [
                 'outcome' => CallOutcome::RequirementIdentified->value,
                 'notes' => 'Spoke to the owner, ready to move forward.',
+                'appointment_at' => $appointmentAt->format('Y-m-d H:i:s'),
             ])
             ->assertHasNoTableActionErrors();
 
@@ -72,6 +75,7 @@ class FollowUpCompletedTest extends TestCase
         // which the Appointment/Lead assertions below confirm it still does.
         $this->assertSame($followUp->id, $newCall->follow_up_id);
         $this->assertNotNull($newCall->appointment);
+        $this->assertTrue($appointmentAt->equalTo($newCall->appointment->appointment_at));
         $this->assertNotNull($newCall->lead);
     }
 
@@ -87,6 +91,80 @@ class FollowUpCompletedTest extends TestCase
             ->assertHasTableActionErrors(['outcome' => 'required']);
 
         $this->assertSame(FollowUpStatus::Pending, $followUp->fresh()->status);
+    }
+
+    /**
+     * The popup was assumed to already handle outcome-driven routing
+     * correctly (same as CallRecordResource's own form), but had no
+     * Appointment At / Follow Up At sub-fields at all — every Appointment
+     * it created via CallRoutingService silently got a blank
+     * appointment_at, exempted only because it's an auto-routed insert
+     * (App\Models\Appointment's own mandatory-field guard). These mirror
+     * CallRecordResource::form()'s identical pair.
+     */
+    public function test_completed_action_requires_appointment_at_for_an_outcome_that_routes_to_appointment(): void
+    {
+        $employee = User::factory()->create();
+        $followUp = $this->makeFollowUp($employee);
+
+        $this->actingAs($employee);
+
+        Livewire::test(ListFollowUps::class)
+            ->callTableAction('completed', $followUp, data: [
+                'outcome' => CallOutcome::AppointmentSet->value,
+                'notes' => 'They agreed to a site visit.',
+                'appointment_at' => '',
+            ])
+            ->assertHasTableActionErrors(['appointment_at' => 'required']);
+
+        $this->assertSame(FollowUpStatus::Pending, $followUp->fresh()->status);
+    }
+
+    public function test_completed_action_requires_next_follow_up_at_for_an_outcome_that_routes_to_follow_up(): void
+    {
+        $employee = User::factory()->create();
+        $followUp = $this->makeFollowUp($employee);
+
+        $this->actingAs($employee);
+
+        Livewire::test(ListFollowUps::class)
+            ->callTableAction('completed', $followUp, data: [
+                'outcome' => CallOutcome::SwitchedOff->value,
+                'notes' => 'Still switched off, try again later.',
+                'new_follow_up_at' => '',
+            ])
+            ->assertHasTableActionErrors(['new_follow_up_at' => 'required']);
+
+        $this->assertSame(FollowUpStatus::Pending, $followUp->fresh()->status);
+    }
+
+    public function test_completed_action_with_a_follow_up_routing_outcome_creates_a_new_pending_follow_up(): void
+    {
+        $employee = User::factory()->create();
+        $followUp = $this->makeFollowUp($employee);
+
+        $this->actingAs($employee);
+
+        $nextFollowUpAt = now()->addWeek()->startOfMinute();
+
+        Livewire::test(ListFollowUps::class)
+            ->callTableAction('completed', $followUp, data: [
+                'outcome' => CallOutcome::SwitchedOff->value,
+                'notes' => 'Still switched off, try again later.',
+                'new_follow_up_at' => $nextFollowUpAt->format('Y-m-d H:i:s'),
+            ])
+            ->assertHasNoTableActionErrors();
+
+        $newCall = CallRecord::where('prospect_id', $followUp->prospect_id)
+            ->where('outcome', CallOutcome::SwitchedOff)
+            ->first();
+
+        $this->assertNotNull($newCall);
+        $newFollowUp = FollowUp::where('call_record_id', $newCall->id)->first();
+        $this->assertNotNull($newFollowUp);
+        $this->assertNotSame($followUp->id, $newFollowUp->id);
+        $this->assertSame(FollowUpStatus::Pending, $newFollowUp->status);
+        $this->assertTrue($nextFollowUpAt->equalTo($newFollowUp->follow_up_at));
     }
 
     public function test_completed_action_requires_notes(): void

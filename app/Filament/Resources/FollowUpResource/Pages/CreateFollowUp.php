@@ -25,21 +25,28 @@ class CreateFollowUp extends CreateRecord
      * (FollowUpResource::form()) does expose Status, so someone could pick
      * Completed right here — kept consistent with EditFollowUp's own
      * handling rather than allowed to skip the Call Record/routing that
-     * implies. `outcome`/`call_notes` never persist on FollowUp itself.
+     * implies. None of `outcome`/`call_notes`/`appointment_at`/
+     * `new_follow_up_at` persist on FollowUp itself.
      *
      * A brand-new record has no id yet to hang a Call Record's
-     * `follow_up_id` off of, and FollowUp's own model guard rejects saving
-     * Completed with no Call Record behind it — so this always inserts as
-     * Pending first, then (if Completed was actually requested) creates the
-     * Call Record and flips status, mirroring the two-step order
-     * handleRecordUpdate()/the row-action modal both already rely on.
+     * `follow_up_id` off of, so this always inserts as Pending first, then
+     * (if Completed was actually requested) creates the Call Record and
+     * flips status, mirroring the two-step order handleRecordUpdate()/the
+     * row-action modal both already rely on.
+     *
+     * $data['status'] is resolved via FollowUpResource::resolveStatus()
+     * rather than compared directly against ->value — see
+     * EditFollowUp::handleRecordUpdate()'s identical comment for why a live
+     * Select interaction hands back the enum instance, not the raw string.
      */
     protected function handleRecordCreation(array $data): Model
     {
         $outcome = Arr::pull($data, 'outcome');
         $callNotes = Arr::pull($data, 'call_notes');
+        $appointmentAt = Arr::pull($data, 'appointment_at');
+        $newFollowUpAt = Arr::pull($data, 'new_follow_up_at');
 
-        $isCompletingAtCreation = ($data['status'] ?? null) === FollowUpStatus::Completed->value;
+        $isCompletingAtCreation = FollowUpResource::resolveStatus($data['status'] ?? null) === FollowUpStatus::Completed;
 
         if ($isCompletingAtCreation) {
             $data['status'] = FollowUpStatus::Pending->value;
@@ -56,6 +63,8 @@ class CreateFollowUp extends CreateRecord
                 'outcome' => $outcome,
                 'notes' => $callNotes,
                 'follow_up_id' => $record->id,
+                'appointment_at' => $appointmentAt,
+                'follow_up_at' => $newFollowUpAt,
             ]);
 
             $record->update(['status' => FollowUpStatus::Completed]);
