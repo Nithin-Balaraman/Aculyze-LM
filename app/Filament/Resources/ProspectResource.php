@@ -55,33 +55,66 @@ class ProspectResource extends Resource
                         ->required()
                         ->maxLength(255)
                         ->columnSpanFull(),
-                    Forms\Components\TextInput::make('contact_person')->maxLength(255),
-                    Forms\Components\TextInput::make('designation')->maxLength(255),
+                    Forms\Components\TextInput::make('contact_person')
+                        ->required()
+                        ->maxLength(255),
+                    Forms\Components\TextInput::make('designation')
+                        ->required()
+                        ->maxLength(255),
+                    // Neither is individually mandatory — Saji wants at
+                    // least one real phone number on file, not both
+                    // required, so each is only required when the OTHER is
+                    // blank (mirrors the conditional-required pattern used
+                    // throughout this codebase, e.g. FollowUpResource's
+                    // outcome-driven fields). ->live(onBlur:) so the
+                    // other's required-asterisk updates without hammering
+                    // Livewire on every keystroke.
                     Forms\Components\TextInput::make('telephone')
                         ->tel()
-                        ->maxLength(20),
+                        ->maxLength(20)
+                        ->live(onBlur: true)
+                        ->required(fn (Forms\Get $get) => blank($get('mobile')))
+                        ->validationMessages(['required' => 'Provide at least one of Telephone or Mobile.']),
                     Forms\Components\TextInput::make('mobile')
                         ->tel()
-                        ->maxLength(20),
+                        ->maxLength(20)
+                        ->live(onBlur: true)
+                        ->required(fn (Forms\Get $get) => blank($get('telephone')))
+                        ->validationMessages(['required' => 'Provide at least one of Telephone or Mobile.']),
                     Forms\Components\TextInput::make('email')
+                        ->required()
                         ->email()
                         ->maxLength(255),
                     Forms\Components\TextInput::make('website')
+                        ->required()
                         ->url()
                         ->maxLength(255),
-                    Forms\Components\TextInput::make('industry')->maxLength(255),
-                    Forms\Components\TextInput::make('source')->maxLength(255),
+                    Forms\Components\TextInput::make('industry')
+                        ->required()
+                        ->maxLength(255),
+                    Forms\Components\TextInput::make('source')
+                        ->required()
+                        ->maxLength(255),
                 ]),
             Forms\Components\Section::make('Location')
                 ->columns(2)
                 ->schema([
                     Forms\Components\TextInput::make('address')
+                        ->required()
                         ->maxLength(255)
                         ->columnSpanFull(),
-                    Forms\Components\TextInput::make('locality')->maxLength(255),
-                    Forms\Components\TextInput::make('city')->maxLength(255),
-                    Forms\Components\TextInput::make('state')->maxLength(255),
-                    Forms\Components\TextInput::make('pincode')->maxLength(20),
+                    Forms\Components\TextInput::make('locality')
+                        ->required()
+                        ->maxLength(255),
+                    Forms\Components\TextInput::make('city')
+                        ->required()
+                        ->maxLength(255),
+                    Forms\Components\TextInput::make('state')
+                        ->required()
+                        ->maxLength(255),
+                    Forms\Components\TextInput::make('pincode')
+                        ->required()
+                        ->maxLength(20),
                 ]),
             Forms\Components\Section::make('Ownership')
                 ->columns(2)
@@ -102,6 +135,7 @@ class ProspectResource extends Resource
             Forms\Components\Section::make('Notes')
                 ->schema([
                     Forms\Components\Textarea::make('notes')
+                        ->required()
                         ->rows(3)
                         ->columnSpanFull(),
                 ]),

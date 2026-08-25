@@ -17,10 +17,18 @@ class ProspectFactory extends Factory
         return [
             'company_name' => fake()->company(),
             'contact_person' => fake()->name(),
+            'designation' => fake()->randomElement(['Manager', 'Owner', 'Director', 'Procurement Head']),
             'telephone' => fake()->numerify('+91 9#### #####'),
             'email' => fake()->companyEmail(),
+            'website' => fake()->url(),
             'industry' => fake()->randomElement(['Textiles', 'Precision Engineering', 'Industrial Automation']),
+            'source' => fake()->randomElement(['Referral', 'Trade Directory', 'Cold Outreach', 'Exhibition']),
+            'address' => fake()->streetAddress(),
+            'locality' => fake()->citySuffix(),
             'city' => 'Coimbatore',
+            'state' => 'Tamil Nadu',
+            'pincode' => fake()->numerify('######'),
+            'notes' => fake()->sentence(),
             'assigned_to' => $owner,
             'created_by' => $owner,
         ];

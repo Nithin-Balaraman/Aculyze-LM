@@ -133,7 +133,22 @@ class CreateRecordRedirectsToIndexTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(CreateProspect::class)
-            ->fillForm(['company_name' => 'Brand New Co'])
+            ->fillForm([
+                'company_name' => 'Brand New Co',
+                'contact_person' => 'Someone',
+                'designation' => 'Manager',
+                'telephone' => '+91 90000 00000',
+                'email' => 'someone@example.com',
+                'website' => 'https://example.com',
+                'industry' => 'Manufacturing',
+                'source' => 'Referral',
+                'address' => '1 Some Street',
+                'locality' => 'Some Locality',
+                'city' => 'Some City',
+                'state' => 'Some State',
+                'pincode' => '000000',
+                'notes' => 'Some notes.',
+            ])
             ->call('create')
             ->assertHasNoFormErrors()
             ->assertRedirect(ProspectResource::getUrl('index'));

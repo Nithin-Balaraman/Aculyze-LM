@@ -45,6 +45,38 @@ class CallRecordCreateCompanyInlineTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * ProspectResource::formSchema() (reused verbatim by this inline
+     * "createProspect" action) now requires every text field except
+     * Telephone/Mobile (which need at least one of the two, not both) — see
+     * ProspectFormMandatoryFieldsTest for that resource's own dedicated
+     * coverage. These tests are about the inline-create/select mechanism
+     * itself, not field validation, so a complete baseline keeps them
+     * focused on that.
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    private function completeProspectData(array $overrides = []): array
+    {
+        return array_merge([
+            'company_name' => 'Some Co',
+            'contact_person' => 'Someone',
+            'designation' => 'Manager',
+            'telephone' => '+91 90000 00000',
+            'email' => 'someone@example.com',
+            'website' => 'https://example.com',
+            'industry' => 'Manufacturing',
+            'source' => 'Referral',
+            'address' => '1 Some Street',
+            'locality' => 'Some Locality',
+            'city' => 'Some City',
+            'state' => 'Some State',
+            'pincode' => '000000',
+            'notes' => 'Some notes.',
+        ], $overrides);
+    }
+
     public function test_creating_a_new_company_via_the_create_option_modal_persists_it_and_selects_it_on_the_form(): void
     {
         $employee = User::factory()->create();
@@ -52,10 +84,10 @@ class CallRecordCreateCompanyInlineTest extends TestCase
 
         Livewire::test(CreateCallRecord::class)
             ->mountFormComponentAction('prospect_id', 'createProspect')
-            ->setFormComponentActionData([
+            ->setFormComponentActionData($this->completeProspectData([
                 'company_name' => 'Brand New Co',
                 'contact_person' => 'Priya Nair',
-            ])
+            ]))
             ->callMountedFormComponentAction();
 
         $prospect = Prospect::where('company_name', 'Brand New Co')->sole();
@@ -70,7 +102,7 @@ class CallRecordCreateCompanyInlineTest extends TestCase
 
         Livewire::test(CreateCallRecord::class)
             ->mountFormComponentAction('prospect_id', 'createProspect')
-            ->setFormComponentActionData(['company_name' => 'Another New Co'])
+            ->setFormComponentActionData($this->completeProspectData(['company_name' => 'Another New Co']))
             ->callMountedFormComponentAction()
             ->assertFormSet([
                 'prospect_id' => Prospect::where('company_name', 'Another New Co')->value('id'),
