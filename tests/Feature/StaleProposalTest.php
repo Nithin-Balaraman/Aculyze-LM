@@ -39,6 +39,7 @@ class StaleProposalTest extends TestCase
             'created_by' => $prospect->created_by,
             'stage' => ProposalStage::Sent,
             'outcome' => $outcome,
+            'notes' => in_array($outcome, [ProposalOutcome::Won, ProposalOutcome::Lost], true) ? 'Test outcome notes.' : null,
         ]);
 
         Proposal::withoutEvents(fn () => $proposal->forceFill(['stage_changed_at' => Date::now()->subDays($daysAgo)])->save());

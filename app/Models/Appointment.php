@@ -72,7 +72,37 @@ class Appointment extends Model
             if (! $isExemptAutoRoutedInsert && ! $isUntouchedOnUpdate && blank($appointment->appointment_at)) {
                 throw new \LogicException('An Appointment cannot be saved without an Appointment At date/time.');
             }
+
+            // Notes/Remarks batch: reaching a terminal stage (Succeeded or
+            // Not Succeeded) must have Outcome Notes documenting it — the
+            // Filament form already blocks this interactively (see
+            // AppointmentResource::form()), but every write path must be
+            // unable to persist it without them. Gated the same way as the
+            // Appointment At guard above (insert, or Stage actually being
+            // dirtied) rather than unconditionally on every save, so
+            // unrelated row actions (Reassign, Mark Lost) that never touch
+            // Stage aren't blocked by a pre-existing gap they didn't create
+            // — CallRoutingService::createAppointment() also never inserts
+            // at a terminal stage (always AppointmentMade), so this never
+            // needs an auto-routed-insert exemption the way appointment_at
+            // does.
+            if (
+                ($appointment->isDirty('stage') || ! $appointment->exists)
+                && $appointment->stage->isTerminal()
+                && ! $appointment->hasMeaningfulOutcomeNotes()
+            ) {
+                throw new \LogicException('An Appointment cannot be saved as Succeeded or Not Succeeded without Outcome Notes.');
+            }
         });
+    }
+
+    /**
+     * Whitespace-only Outcome Notes must not count as present — mirrors
+     * Lead::hasMeaningfulNotes().
+     */
+    public function hasMeaningfulOutcomeNotes(): bool
+    {
+        return filled($this->outcome_notes);
     }
 
     /**

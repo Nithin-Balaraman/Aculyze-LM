@@ -191,6 +191,7 @@ class PipelinePulseWidgetTest extends TestCase
             'created_by' => $admin->id,
             'appointment_at' => now(),
             'stage' => AppointmentStage::Succeeded,
+            'outcome_notes' => 'Deal closed.',
         ]);
 
         $pendingTabCount = Livewire::test(ListAppointments::class)
@@ -240,6 +241,7 @@ class PipelinePulseWidgetTest extends TestCase
             'created_by' => $owner->id,
             'stage' => ProposalStage::BeingPrepared,
             'outcome' => $outcome,
+            'notes' => in_array($outcome, [ProposalOutcome::Won, ProposalOutcome::Lost], true) ? 'Test outcome notes.' : null,
         ]);
     }
 }

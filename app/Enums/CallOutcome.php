@@ -99,6 +99,25 @@ enum CallOutcome: string implements HasColor, HasLabel
     }
 
     /**
+     * Whether logging a call with this outcome requires Notes — every
+     * outcome where a real conversation actually happened, so there's
+     * something worth documenting. Excludes only the three outcomes that
+     * mean the call never connected at all (nothing to document). Notes
+     * being mandatory here was previously scoped to just Others (the
+     * catch-all with no defined routing); this is the single source of
+     * truth CallRecordResource::form() and CallRecord's own model guard
+     * both key off, same as every other routesTo*() classification here.
+     */
+    public function requiresNotes(): bool
+    {
+        return ! in_array($this, [
+            self::NoAnswer,
+            self::SwitchedOff,
+            self::NotReachable,
+        ], true);
+    }
+
+    /**
      * @return array<string, string>
      */
     public static function options(): array

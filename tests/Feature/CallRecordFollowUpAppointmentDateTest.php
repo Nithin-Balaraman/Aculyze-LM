@@ -109,6 +109,7 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
             ->fillForm($this->baseFormData([
                 'outcome' => CallOutcome::CallbackRequested->value,
                 'follow_up_at' => $followUpAt->format('Y-m-d H:i:s'),
+                'notes' => 'Asked to call back in a couple of days.',
             ]))
             ->call('create')
             ->assertHasNoFormErrors();
@@ -128,6 +129,7 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
             ->fillForm($this->baseFormData([
                 'outcome' => CallOutcome::AppointmentSet->value,
                 'appointment_at' => $appointmentAt->format('Y-m-d H:i:s'),
+                'notes' => 'Agreed to a site visit.',
             ]))
             ->call('create')
             ->assertHasNoFormErrors();
@@ -178,6 +180,7 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
             ->fillForm($this->baseFormData([
                 'outcome' => CallOutcome::RequirementIdentified->value,
                 'appointment_at' => $appointmentAt->format('Y-m-d H:i:s'),
+                'notes' => 'Interested in a full rollout.',
             ]))
             ->call('create')
             ->assertHasNoFormErrors();

@@ -94,18 +94,39 @@ class ProposalResource extends Resource
                             ->required()
                             ->default(ProposalStage::BeingPrepared)
                             ->live(),
+                        // ->live() so notes' required()/rule() below react
+                        // the moment Final Outcome changes — same mechanism
+                        // as stage above.
                         Forms\Components\Select::make('outcome')
                             ->label('Final Outcome')
                             ->options(ProposalOutcome::class)
+                            ->live()
                             ->helperText('Leave blank while the Proposal is still in progress.'),
                         Forms\Components\TextInput::make('value')
                             ->label('Proposal Value (₹)')
                             ->numeric()
                             ->prefix('₹'),
                         Forms\Components\DatePicker::make('sent_at'),
+                        // Required the moment Final Outcome is Won or Lost —
+                        // a genuine final decision should always leave a
+                        // record of why. Mirrors the same required()+rule()
+                        // pairing LeadResource uses for "Notes required when
+                        // Validated" — plain required() alone would accept a
+                        // whitespace-only value.
                         Forms\Components\Textarea::make('notes')
                             ->rows(3)
-                            ->columnSpanFull(),
+                            ->columnSpanFull()
+                            ->required(fn (Get $get) => self::outcomeIsFinal($get('outcome')))
+                            ->validationMessages([
+                                'required' => 'Notes are required when the Final Outcome is Won or Lost.',
+                            ])
+                            ->rule(
+                                fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
+                                    if (self::outcomeIsFinal($get('outcome')) && blank($value)) {
+                                        $fail('Notes are required when the Final Outcome is Won or Lost.');
+                                    }
+                                },
+                            ),
                         // Required the moment Stage is "Proposal Sent" — on
                         // every save, including an already-Sent Proposal
                         // from before this field existed, the next time it's
@@ -178,6 +199,18 @@ class ProposalResource extends Resource
     private static function stageIsSent(mixed $stage): bool
     {
         return ($stage instanceof ProposalStage ? $stage : ProposalStage::tryFrom((string) $stage)) === ProposalStage::Sent;
+    }
+
+    /**
+     * $get() may hand back either the raw string value or the hydrated
+     * ProposalOutcome case depending on how the form state got there — same
+     * nuance as stageIsSent() above.
+     */
+    private static function outcomeIsFinal(mixed $outcome): bool
+    {
+        $resolved = $outcome instanceof ProposalOutcome ? $outcome : ProposalOutcome::tryFrom((string) $outcome);
+
+        return in_array($resolved, [ProposalOutcome::Won, ProposalOutcome::Lost], true);
     }
 
     /**

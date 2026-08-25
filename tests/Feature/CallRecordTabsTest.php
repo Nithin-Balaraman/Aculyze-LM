@@ -39,7 +39,7 @@ class CallRecordTabsTest extends TestCase
     {
         $employee = User::factory()->create();
         $noAnswer = $this->makeCall($employee, CallOutcome::NoAnswer);
-        $futureOpportunity = $this->makeCall($employee, CallOutcome::FutureOpportunity);
+        $futureOpportunity = $this->makeCall($employee, CallOutcome::FutureOpportunity, ['notes' => 'No budget this year.']);
 
         $this->actingAs($employee);
 
@@ -52,8 +52,8 @@ class CallRecordTabsTest extends TestCase
     {
         $employee = User::factory()->create();
         $noAnswer = $this->makeCall($employee, CallOutcome::NoAnswer);
-        $appointmentSet = $this->makeCall($employee, CallOutcome::AppointmentSet);
-        $futureOpportunity = $this->makeCall($employee, CallOutcome::FutureOpportunity);
+        $appointmentSet = $this->makeCall($employee, CallOutcome::AppointmentSet, ['notes' => 'Agreed to a site visit.']);
+        $futureOpportunity = $this->makeCall($employee, CallOutcome::FutureOpportunity, ['notes' => 'No budget this year.']);
 
         $this->actingAs($employee);
 
@@ -66,7 +66,7 @@ class CallRecordTabsTest extends TestCase
     public function test_future_opportunity_call_still_appears_in_all_after_history_exists(): void
     {
         $employee = User::factory()->create();
-        $futureOpportunity = $this->makeCall($employee, CallOutcome::FutureOpportunity);
+        $futureOpportunity = $this->makeCall($employee, CallOutcome::FutureOpportunity, ['notes' => 'No budget this year.']);
 
         $this->actingAs($employee);
 
@@ -83,7 +83,7 @@ class CallRecordTabsTest extends TestCase
     {
         $employee = User::factory()->create();
         $noAnswer = $this->makeCall($employee, CallOutcome::NoAnswer);
-        $futureOpportunity = $this->makeCall($employee, CallOutcome::FutureOpportunity);
+        $futureOpportunity = $this->makeCall($employee, CallOutcome::FutureOpportunity, ['notes' => 'No budget this year.']);
         $others = $this->makeCall($employee, CallOutcome::Others, ['notes' => 'Not a real business anymore.']);
 
         $this->actingAs($employee);
@@ -99,7 +99,7 @@ class CallRecordTabsTest extends TestCase
         $owner = User::factory()->create();
         $intruder = User::factory()->create();
         $ownerAll = $this->makeCall($owner, CallOutcome::NoAnswer);
-        $ownerHistory = $this->makeCall($owner, CallOutcome::FutureOpportunity);
+        $ownerHistory = $this->makeCall($owner, CallOutcome::FutureOpportunity, ['notes' => 'No budget this year.']);
 
         $this->actingAs($intruder);
 
@@ -118,7 +118,7 @@ class CallRecordTabsTest extends TestCase
         $nithin = User::factory()->create();
         $kural = User::factory()->create();
         $nithinCall = $this->makeCall($nithin, CallOutcome::NoAnswer);
-        $kuralHistoryCall = $this->makeCall($kural, CallOutcome::FutureOpportunity);
+        $kuralHistoryCall = $this->makeCall($kural, CallOutcome::FutureOpportunity, ['notes' => 'No budget this year.']);
 
         $this->actingAs($admin);
 

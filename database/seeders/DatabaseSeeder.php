@@ -70,6 +70,7 @@ class DatabaseSeeder extends Seeder
         $this->logCall($chennaiPrecision, $nithin, CallOutcome::NoAnswer, Date::now()->subDays(6));
         $this->logCall($chennaiPrecision, $nithin, CallOutcome::CallbackRequested, Date::now()->subDays(2), [
             'follow_up_at' => Date::now()->addDays(2),
+            'notes' => 'Asked to call back next week, tied up with an audit right now.',
         ]);
 
         // --- 2. Appointment Set -> auto-creates an Appointment. ---
@@ -83,6 +84,7 @@ class DatabaseSeeder extends Seeder
         ]);
         $this->logCall($coimbatoreTextiles, $kural, CallOutcome::AppointmentSet, Date::now()->subDays(3), [
             'appointment_at' => Date::now()->addDays(3),
+            'notes' => 'Agreed to a site visit to assess their current setup.',
         ]);
 
         // --- 3. Requirement Identified -> auto-creates Appointment + Lead.

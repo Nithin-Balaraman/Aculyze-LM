@@ -113,7 +113,7 @@ class StageTimingTest extends TestCase
         $original = $proposal->stage_changed_at;
         $this->travel(4)->days();
 
-        $proposal->update(['outcome' => 'won']);
+        $proposal->update(['outcome' => 'won', 'notes' => 'Client signed.']);
 
         $this->assertTrue($proposal->fresh()->stage_changed_at->greaterThan($original));
     }

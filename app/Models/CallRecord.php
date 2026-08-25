@@ -45,19 +45,20 @@ class CallRecord extends Model
     }
 
     /**
-     * The Others outcome is a catch-all with no defined routing (see
-     * CallOutcome::routesNowhere()), so Notes is the only record of what
-     * actually happened. The Filament form already blocks this
-     * interactively (see CallRecordResource::form()), but every write
-     * path — including ones that bypass the visible form — must be unable
-     * to persist an Others Call Record without Notes. Mirrors Lead's
+     * Notes are required for any outcome where a real conversation actually
+     * happened (CallOutcome::requiresNotes() — every outcome except the
+     * three "never connected" ones) — was previously scoped to just Others
+     * (the catch-all with no defined routing). The Filament form already
+     * blocks this interactively (see CallRecordResource::form()), but every
+     * write path — including ones that bypass the visible form — must be
+     * unable to persist such a Call Record without Notes. Mirrors Lead's
      * Validated-requires-notes guard.
      */
     protected static function booted(): void
     {
         static::saving(function (self $callRecord) {
-            if ($callRecord->outcome === CallOutcome::Others && ! $callRecord->hasMeaningfulNotes()) {
-                throw new \LogicException('A Call Record cannot be saved with outcome Others without Notes.');
+            if ($callRecord->outcome->requiresNotes() && ! $callRecord->hasMeaningfulNotes()) {
+                throw new \LogicException("A Call Record cannot be saved with outcome {$callRecord->outcome->getLabel()} without Notes.");
             }
         });
     }

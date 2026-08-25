@@ -349,6 +349,7 @@ class EditRedirectPreservesActiveTabTest extends TestCase
             'created_by' => $employee->id,
             'stage' => ProposalStage::Sent,
             'outcome' => ProposalOutcome::Lost,
+            'notes' => 'Went with a competitor.',
             // A Sent Proposal requires a PDF on every save (strict, no
             // grandfathering — see ProposalPdfRequirementTest) — unrelated
             // to what this test actually covers (the redirect), so the
@@ -379,6 +380,7 @@ class EditRedirectPreservesActiveTabTest extends TestCase
             'created_by' => $employee->id,
             'stage' => ProposalStage::Sent,
             'outcome' => ProposalOutcome::Lost,
+            'notes' => 'Went with a competitor.',
             // A Sent Proposal requires a PDF on every save (strict, no
             // grandfathering — see ProposalPdfRequirementTest) — unrelated
             // to what this test actually covers (the redirect), so the

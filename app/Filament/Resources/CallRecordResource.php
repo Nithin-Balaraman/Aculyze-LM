@@ -227,25 +227,26 @@ class CallRecordResource extends Resource
                     ->visible(fn (Get $get) => filled($get('prospect_id')) && $get('prospect_id') !== self::CREATE_NEW_PROSPECT),
                 Forms\Components\Section::make('Notes')
                     ->schema([
-                        // Others is a catch-all with no defined next action
-                        // (it routes nowhere — see CallOutcome::
-                        // routesNowhere()), so Notes becomes the only record
-                        // of what actually happened and must be filled in.
-                        // Mirrors the same required()+rule() pairing
-                        // LeadResource uses for "Notes required when
-                        // Validated" — plain required() alone would accept
-                        // a whitespace-only value.
+                        // Required for any outcome where a real conversation
+                        // actually happened (CallOutcome::requiresNotes() —
+                        // every outcome except the three "never connected"
+                        // ones), so there's something on record. Was
+                        // previously scoped to just Others (the catch-all
+                        // with no defined next action). Mirrors the same
+                        // required()+rule() pairing LeadResource uses for
+                        // "Notes required when Validated" — plain required()
+                        // alone would accept a whitespace-only value.
                         Forms\Components\Textarea::make('notes')
                             ->rows(3)
                             ->columnSpanFull()
-                            ->required(fn (Get $get) => self::outcomeIsOthers($get('outcome')))
+                            ->required(fn (Get $get) => self::outcomeRequiresNotes($get('outcome')))
                             ->validationMessages([
-                                'required' => 'Notes are required when the outcome is Others.',
+                                'required' => 'Notes are required for this outcome — only No Answer, Switched Off, and Not Reachable are exempt.',
                             ])
                             ->rule(
                                 fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
-                                    if (self::outcomeIsOthers($get('outcome')) && blank($value)) {
-                                        $fail('Notes are required when the outcome is Others.');
+                                    if (self::outcomeRequiresNotes($get('outcome')) && blank($value)) {
+                                        $fail('Notes are required for this outcome — only No Answer, Switched Off, and Not Reachable are exempt.');
                                     }
                                 },
                             ),
@@ -259,9 +260,9 @@ class CallRecordResource extends Resource
      * comment above the `notes` field (mirrors LeadResource::
      * stageIsValidated()).
      */
-    private static function outcomeIsOthers(mixed $outcome): bool
+    private static function outcomeRequiresNotes(mixed $outcome): bool
     {
-        return self::resolveOutcome($outcome) === CallOutcome::Others;
+        return self::resolveOutcome($outcome)?->requiresNotes() ?? false;
     }
 
     private static function outcomeRoutesToFollowUp(mixed $outcome): bool

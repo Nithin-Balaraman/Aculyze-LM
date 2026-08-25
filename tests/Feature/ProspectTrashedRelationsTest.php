@@ -68,6 +68,7 @@ class ProspectTrashedRelationsTest extends TestCase
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
             'outcome' => CallOutcome::AppointmentSet,
+            'notes' => 'Agreed to a site visit.',
         ]);
         $appointment = $call->fresh()->appointment;
 

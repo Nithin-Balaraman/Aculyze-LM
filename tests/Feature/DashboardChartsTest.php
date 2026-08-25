@@ -184,7 +184,7 @@ class DashboardChartsTest extends TestCase
             $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
             $lead = Lead::create(['prospect_id' => $prospect->id, 'assigned_to' => $user->id, 'created_by' => $user->id, 'stage' => LeadStage::RequirementCollection, 'temperature' => LeadTemperature::Warm, 'notes' => 'x']);
 
-            return Proposal::create(['lead_id' => $lead->id, 'prospect_id' => $prospect->id, 'assigned_to' => $user->id, 'created_by' => $user->id, 'stage' => ProposalStage::Sent, 'outcome' => $outcome, 'value' => $value]);
+            return Proposal::create(['lead_id' => $lead->id, 'prospect_id' => $prospect->id, 'assigned_to' => $user->id, 'created_by' => $user->id, 'stage' => ProposalStage::Sent, 'outcome' => $outcome, 'value' => $value, 'notes' => 'x']);
         };
 
         $makeProposal(ProposalOutcome::Won, 500);
@@ -223,8 +223,8 @@ class DashboardChartsTest extends TestCase
         $ownLead = Lead::create(['prospect_id' => $ownProspect->id, 'assigned_to' => $owner->id, 'created_by' => $owner->id, 'stage' => LeadStage::RequirementCollection, 'temperature' => LeadTemperature::Warm, 'notes' => 'x']);
         $otherLead = Lead::create(['prospect_id' => $otherProspect->id, 'assigned_to' => $other->id, 'created_by' => $other->id, 'stage' => LeadStage::RequirementCollection, 'temperature' => LeadTemperature::Warm, 'notes' => 'x']);
 
-        Proposal::create(['lead_id' => $ownLead->id, 'prospect_id' => $ownProspect->id, 'assigned_to' => $owner->id, 'created_by' => $owner->id, 'stage' => ProposalStage::Sent, 'outcome' => ProposalOutcome::Won, 'value' => 500]);
-        Proposal::create(['lead_id' => $otherLead->id, 'prospect_id' => $otherProspect->id, 'assigned_to' => $other->id, 'created_by' => $other->id, 'stage' => ProposalStage::Sent, 'outcome' => ProposalOutcome::Won, 'value' => 999]);
+        Proposal::create(['lead_id' => $ownLead->id, 'prospect_id' => $ownProspect->id, 'assigned_to' => $owner->id, 'created_by' => $owner->id, 'stage' => ProposalStage::Sent, 'outcome' => ProposalOutcome::Won, 'value' => 500, 'notes' => 'x']);
+        Proposal::create(['lead_id' => $otherLead->id, 'prospect_id' => $otherProspect->id, 'assigned_to' => $other->id, 'created_by' => $other->id, 'stage' => ProposalStage::Sent, 'outcome' => ProposalOutcome::Won, 'value' => 999, 'notes' => 'x']);
 
         $this->actingAs($owner);
 
@@ -316,7 +316,7 @@ class DashboardChartsTest extends TestCase
         $user = User::factory()->create();
         $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
         $lead = Lead::create(['prospect_id' => $prospect->id, 'assigned_to' => $user->id, 'created_by' => $user->id, 'stage' => LeadStage::Validated, 'temperature' => LeadTemperature::Warm, 'notes' => 'meaningful notes here']);
-        Proposal::create(['lead_id' => $lead->id, 'prospect_id' => $prospect->id, 'assigned_to' => $user->id, 'created_by' => $user->id, 'stage' => ProposalStage::Sent, 'outcome' => ProposalOutcome::Won, 'value' => 1000]);
+        Proposal::create(['lead_id' => $lead->id, 'prospect_id' => $prospect->id, 'assigned_to' => $user->id, 'created_by' => $user->id, 'stage' => ProposalStage::Sent, 'outcome' => ProposalOutcome::Won, 'value' => 1000, 'notes' => 'x']);
 
         Livewire::test(ProposalOutcomeChart::class)
             ->assertDontSee('No data yet');

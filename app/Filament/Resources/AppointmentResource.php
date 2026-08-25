@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -58,18 +59,53 @@ class AppointmentResource extends Resource
                         Forms\Components\DateTimePicker::make('appointment_at')
                             ->required()
                             ->seconds(false),
+                        // ->live() so outcome_notes' required()/rule()
+                        // below react the moment Stage changes — same
+                        // mechanism as LeadResource's stage-driven Notes
+                        // requirement.
                         Forms\Components\Select::make('stage')
                             ->options(AppointmentStage::class)
                             ->required()
-                            ->default(AppointmentStage::AppointmentMade),
+                            ->default(AppointmentStage::AppointmentMade)
+                            ->live(),
                         Forms\Components\Textarea::make('meeting_notes')
                             ->rows(3)
                             ->columnSpanFull(),
+                        // Required the moment Stage reaches a terminal value
+                        // (Succeeded or Not Succeeded) — a final result
+                        // should always leave a record of what happened.
+                        // Mirrors the same required()+rule() pairing
+                        // LeadResource uses for "Notes required when
+                        // Validated" — plain required() alone would accept a
+                        // whitespace-only value.
                         Forms\Components\Textarea::make('outcome_notes')
                             ->rows(3)
-                            ->columnSpanFull(),
+                            ->columnSpanFull()
+                            ->required(fn (Get $get) => self::stageIsTerminal($get('stage')))
+                            ->validationMessages([
+                                'required' => 'Outcome Notes are required when the stage is Succeeded or Not Succeeded.',
+                            ])
+                            ->rule(
+                                fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
+                                    if (self::stageIsTerminal($get('stage')) && blank($value)) {
+                                        $fail('Outcome Notes are required when the stage is Succeeded or Not Succeeded.');
+                                    }
+                                },
+                            ),
                     ]),
             ]);
+    }
+
+    /**
+     * $get() may hand back either the raw string value or the hydrated
+     * AppointmentStage case depending on how the form state got there — see
+     * LeadResource::stageIsValidated()'s docblock for the same nuance.
+     */
+    private static function stageIsTerminal(mixed $stage): bool
+    {
+        $resolved = $stage instanceof AppointmentStage ? $stage : AppointmentStage::tryFrom((string) $stage);
+
+        return $resolved?->isTerminal() ?? false;
     }
 
     /**

@@ -48,7 +48,30 @@ class Proposal extends Model
             if ($proposal->isDirty('stage') || $proposal->isDirty('outcome') || ! $proposal->exists) {
                 $proposal->stage_changed_at = Date::now();
             }
+
+            // Notes/Remarks batch: a final outcome (Won or Lost) must have
+            // Notes documenting it — the Filament form already blocks this
+            // interactively (see ProposalResource::form()), but every write
+            // path must be unable to persist one without Notes, mirroring
+            // Lead's Validated-requires-notes guard. Hold and "still in
+            // progress" (null) are unaffected — only a genuine final
+            // decision requires this.
+            if (
+                in_array($proposal->outcome, [ProposalOutcome::Won, ProposalOutcome::Lost], true)
+                && ! $proposal->hasMeaningfulNotes()
+            ) {
+                throw new \LogicException('A Proposal cannot be saved with outcome Won or Lost without Notes.');
+            }
         });
+    }
+
+    /**
+     * Whitespace-only Notes must not count as present — mirrors
+     * Lead::hasMeaningfulNotes().
+     */
+    public function hasMeaningfulNotes(): bool
+    {
+        return filled($this->notes);
     }
 
     public function lead(): BelongsTo

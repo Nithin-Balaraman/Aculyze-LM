@@ -106,6 +106,7 @@ class LeadAppointmentProposalTabsTest extends TestCase
             'created_by' => $owner->id,
             'appointment_at' => now(),
             'stage' => $stage,
+            'outcome_notes' => $stage->isTerminal() ? 'Test outcome notes.' : null,
         ]);
 
         if ($lost) {
@@ -178,6 +179,7 @@ class LeadAppointmentProposalTabsTest extends TestCase
             'created_by' => $owner->id,
             'stage' => ProposalStage::Sent,
             'outcome' => $outcome,
+            'notes' => in_array($outcome, [ProposalOutcome::Won, ProposalOutcome::Lost], true) ? 'Test outcome notes.' : null,
         ]);
     }
 

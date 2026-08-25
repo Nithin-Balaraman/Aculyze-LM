@@ -32,8 +32,9 @@ class CallRoutingTest extends TestCase
         $prospect = Prospect::factory()->create();
 
         foreach (CallOutcome::cases() as $outcome) {
-            // Others requires Notes to save at all — see CallRecord::booted().
-            $attributes = $outcome === CallOutcome::Others ? ['notes' => 'Catch-all outcome, see notes.'] : [];
+            // Every outcome except No Answer/Switched Off/Not Reachable
+            // requires Notes to save at all — see CallRecord::booted().
+            $attributes = $outcome->requiresNotes() ? ['notes' => 'A real conversation happened, see notes.'] : [];
             $call = $this->makeCall($prospect, $outcome, $attributes);
             $this->assertDatabaseHas('call_records', ['id' => $call->id, 'outcome' => $outcome->value]);
         }
@@ -67,7 +68,7 @@ class CallRoutingTest extends TestCase
 
     public function test_callback_requested_routes_to_follow_up_only(): void
     {
-        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::CallbackRequested);
+        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::CallbackRequested, ['notes' => 'Asked to call back next week.']);
 
         $this->assertNotNull($call->fresh()->followUp);
         $this->assertNull($call->fresh()->appointment);
@@ -75,7 +76,7 @@ class CallRoutingTest extends TestCase
 
     public function test_concerned_person_not_available_routes_to_follow_up_only(): void
     {
-        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::ConcernedPersonNotAvailable);
+        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::ConcernedPersonNotAvailable, ['notes' => 'Decision-maker was out of office.']);
 
         $this->assertNotNull($call->fresh()->followUp);
         $this->assertNull($call->fresh()->appointment);
@@ -84,7 +85,7 @@ class CallRoutingTest extends TestCase
 
     public function test_profile_requested_routes_to_follow_up_only(): void
     {
-        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::ProfileRequested);
+        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::ProfileRequested, ['notes' => 'Asked for a company profile before deciding.']);
 
         $this->assertNotNull($call->fresh()->followUp);
         $this->assertNull($call->fresh()->appointment);
@@ -93,7 +94,7 @@ class CallRoutingTest extends TestCase
 
     public function test_appointment_set_routes_to_appointment_only(): void
     {
-        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::AppointmentSet);
+        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::AppointmentSet, ['notes' => 'Agreed to a site visit.']);
 
         $this->assertNotNull($call->fresh()->appointment);
         $this->assertNull($call->fresh()->followUp);
@@ -102,7 +103,7 @@ class CallRoutingTest extends TestCase
 
     public function test_future_opportunity_routes_nowhere(): void
     {
-        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::FutureOpportunity);
+        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::FutureOpportunity, ['notes' => 'No budget this year, revisit later.']);
 
         $this->assertNull($call->fresh()->appointment);
         $this->assertNull($call->fresh()->followUp);
@@ -122,7 +123,7 @@ class CallRoutingTest extends TestCase
 
     public function test_requirement_identified_routes_to_appointment_and_lead(): void
     {
-        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::RequirementIdentified);
+        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::RequirementIdentified, ['notes' => 'Interested in a full rollout.']);
 
         $this->assertNotNull($call->fresh()->appointment);
         $this->assertNotNull($call->fresh()->lead);
@@ -132,7 +133,7 @@ class CallRoutingTest extends TestCase
     public function test_routing_is_idempotent_and_never_creates_duplicates(): void
     {
         $prospect = Prospect::factory()->create();
-        $call = $this->makeCall($prospect, CallOutcome::RequirementIdentified);
+        $call = $this->makeCall($prospect, CallOutcome::RequirementIdentified, ['notes' => 'Interested in a full rollout.']);
 
         $this->assertSame(1, \App\Models\Appointment::count());
         $this->assertSame(1, \App\Models\Lead::count());

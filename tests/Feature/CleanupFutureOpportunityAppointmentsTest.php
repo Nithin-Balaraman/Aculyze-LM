@@ -32,6 +32,7 @@ class CleanupFutureOpportunityAppointmentsTest extends TestCase
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
             'outcome' => CallOutcome::FutureOpportunity,
+            'notes' => 'No budget this year.',
             'processed_at' => now(),
         ]);
 
@@ -55,6 +56,7 @@ class CleanupFutureOpportunityAppointmentsTest extends TestCase
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
             'outcome' => CallOutcome::AppointmentSet,
+            'notes' => 'Agreed to a site visit.',
         ]);
 
         return $call->fresh()->appointment;
