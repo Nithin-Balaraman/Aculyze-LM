@@ -9,8 +9,15 @@
 <div
     data-lane="{{ $laneKey }}"
     data-stage="{{ $stageKey }}"
+    {{-- Phase 6: terminal-stage boxes (Completed, Cancelled, Succeeded,
+    Not Succeeded, Customer Accepted, Customer Rejected, Lead's Lost) start
+    collapsed — the count is still visible in the header either way, the
+    cards themselves are just hidden until expanded. Non-terminal boxes
+    have no such concept and are never collapsible. `over` (drag-hover
+    ring) lives in the same x-data regardless, rather than a second one,
+    since Alpine doesn't merge multiple x-data objects on one element. --}}
+    x-data="{ over: false, collapsed: {{ $stage['terminal'] ? 'true' : 'false' }} }"
     @if ($isDropTarget)
-        x-data="{ over: false }"
         x-on:dragover.prevent="over = true"
         x-on:dragleave="over = false"
         x-on:drop.prevent="
@@ -36,7 +43,12 @@
         'border-gray-200 bg-white dark:border-white/10 dark:bg-white/[0.06]' => ! $stage['terminal'],
     ])
 >
-    <div @class(['mb-2 flex gap-2', 'items-start' => $compact, 'items-center' => ! $compact])>
+    <div
+        @class(['mb-2 flex gap-2', 'items-start' => $compact, 'items-center' => ! $compact, 'cursor-pointer select-none' => $stage['terminal']])
+        @if ($stage['terminal'])
+            x-on:click="collapsed = !collapsed"
+        @endif
+    >
         <span
             @class([
                 'mt-1 h-1.5 w-1.5 shrink-0 rounded-full' => $compact,
@@ -51,9 +63,15 @@
             <span class="font-mono text-[8px] uppercase tracking-wider text-gray-400 dark:text-white/25">terminal</span>
         @endif
         <span class="ms-auto shrink-0 font-mono text-[10px] text-gray-400 dark:text-gray-500">{{ count($stage['cards']) }}</span>
+        @if ($stage['terminal'])
+            <span
+                class="shrink-0 text-[9px] text-gray-400 transition-transform dark:text-white/30"
+                :class="collapsed ? '' : 'rotate-90'"
+            >▸</span>
+        @endif
     </div>
 
-    <div class="flex flex-col gap-1.5">
+    <div class="flex flex-col gap-1.5" @if ($stage['terminal']) x-show="! collapsed" x-cloak @endif>
         @forelse ($stage['cards'] as $card)
             {{-- Plain click opens the detail+lineage popup (all resources —
             see PipelineBoard::cardHistoryAction()) instead of navigating
