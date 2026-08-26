@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Support\Facades\DB;
 
 class FollowUp extends Model
 {
@@ -103,6 +104,42 @@ class FollowUp extends Model
     public function responsibleEmployee(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /**
+     * Completes this Follow-Up: creates a real new Call Record for it —
+     * routed through the exact same CallRecordObserver -> CallRoutingService
+     * path every other logged call uses, never a parallel/duplicate routing
+     * path — then flips this Follow-Up's own status to Completed. The one
+     * place this two-step transition happens; the row action
+     * (FollowUpResource::table()), the Edit form
+     * (EditFollowUp::handleRecordUpdate()), and the Pipeline Board all call
+     * this same method rather than each inlining their own copy. Mirrors
+     * markLost()'s shape (a named model method wrapping a small multi-step
+     * write) above.
+     *
+     * @param  array{outcome: mixed, notes?: ?string, appointment_at?: mixed, follow_up_at?: mixed}  $data
+     */
+    public function completeWithCall(array $data): CallRecord
+    {
+        return DB::transaction(function () use ($data) {
+            $callRecord = CallRecord::create([
+                'prospect_id' => $this->prospect_id,
+                'user_id' => auth()->id(),
+                'called_at' => now(),
+                'outcome' => $data['outcome'],
+                'notes' => $data['notes'] ?? null,
+                'appointment_at' => $data['appointment_at'] ?? null,
+                'follow_up_at' => $data['follow_up_at'] ?? null,
+                // Marks this Call Record as existing purely to drive
+                // CallRoutingService — see CallRecord::scopeDirectlyLogged().
+                'follow_up_id' => $this->id,
+            ]);
+
+            $this->update(['status' => FollowUpStatus::Completed]);
+
+            return $callRecord;
+        });
     }
 
     public function scopeVisibleTo(Builder $query, User $user): Builder

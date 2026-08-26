@@ -6,7 +6,6 @@ use App\Enums\CallOutcome;
 use App\Enums\ContactMode;
 use App\Enums\FollowUpStatus;
 use App\Filament\Resources\FollowUpResource\Pages;
-use App\Models\CallRecord;
 use App\Models\FollowUp;
 use App\Support\DeletionGuard;
 use App\Support\TableBulkActions;
@@ -19,7 +18,6 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 
 /**
@@ -312,29 +310,12 @@ class FollowUpResource extends Resource
                                 ->required()
                                 ->rows(3),
                         ])
-                        ->action(function (FollowUp $record, array $data) {
-                            DB::transaction(function () use ($record, $data) {
-                                // A real new Call Record, routed by the exact
-                                // same CallRoutingService every other call
-                                // uses (via CallRecordObserver on `created`) —
-                                // not a parallel/duplicate routing path.
-                                CallRecord::create([
-                                    'prospect_id' => $record->prospect_id,
-                                    'user_id' => auth()->id(),
-                                    'called_at' => now(),
-                                    'outcome' => $data['outcome'],
-                                    'notes' => $data['notes'],
-                                    'appointment_at' => $data['appointment_at'] ?? null,
-                                    'follow_up_at' => $data['new_follow_up_at'] ?? null,
-                                    // Marks this Call Record as existing
-                                    // purely to drive CallRoutingService —
-                                    // see CallRecord::scopeDirectlyLogged().
-                                    'follow_up_id' => $record->id,
-                                ]);
-
-                                $record->update(['status' => FollowUpStatus::Completed]);
-                            });
-                        }),
+                        ->action(fn (FollowUp $record, array $data) => $record->completeWithCall([
+                            'outcome' => $data['outcome'],
+                            'notes' => $data['notes'],
+                            'appointment_at' => $data['appointment_at'] ?? null,
+                            'follow_up_at' => $data['new_follow_up_at'] ?? null,
+                        ])),
                     Tables\Actions\Action::make('close')
                         ->label('Close')
                         ->icon('heroicon-o-archive-box-x-mark')

@@ -4,7 +4,6 @@ namespace App\Filament\Resources\FollowUpResource\Pages;
 
 use App\Enums\FollowUpStatus;
 use App\Filament\Resources\FollowUpResource;
-use App\Models\CallRecord;
 use App\Models\FollowUp;
 use App\Support\DeletionGuard;
 use Filament\Actions;
@@ -52,15 +51,16 @@ class EditFollowUp extends EditRecord
     /**
      * Mirrors the row-action "Completed" modal (FollowUpResource::table())
      * exactly, so Status = Completed behaves identically whichever entry
-     * point set it: a real new Call Record is created and routed through
-     * CallRoutingService (via CallRecordObserver on `created`) before the
-     * Follow-Up's own status flips — only on a genuine Pending -> Completed
-     * transition, never on a re-save of an already-Completed record (which
-     * would otherwise create a duplicate Call Record) or a non-Pending
-     * record being pushed straight to Completed (the row action only ever
-     * offers Completed from Pending either). Any other case just updates
-     * normally; FollowUp's own model guard is the backstop that rejects a
-     * Completed status with no Call Record behind it.
+     * point set it: both now call FollowUp::completeWithCall() — a real new
+     * Call Record is created and routed through CallRoutingService (via
+     * CallRecordObserver on `created`) before the Follow-Up's own status
+     * flips — only on a genuine Pending -> Completed transition, never on a
+     * re-save of an already-Completed record (which would otherwise create a
+     * duplicate Call Record) or a non-Pending record being pushed straight
+     * to Completed (the row action only ever offers Completed from Pending
+     * either). Any other case just updates normally; FollowUp's own model
+     * guard is the backstop that rejects a Completed status with no Call
+     * Record behind it.
      *
      * `outcome`/`call_notes`/`appointment_at`/`new_follow_up_at` are all
      * stripped before $record->update($data) — none is a FollowUp column.
@@ -86,13 +86,9 @@ class EditFollowUp extends EditRecord
             && FollowUpResource::resolveStatus($data['status'] ?? null) === FollowUpStatus::Completed;
 
         if ($isCompleting) {
-            CallRecord::create([
-                'prospect_id' => $record->prospect_id,
-                'user_id' => auth()->id(),
-                'called_at' => now(),
+            $record->completeWithCall([
                 'outcome' => $outcome,
                 'notes' => $callNotes,
-                'follow_up_id' => $record->id,
                 'appointment_at' => $appointmentAt,
                 'follow_up_at' => $newFollowUpAt,
             ]);

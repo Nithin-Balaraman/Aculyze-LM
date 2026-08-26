@@ -39,6 +39,20 @@ enum ProposalStage: string implements HasColor, HasLabel
     }
 
     /**
+     * Terminal stages for the Pipeline Board's cross-lane drag rule only —
+     * nothing else in the app reads this today (Proposal's own
+     * staleness/tab logic keys off the separate `outcome` field, not
+     * `stage` — see ProposalOutcome::isTerminalForStaleness()). Mirrors
+     * AppointmentStage::isTerminal()/LeadStage::isTerminal()'s shape so the
+     * board can treat all four "stage progression" resources uniformly when
+     * deciding whether a dragged source card still needs resolving forward.
+     */
+    public function isTerminal(): bool
+    {
+        return in_array($this, [self::CustomerAccepted, self::CustomerRejected], true);
+    }
+
+    /**
      * @return array<string, string>
      */
     public static function options(): array
