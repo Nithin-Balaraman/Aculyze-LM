@@ -82,24 +82,27 @@ use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
  *
  * Phase 4: Call becomes a valid cross-lane drag SOURCE into Follow-up/
  * Appointment/Lead (never a destination — a Call Record is only ever
- * created by logging a real call, see CallRecordResource's own form; and
- * never resolved further afterward — a Call has no stage of its own to
- * advance, see isAlreadyResolved()'s default case). Every Call Record
- * already auto-creates whichever of those three its own outcome routes to
- * the instant it's saved (see CallRoutingService, keyed off
- * CallOutcome::routesToFollowUp()/routesToAppointment()/routesToLead()), so
- * dragging one is only eligible into a destination type that auto-routing
- * left empty for it (checked via CallRecord's own followUp()/appointment()/
- * lead() relations) — otherwise it would create a second, duplicate linked
- * record for the same call. In practice this matters for the two outcomes
- * that route nowhere at all (No Current Requirement/Future Opportunity,
- * Others), letting a rep manually create the linked record later after all,
- * but the eligibility check itself is generic, not hardcoded to those two.
- * The `RequirementIdentified` dual-routing case (one Call outcome touching
- * both Appointment AND Lead) is unaffected by this — both auto-created at
- * Call-creation time already, so cross-dropping that Call again is simply
- * blocked for both (already linked), same as any other already-routed
- * outcome.
+ * created by logging a real call, never by dragging one onto it). Unlike
+ * every other cross-lane drag, this does NOT create the destination type
+ * directly: dragging a Call card logs a brand-new Call Record for the same
+ * Prospect (an ordinary Eloquent ::create(), so CallRecordObserver fires and
+ * routes it through the exact same CallRoutingService a fresh "Log a Call"
+ * would), and the outcome the rep picks in that dialog decides what (if
+ * anything) gets created downstream — exactly like any other logged call.
+ * The dragged Call Record itself is never touched or "resolved forward";
+ * see logNewCall()/callLogFormSchema(), which mirror
+ * CallRecordResource::form()'s own Call Details fields (minus Company,
+ * already implied by the dragged card). Deliberately NOT the generic
+ * "create the destination type directly + resolve the source forward"
+ * shape every other resource above uses — Call has no stage of its own to
+ * resolve, and fabricating a Follow-up/Appointment/Lead without a real
+ * logged call behind it would leave CallOutcome's routesTo*() invariants
+ * (the "single source of truth" for what routing exists — see the enum's
+ * own docblock) silently lying about that Prospect's history. Always
+ * eligible regardless of what the dragged Call's own outcome already
+ * routed to — logging another real call for the same prospect is always a
+ * legitimate action, so there's no "already linked" restriction the way
+ * Proposal's Lead-source gate has.
  *
  * The drop-confirm dialogs are genuine Filament page-level Actions (mounted
  * via Alpine's `$wire.mountAction(...)`, mirroring the exact mechanism
@@ -205,6 +208,11 @@ class PipelineBoard extends Page implements HasActions, HasForms
     {
         $source = $this->resolveDropRecord(['resource' => $arguments['sourceResource'] ?? null, 'id' => $arguments['sourceId'] ?? null]);
         $company = $source?->prospect?->company_name ?? 'Company';
+
+        if (($arguments['sourceResource'] ?? null) === 'call') {
+            return "{$company} → Log a New Call";
+        }
+
         $destLabel = $this->resourceLabel($arguments['destResource'] ?? '');
 
         return "{$company} → New {$destLabel}";
@@ -244,6 +252,18 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 Forms\Components\Placeholder::make('unsupported')
                     ->label('Not available yet')
                     ->content($this->unsupportedCrossDropReason($sourceResource, $destResource, $source)),
+            ];
+        }
+
+        // Dragging a Call card doesn't create the destination type directly
+        // at all — see performCrossDrop() and the class docblock — so this
+        // dialog is an entirely different form: the same Call Details
+        // fields CallRecordResource's own create form asks for (minus
+        // Company, which is already implied by the dragged card).
+        if ($sourceResource === 'call') {
+            return [
+                Forms\Components\Section::make('Log a New Call')
+                    ->schema($this->callLogFormSchema()),
             ];
         }
 
@@ -470,6 +490,60 @@ class PipelineBoard extends Page implements HasActions, HasForms
         };
     }
 
+    /**
+     * Mirrors CallRecordResource::form()'s own Call Details fields exactly —
+     * same validation/config, same outcome-driven conditional visibility for
+     * Follow Up At/Appointment At/Notes — minus the Company select, which is
+     * already implied by which Call card was dragged. Used only by the
+     * cross-lane dialog when the dragged source is itself a Call (see
+     * crossDropFormSchema()/logNewCall()); Call is never a same-lane drag
+     * (it has only the one box) and never a cross-lane destination.
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    private function callLogFormSchema(): array
+    {
+        return [
+            Forms\Components\DateTimePicker::make('called_at')
+                ->label('Called At')
+                ->seconds(false)
+                ->required()
+                ->default(now()),
+            Forms\Components\Select::make('outcome')
+                ->label('Call Outcome')
+                ->options(CallOutcome::class)
+                ->required()
+                ->live()
+                ->helperText('Determines what happens next — see the Follow-Ups, Appointments, and Leads panels.'),
+            Forms\Components\TextInput::make('contact_person_spoken_to')
+                ->label('Contact Person Spoken To')
+                ->maxLength(255),
+            Forms\Components\TextInput::make('designation')
+                ->placeholder('e.g. Manager, Owner, Procurement Head')
+                ->maxLength(255),
+            Forms\Components\TextInput::make('phone_called')
+                ->label('Phone Called')
+                ->tel()
+                ->maxLength(20),
+            Forms\Components\DateTimePicker::make('follow_up_at')
+                ->label('Follow Up At')
+                ->seconds(false)
+                ->visible(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome'))?->routesToFollowUp() ?? false)
+                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome'))?->routesToFollowUp() ?? false),
+            Forms\Components\DateTimePicker::make('appointment_at')
+                ->label('Appointment At')
+                ->seconds(false)
+                ->visible(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome'))?->routesToAppointment() ?? false)
+                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome'))?->routesToAppointment() ?? false),
+            Forms\Components\Textarea::make('notes')
+                ->rows(3)
+                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome'))?->requiresNotes() ?? false)
+                ->validationMessages([
+                    'required' => 'Notes are required for this outcome — only No Answer, Switched Off, and Not Reachable are exempt.',
+                ]),
+        ];
+    }
+
     private function performDrop(array $arguments, array $data): void
     {
         match ($arguments['resource'] ?? null) {
@@ -641,6 +715,12 @@ class PipelineBoard extends Page implements HasActions, HasForms
 
         $this->authorizeUpdate($source);
 
+        if ($sourceResource === 'call') {
+            $this->logNewCall($source, $data);
+
+            return;
+        }
+
         try {
             DB::transaction(function () use ($sourceResource, $source, $destResource, $destStage, $data) {
                 $this->createCrossDropDestination($destResource, $destStage, $source, $data);
@@ -658,23 +738,49 @@ class PipelineBoard extends Page implements HasActions, HasForms
         Notification::make()->title('Created '.$this->resourceLabel($destResource)." for {$company}")->success()->send();
     }
 
+    /**
+     * Dragging a Call card logs a brand-new Call Record for the same
+     * Prospect — an ordinary Eloquent ::create(), so CallRecordObserver
+     * fires exactly as it would from CallRecordResource's own Create page,
+     * routing to whichever of Follow-up/Appointment/Lead the picked outcome
+     * implies via the normal CallRoutingService (see the class docblock).
+     * The dragged Call Record itself is never touched — same as logging a
+     * fresh call always would be, regardless of which existing call led the
+     * rep to place this one.
+     */
+    private function logNewCall(Model $source, array $data): void
+    {
+        $prospect = $source->prospect;
+
+        try {
+            CallRecord::create([
+                'prospect_id' => $prospect->id,
+                'user_id' => auth()->id(),
+                'called_at' => $data['called_at'] ?? now(),
+                'outcome' => $data['outcome'] ?? null,
+                'notes' => $data['notes'] ?? null,
+                'follow_up_at' => $data['follow_up_at'] ?? null,
+                'appointment_at' => $data['appointment_at'] ?? null,
+                'contact_person_spoken_to' => $data['contact_person_spoken_to'] ?? null,
+                'designation' => $data['designation'] ?? null,
+                'phone_called' => $data['phone_called'] ?? null,
+            ]);
+        } catch (\LogicException $e) {
+            Notification::make()->title("Couldn't log the call")->body($e->getMessage())->danger()->send();
+            throw new Halt;
+        }
+
+        Notification::make()->title('Logged a new call for '.($prospect?->company_name ?? 'this company'))->success()->send();
+    }
+
     private function createCrossDropDestination(string $destResource, string $destStage, Model $source, array $data): void
     {
         $prospect = $source->prospect;
         $assignedTo = $prospect?->assigned_to ?? auth()->id();
 
-        // Stamping call_record_id when the dragged source is itself a Call
-        // marks the new record as "the one this call routed to" — exactly
-        // like CallRoutingService's own auto-created ones — so the
-        // crossDropSupported() eligibility check (keyed off CallRecord's
-        // own followUp()/appointment()/lead() relations) correctly sees this
-        // as no longer empty and blocks a second, duplicate drag next time.
-        $callRecordId = $source instanceof CallRecord ? $source->id : null;
-
         match ($destResource) {
             'follow_up' => FollowUp::create([
                 'prospect_id' => $prospect->id,
-                'call_record_id' => $callRecordId,
                 'user_id' => $assignedTo,
                 'reason' => $data['destination_reason'] ?? null,
                 'follow_up_at' => $data['destination_follow_up_at'] ?? null,
@@ -684,7 +790,6 @@ class PipelineBoard extends Page implements HasActions, HasForms
             ]),
             'appointment' => Appointment::create([
                 'prospect_id' => $prospect->id,
-                'call_record_id' => $callRecordId,
                 'assigned_to' => $assignedTo,
                 'created_by' => auth()->id(),
                 'appointment_at' => $data['destination_appointment_at'] ?? null,
@@ -693,7 +798,6 @@ class PipelineBoard extends Page implements HasActions, HasForms
             ]),
             'lead' => Lead::create([
                 'prospect_id' => $prospect->id,
-                'call_record_id' => $callRecordId,
                 'assigned_to' => $assignedTo,
                 'created_by' => auth()->id(),
                 'stage' => $destStage,
@@ -773,19 +877,17 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 && $source->proposal === null;
         }
 
-        // A Call Record already auto-creates whichever of Follow-up/
-        // Appointment/Lead its own outcome routes to the moment it's saved
-        // (see CallRoutingService) — so dragging one across is only ever
-        // useful for the destination type(s) that auto-routing left empty
-        // (e.g. a "No Current Requirement" or "Others" call, which routes
-        // nowhere), not to create a second, duplicate linked record.
+        // Dragging a Call card never creates a Follow-up/Appointment/Lead
+        // directly — it logs a brand-new Call Record for the same Prospect,
+        // through the exact same CallRoutingService/CallRecordObserver path
+        // a fresh "Log a Call" goes through (see performCrossDrop()), and
+        // lets the picked outcome decide what (if anything) gets created
+        // downstream, exactly like any other logged call. So it's always
+        // eligible into any of the three lanes — logging another real call
+        // for the same prospect is always a legitimate action, unlike the
+        // other resources above there's no "already linked" restriction.
         if ($sourceResource === 'call') {
-            return $source instanceof CallRecord && match ($destResource) {
-                'follow_up' => $source->followUp === null,
-                'appointment' => $source->appointment === null,
-                'lead' => $source->lead === null,
-                default => false,
-            };
+            return $source instanceof CallRecord;
         }
 
         return true;
@@ -815,19 +917,6 @@ class PipelineBoard extends Page implements HasActions, HasForms
             }
 
             return 'This combination is not supported yet.';
-        }
-
-        if ($sourceResource === 'call' && $source instanceof CallRecord) {
-            $existing = match ($destResource) {
-                'follow_up' => $source->followUp,
-                'appointment' => $source->appointment,
-                'lead' => $source->lead,
-                default => null,
-            };
-
-            if ($existing !== null) {
-                return 'This call already has a linked '.$this->resourceLabel((string) $destResource).' — open it directly instead of creating a new one.';
-            }
         }
 
         return 'This combination is not supported yet.';
