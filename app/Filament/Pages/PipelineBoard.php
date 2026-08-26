@@ -3,8 +3,10 @@
 namespace App\Filament\Pages;
 
 use App\Enums\AppointmentStage;
+use App\Enums\CallOutcome;
 use App\Enums\FollowUpStatus;
 use App\Enums\LeadStage;
+use App\Enums\LeadTemperature;
 use App\Enums\ProposalOutcome;
 use App\Enums\ProposalStage;
 use App\Filament\Resources\AppointmentResource;
@@ -28,6 +30,7 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
@@ -43,26 +46,57 @@ use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
  * inherited for free, identically to every existing list page, with zero
  * new authorization logic written for reads.
  *
- * Phase 2 (this file, now): same-lane stage drags for Appointment, Lead,
- * and Proposal — a single real stage mutation on the same record, going
- * through the exact same Eloquent ->update() every Edit form uses, so every
- * existing model `saving()` guard fires identically (see Appointment::
- * booted()/Lead::booted()/Proposal::booted()). Follow-up's Pending ->
- * Completed/Cancelled and the Call lane are deliberately out of scope here
- * (Follow-up's Completed transition creates a real Call Record via the
- * shared FollowUp::completeWithCall() — a different shape — and Call has no
- * stage concept at all); both land in a later phase. Cross-lane drag is
- * also out of scope here.
+ * Phase 2: same-lane stage drags for Appointment, Lead, and Proposal — a
+ * single real stage mutation on the same record, going through the exact
+ * same Eloquent ->update() every Edit form uses, so every existing model
+ * `saving()` guard fires identically (see Appointment::booted()/Lead::
+ * booted()/Proposal::booted()).
  *
- * The drop-confirm dialog is a genuine Filament page-level Action (mounted
- * via Alpine's `$wire.mountAction('drop', {...})`, mirroring the exact
- * mechanism ListFollowUps::summaryAction() already uses in this codebase)
- * — not a hand-rolled modal — so its `->form()` schema reuses the same
- * Filament form components (Textarea, FileUpload) with the same
- * validation/config as the matching Resource's own form, and its
- * `->action()` ends in an ordinary Eloquent ->update() call. Authorization
- * is explicit here (auth()->user()->can('update', $record)) rather than
- * automatic the way a real Resource's row action gets it for free.
+ * Phase 3 (this file, now): same-lane Follow-up (Pending -> Completed via
+ * the shared FollowUp::completeWithCall(), or -> Cancelled), plus
+ * cross-lane drag between any two of Follow-up/Appointment/Lead/Proposal —
+ * two real writes in one DB transaction: a brand-new record of the target
+ * type is created for the same Prospect (whatever that destination stage
+ * itself requires), and — unless the dragged source is already sitting at
+ * its own terminal state — the source is ALSO resolved forward (Appointment
+ * -> Succeeded, Follow-up -> Completed, Lead -> Validated, Proposal ->
+ * Customer Accepted/Won), asking for whatever that resolution itself
+ * requires. Both halves reuse the exact same per-resource/per-stage field
+ * builders as the same-lane dialog (stageFields()) — field names are
+ * prefixed ('destination_'/'source_') only in the cross-lane dialog, since
+ * that one form can otherwise ask for two different resources' `notes` at
+ * once.
+ *
+ * Proposal can only be a valid cross-lane DESTINATION when the dragged
+ * source is a Validated Lead (mirrors LeadResource's own "Create Proposal"
+ * row action's visibility condition exactly) — a Proposal always needs a
+ * real lead_id, and Follow-up/Appointment cards carry no Lead to attach to.
+ * Dragging one of those onto the Proposal lane shows an explanatory,
+ * submit-disabled dialog rather than silently doing nothing or fabricating
+ * a Lead. A destination Follow-up is always created Pending regardless of
+ * which stage box it was dropped onto — unlike Appointment/Lead/Proposal,
+ * "Completed" isn't just a stage value, it's specifically defined as
+ * "a real Call Record exists for this" (see FollowUp::completeWithCall()),
+ * so creating one pre-"Completed" with nothing behind it would violate that
+ * invariant everywhere else in the app relies on.
+ *
+ * The `RequirementIdentified` dual-routing case (one Call outcome needing
+ * to touch both the Appointment AND Lead lanes at once) is deliberately out
+ * of scope here, per the same decision that set it aside earlier — Call
+ * lane dragging is a later phase, not generalized from this one.
+ *
+ * The drop-confirm dialogs are genuine Filament page-level Actions (mounted
+ * via Alpine's `$wire.mountAction(...)`, mirroring the exact mechanism
+ * ListFollowUps::summaryAction() already uses in this codebase) — not a
+ * hand-rolled modal — so their `->form()` schemas reuse the same Filament
+ * form components (Textarea, Select, FileUpload) with the same
+ * validation/config as the matching Resource's own form, and every
+ * `->action()` ends in ordinary Eloquent ->update()/::create() calls.
+ * Authorization is explicit (auth()->user()->can('update', $record)) rather
+ * than automatic the way a real Resource's row action gets it for free —
+ * creating the destination needs no separate check since every Policy's
+ * own create() already returns true unconditionally for any authenticated
+ * user (see e.g. LeadPolicy::create()).
  *
  * Deliberately a standalone Page, not a Resource (a Resource is
  * fundamentally single-model; this spans five) and not a Widget (this needs
@@ -106,12 +140,12 @@ class PipelineBoard extends Page implements HasActions, HasForms
     }
 
     /**
-     * The one drop-confirm dialog for every same-lane stage drag in this
-     * phase — a single Filament page-level Action (see the class docblock),
-     * dispatched via mountAction('drop', ['resource' => ..., 'id' => ...,
-     * 'stage' => ...]) from the card/stage-box's Alpine drag handlers in the
-     * Blade view. Which fields it asks for, and what the confirm button
-     * actually writes, both key off those same $arguments.
+     * The drop-confirm dialog for every same-lane stage drag — a single
+     * Filament page-level Action (see the class docblock), dispatched via
+     * mountAction('drop', ['resource' => ..., 'id' => ..., 'stage' => ...])
+     * from the card/stage-box's Alpine drag handlers in the Blade view.
+     * Which fields it asks for, and what the confirm button actually
+     * writes, both key off those same $arguments.
      */
     public function dropAction(): Actions\Action
     {
@@ -124,12 +158,40 @@ class PipelineBoard extends Page implements HasActions, HasForms
             });
     }
 
+    /**
+     * The cross-lane counterpart — dispatched via mountAction('crossDrop',
+     * ['sourceResource' => ..., 'sourceId' => ..., 'destResource' => ...,
+     * 'destStage' => ...]). See the class docblock for the two-write shape
+     * and the Proposal-destination restriction.
+     */
+    public function crossDropAction(): Actions\Action
+    {
+        return Actions\Action::make('crossDrop')
+            ->modalHeading(fn (array $arguments) => $this->crossDropModalHeading($arguments))
+            ->modalSubmitActionLabel('Confirm move')
+            ->modalSubmitAction(fn (array $arguments) => $this->isCrossDropEligible($arguments) ? null : false)
+            ->modalCancelActionLabel(fn (array $arguments) => $this->isCrossDropEligible($arguments) ? 'Cancel' : 'Close')
+            ->form(fn (array $arguments) => $this->crossDropFormSchema($arguments))
+            ->action(function (array $data, array $arguments) {
+                $this->performCrossDrop($arguments, $data);
+            });
+    }
+
     private function dropModalHeading(array $arguments): string
     {
         $record = $this->resolveDropRecord($arguments);
-        $label = $this->targetStageLabel($arguments);
+        $label = $this->targetStageLabel($arguments['resource'] ?? null, (string) ($arguments['stage'] ?? ''));
 
         return ($record?->prospect?->company_name ?? 'Company').' → '.$label;
+    }
+
+    private function crossDropModalHeading(array $arguments): string
+    {
+        $source = $this->resolveDropRecord(['resource' => $arguments['sourceResource'] ?? null, 'id' => $arguments['sourceId'] ?? null]);
+        $company = $source?->prospect?->company_name ?? 'Company';
+        $destLabel = $this->resourceLabel($arguments['destResource'] ?? '');
+
+        return "{$company} → New {$destLabel}";
     }
 
     /**
@@ -141,26 +203,75 @@ class PipelineBoard extends Page implements HasActions, HasForms
         $stage = (string) ($arguments['stage'] ?? '');
         $record = $this->resolveDropRecord($arguments);
 
+        return $this->stageFields($resource, $stage, '', $record);
+    }
+
+    private function isCrossDropEligible(array $arguments): bool
+    {
+        $source = $this->resolveDropRecord(['resource' => $arguments['sourceResource'] ?? null, 'id' => $arguments['sourceId'] ?? null]);
+
+        return $this->crossDropSupported($arguments['sourceResource'] ?? null, $arguments['destResource'] ?? null, $source);
+    }
+
+    /**
+     * @return array<int, Forms\Components\Component>
+     */
+    private function crossDropFormSchema(array $arguments): array
+    {
+        $sourceResource = $arguments['sourceResource'] ?? null;
+        $destResource = $arguments['destResource'] ?? null;
+        $destStage = (string) ($arguments['destStage'] ?? '');
+        $source = $this->resolveDropRecord(['resource' => $sourceResource, 'id' => $arguments['sourceId'] ?? null]);
+
+        if (! $this->crossDropSupported($sourceResource, $destResource, $source)) {
+            return [
+                Forms\Components\Placeholder::make('unsupported')
+                    ->label('Not available yet')
+                    ->content($this->unsupportedCrossDropReason($sourceResource, $destResource, $source)),
+            ];
+        }
+
+        // A destination Follow-up is always created Pending — see the class
+        // docblock for why "Completed" can't be a valid initial state.
+        $destinationStageForCreate = $destResource === 'follow_up' ? FollowUpStatus::Pending->value : $destStage;
+
+        $schema = [
+            Forms\Components\Section::make('New '.$this->resourceLabel($destResource))
+                ->schema(array_merge(
+                    $this->creationFields($destResource, 'destination_'),
+                    $this->stageFields($destResource, $destinationStageForCreate, 'destination_', null),
+                )),
+        ];
+
+        if ($source && ! $this->isAlreadyResolved($sourceResource, $source)) {
+            $sourceFields = $this->stageFields($sourceResource, $this->forwardStageFor($sourceResource), 'source_', $source);
+
+            if ($sourceFields !== []) {
+                $schema[] = Forms\Components\Section::make('Also resolving: '.$this->resourceLabel($sourceResource))
+                    ->schema($sourceFields);
+            }
+        }
+
+        return $schema;
+    }
+
+    /**
+     * The one place every per-resource/per-stage "what extra fields does
+     * landing on this stage require" rule lives — shared by the same-lane
+     * dialog (prefix '') and both halves of the cross-lane dialog (prefix
+     * 'destination_'/'source_'), so there is exactly one definition of e.g.
+     * "Appointment requires Outcome Notes once terminal", not one per
+     * dialog.
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    private function stageFields(?string $resource, ?string $stage, string $prefix, ?Model $record): array
+    {
         return match ($resource) {
-            'appointment' => AppointmentStage::tryFrom($stage)?->isTerminal()
-                ? [
-                    Forms\Components\Textarea::make('outcome_notes')
-                        ->label('Outcome Notes')
-                        ->rows(3)
-                        ->required()
-                        ->default($record?->outcome_notes),
-                ]
-                : [],
-            'lead' => $stage === LeadStage::Validated->value
-                ? [
-                    Forms\Components\Textarea::make('notes')
-                        ->label('Notes / Remarks')
-                        ->rows(3)
-                        ->required()
-                        ->default($record?->notes),
-                ]
-                : [],
-            'proposal' => $this->proposalDropFormSchema($stage, $record),
+            'appointment' => $this->appointmentStageFields($stage, $record, $prefix),
+            'lead' => $this->leadStageFields($stage, $record, $prefix),
+            'proposal' => $this->proposalStageFields($stage, $record, $prefix),
+            'follow_up' => $this->followUpStageFields($stage, $record, $prefix),
             default => [],
         };
     }
@@ -168,7 +279,43 @@ class PipelineBoard extends Page implements HasActions, HasForms
     /**
      * @return array<int, Forms\Components\Component>
      */
-    private function proposalDropFormSchema(string $stage, ?Proposal $proposal): array
+    private function appointmentStageFields(?string $stage, ?Appointment $record, string $prefix): array
+    {
+        if (! (AppointmentStage::tryFrom((string) $stage)?->isTerminal() ?? false)) {
+            return [];
+        }
+
+        return [
+            Forms\Components\Textarea::make("{$prefix}outcome_notes")
+                ->label('Outcome Notes')
+                ->rows(3)
+                ->required()
+                ->default($record?->outcome_notes),
+        ];
+    }
+
+    /**
+     * @return array<int, Forms\Components\Component>
+     */
+    private function leadStageFields(?string $stage, ?Lead $record, string $prefix): array
+    {
+        if ($stage !== LeadStage::Validated->value) {
+            return [];
+        }
+
+        return [
+            Forms\Components\Textarea::make("{$prefix}notes")
+                ->label('Notes / Remarks')
+                ->rows(3)
+                ->required()
+                ->default($record?->notes),
+        ];
+    }
+
+    /**
+     * @return array<int, Forms\Components\Component>
+     */
+    private function proposalStageFields(?string $stage, ?Proposal $record, string $prefix): array
     {
         if ($stage === ProposalStage::Sent->value) {
             // Same field/config as ProposalResource::form()'s own pdf_path —
@@ -176,7 +323,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             // validation, so this dialog can never accept something that
             // Proposal's own Edit form would reject.
             return [
-                Forms\Components\FileUpload::make('pdf_path')
+                Forms\Components\FileUpload::make("{$prefix}pdf_path")
                     ->label('Proposal PDF')
                     ->disk('local')
                     ->directory('proposal-pdfs')
@@ -184,7 +331,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                     ->acceptedFileTypes(['application/pdf'])
                     ->maxSize(10240)
                     ->previewable(false)
-                    ->default($proposal?->pdf_path)
+                    ->default($record?->pdf_path)
                     ->required()
                     ->deleteUploadedFileUsing(function (string|TemporaryUploadedFile $file): void {
                         if (is_string($file)) {
@@ -203,19 +350,108 @@ class PipelineBoard extends Page implements HasActions, HasForms
             $outcomeLabel = $stage === ProposalStage::CustomerAccepted->value ? 'Won' : 'Lost';
 
             return [
-                Forms\Components\Placeholder::make('outcome_preview')
+                Forms\Components\Placeholder::make("{$prefix}outcome_preview")
                     ->label('Final Outcome')
                     ->content($outcomeLabel),
-                Forms\Components\Textarea::make('notes')
+                Forms\Components\Textarea::make("{$prefix}notes")
                     ->label('Notes')
                     ->rows(3)
                     ->required()
-                    ->default($proposal?->notes)
+                    ->default($record?->notes)
                     ->helperText("Required — Final Outcome {$outcomeLabel} always needs Notes."),
             ];
         }
 
         return [];
+    }
+
+    /**
+     * @return array<int, Forms\Components\Component>
+     */
+    private function followUpStageFields(?string $stage, ?FollowUp $record, string $prefix): array
+    {
+        if ($stage === FollowUpStatus::Completed->value) {
+            // Mirrors FollowUpResource::table()'s "Completed" row-action
+            // modal exactly — an outcome here can route to an Appointment
+            // and/or a new Follow-up exactly like any other logged call
+            // (FollowUp::completeWithCall() doesn't treat this any
+            // differently), so the same conditional fields are needed here.
+            return [
+                Forms\Components\Select::make("{$prefix}outcome")
+                    ->label('Call Outcome')
+                    ->options(CallOutcome::class)
+                    ->required()
+                    ->live()
+                    ->helperText('You reached them — log what happened on this call.'),
+                Forms\Components\DateTimePicker::make("{$prefix}appointment_at")
+                    ->label('Appointment At')
+                    ->seconds(false)
+                    ->visible(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->routesToAppointment() ?? false)
+                    ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->routesToAppointment() ?? false),
+                Forms\Components\DateTimePicker::make("{$prefix}new_follow_up_at")
+                    ->label('Follow Up At')
+                    ->seconds(false)
+                    ->visible(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->routesToFollowUp() ?? false)
+                    ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->routesToFollowUp() ?? false),
+                Forms\Components\Textarea::make("{$prefix}notes")
+                    ->label('Notes')
+                    ->rows(3)
+                    ->required(),
+            ];
+        }
+
+        if ($stage === FollowUpStatus::Cancelled->value) {
+            return [
+                Forms\Components\Textarea::make("{$prefix}notes")
+                    ->label('Notes')
+                    ->rows(3)
+                    ->required()
+                    ->default($record?->notes)
+                    ->helperText('Required — why this follow-up is being closed.'),
+            ];
+        }
+
+        return [];
+    }
+
+    /**
+     * Baseline fields a brand-new record of this type needs regardless of
+     * which stage it's created at — only relevant for cross-lane
+     * destination creation, since same-lane dragging always has an
+     * already-existing record that already satisfies these.
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    private function creationFields(string $resource, string $prefix): array
+    {
+        return match ($resource) {
+            'follow_up' => [
+                Forms\Components\TextInput::make("{$prefix}reason")
+                    ->label('Reason')
+                    ->required()
+                    ->maxLength(255),
+                Forms\Components\DateTimePicker::make("{$prefix}follow_up_at")
+                    ->label('Followed Up At')
+                    ->seconds(false)
+                    ->required()
+                    ->default(now()),
+            ],
+            'appointment' => [
+                Forms\Components\DateTimePicker::make("{$prefix}appointment_at")
+                    ->label('Appointment At')
+                    ->seconds(false)
+                    ->required()
+                    ->default(now()),
+            ],
+            'lead' => [
+                Forms\Components\Select::make("{$prefix}temperature")
+                    ->label('Temperature')
+                    ->options(LeadTemperature::class)
+                    ->required()
+                    ->default(LeadTemperature::Warm),
+            ],
+            default => [],
+        };
     }
 
     private function performDrop(array $arguments, array $data): void
@@ -224,6 +460,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'appointment' => $this->dropAppointment($arguments, $data),
             'lead' => $this->dropLead($arguments, $data),
             'proposal' => $this->dropProposal($arguments, $data),
+            'follow_up' => $this->dropFollowUp($arguments, $data),
             default => null,
         };
     }
@@ -298,6 +535,54 @@ class PipelineBoard extends Page implements HasActions, HasForms
     }
 
     /**
+     * Follow-up's own model guard rejects a blank Follow Up At on update
+     * only when it's actually dirty (see FollowUp::booted()), so a plain
+     * ->update(['status' => Cancelled, 'notes' => ...]) here behaves
+     * identically to the existing "Close" row action. Completed goes
+     * through the shared FollowUp::completeWithCall() instead — never a raw
+     * ->update() — since it also has to create the real Call Record.
+     * Dragging back onto Pending isn't a supported transition (there is no
+     * "reopen" action anywhere else in the app either) and is a no-op.
+     */
+    private function dropFollowUp(array $arguments, array $data): void
+    {
+        $resolved = FollowUpStatus::tryFrom((string) ($arguments['stage'] ?? ''));
+        /** @var ?FollowUp $followUp */
+        $followUp = $this->resolveDropRecord($arguments);
+
+        if (! $followUp || ! $resolved || $followUp->status === $resolved || $resolved === FollowUpStatus::Pending) {
+            return;
+        }
+
+        $this->authorizeUpdate($followUp);
+
+        if ($resolved === FollowUpStatus::Completed) {
+            $this->completeFollowUp($followUp, $data, '');
+
+            return;
+        }
+
+        $this->applyDrop($followUp, ['status' => FollowUpStatus::Cancelled, 'notes' => $data['notes'] ?? null], 'Cancelled');
+    }
+
+    private function completeFollowUp(FollowUp $followUp, array $data, string $prefix): void
+    {
+        try {
+            $followUp->completeWithCall([
+                'outcome' => $data["{$prefix}outcome"] ?? null,
+                'notes' => $data["{$prefix}notes"] ?? null,
+                'appointment_at' => $data["{$prefix}appointment_at"] ?? null,
+                'follow_up_at' => $data["{$prefix}new_follow_up_at"] ?? null,
+            ]);
+        } catch (\LogicException $e) {
+            Notification::make()->title("Couldn't move to Completed")->body($e->getMessage())->danger()->send();
+            throw new Halt;
+        }
+
+        Notification::make()->title('Moved to Completed')->success()->send();
+    }
+
+    /**
      * The actual write — an ordinary Eloquent ->update(), so every existing
      * model `saving()` guard (mandatory Outcome Notes/Notes, etc.) fires
      * exactly as it would from that resource's own Edit form. A guard
@@ -317,6 +602,211 @@ class PipelineBoard extends Page implements HasActions, HasForms
         }
 
         Notification::make()->title("Moved to {$targetLabel}")->success()->send();
+    }
+
+    /**
+     * Two real writes in one transaction — see the class docblock. Both the
+     * eligibility check (Proposal needs a Validated Lead source) and the
+     * "already resolved, skip source resolution" check are re-verified here
+     * server-side, not just in the form-schema/modalSubmitAction closures,
+     * since arguments travel from client-side JS.
+     */
+    private function performCrossDrop(array $arguments, array $data): void
+    {
+        $sourceResource = $arguments['sourceResource'] ?? null;
+        $destResource = $arguments['destResource'] ?? null;
+        $destStage = (string) ($arguments['destStage'] ?? '');
+
+        $source = $this->resolveDropRecord(['resource' => $sourceResource, 'id' => $arguments['sourceId'] ?? null]);
+
+        if (! $source || ! $this->crossDropSupported($sourceResource, $destResource, $source)) {
+            return;
+        }
+
+        $this->authorizeUpdate($source);
+
+        try {
+            DB::transaction(function () use ($sourceResource, $source, $destResource, $destStage, $data) {
+                $this->createCrossDropDestination($destResource, $destStage, $source, $data);
+
+                if (! $this->isAlreadyResolved($sourceResource, $source)) {
+                    $this->resolveCrossDropSource($sourceResource, $source, $data);
+                }
+            });
+        } catch (\LogicException $e) {
+            Notification::make()->title("Couldn't complete the move")->body($e->getMessage())->danger()->send();
+            throw new Halt;
+        }
+
+        $company = $source->prospect?->company_name ?? 'this company';
+        Notification::make()->title('Created '.$this->resourceLabel($destResource)." for {$company}")->success()->send();
+    }
+
+    private function createCrossDropDestination(string $destResource, string $destStage, Model $source, array $data): void
+    {
+        $prospect = $source->prospect;
+        $assignedTo = $prospect?->assigned_to ?? auth()->id();
+
+        match ($destResource) {
+            'follow_up' => FollowUp::create([
+                'prospect_id' => $prospect->id,
+                'user_id' => $assignedTo,
+                'reason' => $data['destination_reason'] ?? null,
+                'follow_up_at' => $data['destination_follow_up_at'] ?? null,
+                // Always Pending regardless of which box was dropped onto —
+                // see the class docblock.
+                'status' => FollowUpStatus::Pending,
+            ]),
+            'appointment' => Appointment::create([
+                'prospect_id' => $prospect->id,
+                'assigned_to' => $assignedTo,
+                'created_by' => auth()->id(),
+                'appointment_at' => $data['destination_appointment_at'] ?? null,
+                'stage' => $destStage,
+                'outcome_notes' => $data['destination_outcome_notes'] ?? null,
+            ]),
+            'lead' => Lead::create([
+                'prospect_id' => $prospect->id,
+                'assigned_to' => $assignedTo,
+                'created_by' => auth()->id(),
+                'stage' => $destStage,
+                'temperature' => $data['destination_temperature'] ?? LeadTemperature::Warm,
+                'notes' => $data['destination_notes'] ?? null,
+            ]),
+            'proposal' => Proposal::create([
+                'lead_id' => $source instanceof Lead ? $source->id : null,
+                'prospect_id' => $prospect->id,
+                'assigned_to' => $assignedTo,
+                'created_by' => auth()->id(),
+                'stage' => $destStage,
+                'pdf_path' => $data['destination_pdf_path'] ?? null,
+                'outcome' => match ($destStage) {
+                    ProposalStage::CustomerAccepted->value => ProposalOutcome::Won,
+                    ProposalStage::CustomerRejected->value => ProposalOutcome::Lost,
+                    default => null,
+                },
+                'notes' => $data['destination_notes'] ?? null,
+            ]),
+            default => null,
+        };
+    }
+
+    private function resolveCrossDropSource(string $sourceResource, Model $source, array $data): void
+    {
+        match ($sourceResource) {
+            'appointment' => $source->update([
+                'stage' => AppointmentStage::Succeeded,
+                'outcome_notes' => $data['source_outcome_notes'] ?? null,
+            ]),
+            'lead' => $source->update([
+                'stage' => LeadStage::Validated,
+                'notes' => $data['source_notes'] ?? null,
+            ]),
+            'proposal' => $source->update([
+                'stage' => ProposalStage::CustomerAccepted,
+                'outcome' => ProposalOutcome::Won,
+                'notes' => $data['source_notes'] ?? null,
+            ]),
+            'follow_up' => $this->completeFollowUp($source, $data, 'source_'),
+            default => null,
+        };
+    }
+
+    /**
+     * Proposal is the one destination type that isn't always well-defined —
+     * it always needs a real lead_id, so it's only a valid cross-lane
+     * destination when the dragged source is itself a Lead (using that
+     * Lead's own id) that has actually reached Validated AND doesn't already
+     * have one — mirrors LeadResource's own "Create Proposal" row action's
+     * visibility condition (`$record->stage->isEligibleForProposal() &&
+     * $record->proposal === null`) exactly, rather than allowing the board
+     * to create a Proposal the rest of the app would never let you reach
+     * this way. Missing the second half of that condition is exactly how a
+     * live-browser check caught a real \Illuminate\Database\
+     * UniqueConstraintViolationException on `proposals_lead_id_unique` —
+     * the seeded Metro Auto Components Lead already has a Sent Proposal.
+     */
+    private function crossDropSupported(?string $sourceResource, ?string $destResource, ?Model $source): bool
+    {
+        $validResources = ['follow_up', 'appointment', 'lead', 'proposal'];
+
+        if (! in_array($sourceResource, $validResources, true) || ! in_array($destResource, $validResources, true)) {
+            return false;
+        }
+
+        if ($sourceResource === $destResource) {
+            return false;
+        }
+
+        if ($destResource === 'proposal') {
+            return $sourceResource === 'lead'
+                && $source instanceof Lead
+                && $source->stage->isEligibleForProposal()
+                && $source->proposal === null;
+        }
+
+        return true;
+    }
+
+    /**
+     * The specific reason a blocked cross-drop into Proposal isn't
+     * supported, so the dialog tells the truth about *this* card rather
+     * than always showing the same generic "needs a Validated Lead"
+     * message even when the dragged Lead already is one (e.g. it's
+     * Validated but already has a Proposal — a different, equally real
+     * reason to block it).
+     */
+    private function unsupportedCrossDropReason(?string $sourceResource, ?string $destResource, ?Model $source): string
+    {
+        if ($destResource !== 'proposal') {
+            return 'This combination is not supported yet.';
+        }
+
+        if ($sourceResource !== 'lead' || ! $source instanceof Lead) {
+            return 'A Proposal needs an existing, Validated Lead behind it — drag a Validated Lead card into this lane instead.';
+        }
+
+        if (! $source->stage->isEligibleForProposal()) {
+            return 'This Lead needs to reach Validated before it can have a Proposal.';
+        }
+
+        if ($source->proposal !== null) {
+            return 'This Lead already has a Proposal — open it directly instead of creating a new one.';
+        }
+
+        return 'This combination is not supported yet.';
+    }
+
+    private function forwardStageFor(?string $resource): ?string
+    {
+        return match ($resource) {
+            'appointment' => AppointmentStage::Succeeded->value,
+            'lead' => LeadStage::Validated->value,
+            'proposal' => ProposalStage::CustomerAccepted->value,
+            'follow_up' => FollowUpStatus::Completed->value,
+            default => null,
+        };
+    }
+
+    private function isAlreadyResolved(?string $resource, Model $record): bool
+    {
+        return match ($resource) {
+            'appointment', 'lead', 'proposal' => $record->stage->isTerminal(),
+            'follow_up' => $record->status !== FollowUpStatus::Pending,
+            default => true,
+        };
+    }
+
+    private function resourceLabel(string $resource): string
+    {
+        return match ($resource) {
+            'follow_up' => 'Follow-up',
+            'appointment' => 'Appointment',
+            'lead' => 'Lead',
+            'proposal' => 'Proposal',
+            'call' => 'Call',
+            default => ucfirst($resource),
+        };
     }
 
     /**
@@ -341,18 +831,18 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'appointment' => AppointmentResource::getEloquentQuery()->with('prospect')->find($id),
             'lead' => LeadResource::getEloquentQuery()->with('prospect')->find($id),
             'proposal' => ProposalResource::getEloquentQuery()->with('prospect')->find($id),
+            'follow_up' => FollowUpResource::getEloquentQuery()->with('prospect')->find($id),
             default => null,
         };
     }
 
-    private function targetStageLabel(array $arguments): string
+    private function targetStageLabel(?string $resource, string $stage): string
     {
-        $stage = (string) ($arguments['stage'] ?? '');
-
-        return match ($arguments['resource'] ?? null) {
+        return match ($resource) {
             'appointment' => AppointmentStage::tryFrom($stage)?->getLabel() ?? $stage,
             'lead' => LeadStage::tryFrom($stage)?->getLabel() ?? $stage,
             'proposal' => ProposalStage::tryFrom($stage)?->getLabel() ?? $stage,
+            'follow_up' => FollowUpStatus::tryFrom($stage)?->getLabel() ?? $stage,
             default => $stage,
         };
     }

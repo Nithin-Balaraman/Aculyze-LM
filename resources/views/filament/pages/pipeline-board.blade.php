@@ -1,14 +1,16 @@
 @php
-    // Same-lane stage drags are wired for these three (Phase 2) — Follow-up
-    // (its Completed transition creates a real Call Record, a different
-    // shape) and Call (no stage concept at all) are deliberately not
-    // draggable yet; they land in a later phase.
-    $draggableLanes = ['appointment', 'lead', 'proposal'];
+    // Follow-up, Appointment, Lead, and Proposal are all draggable now
+    // (Phase 3) — both within their own lane (a stage mutation) and across
+    // into one another (creates a linked record in the target lane and, per
+    // the class docblock, also resolves the dragged card forward unless
+    // it's already terminal). Call stays out of scope (no stage concept at
+    // all) until a later phase.
+    $draggableLanes = ['follow_up', 'appointment', 'lead', 'proposal'];
 @endphp
 
 <x-filament-panels::page>
     <p class="text-sm text-gray-500 dark:text-gray-400">
-        Every Call, Follow-up, Appointment, Lead, and Proposal you can see, grouped into its real stage. Drag a card within its own lane to move it — the drop asks for whatever that stage already requires. Follow-up and Call aren't draggable yet.
+        Every Call, Follow-up, Appointment, Lead, and Proposal you can see, grouped into its real stage. Drag a card within its own lane to move it, or into another lane to create a linked record there — Call isn't draggable yet.
     </p>
 
     <div class="-mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
@@ -37,8 +39,13 @@
                                     over = false;
                                     let dragged = {};
                                     try { dragged = JSON.parse($event.dataTransfer.getData('text/plain') || '{}'); } catch (e) {}
-                                    if (dragged.resource === '{{ $laneKey }}' && dragged.fromStage !== '{{ $stageKey }}') {
-                                        $wire.mountAction('drop', { resource: dragged.resource, id: dragged.id, stage: '{{ $stageKey }}' });
+                                    if (! dragged.resource) return;
+                                    if (dragged.resource === '{{ $laneKey }}') {
+                                        if (dragged.fromStage !== '{{ $stageKey }}') {
+                                            $wire.mountAction('drop', { resource: dragged.resource, id: dragged.id, stage: '{{ $stageKey }}' });
+                                        }
+                                    } else {
+                                        $wire.mountAction('crossDrop', { sourceResource: dragged.resource, sourceId: dragged.id, destResource: '{{ $laneKey }}', destStage: '{{ $stageKey }}' });
                                     }
                                 "
                                 :class="over ? 'ring-2 ring-brand-cyan ring-offset-1 ring-offset-white dark:ring-offset-gray-900' : ''"
