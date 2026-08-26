@@ -48,8 +48,20 @@ class CallRecordResource extends Resource
 
     public static function form(Form $form): Form
     {
-        return $form
-            ->schema([
+        return $form->schema(self::formSchema());
+    }
+
+    /**
+     * Extracted so PipelineBoard's "+ Create company" flow (which needs
+     * this exact prospect_id search/select/create-inline field, not a
+     * simplified copy) can reuse it directly — matches the
+     * ProspectResource::formSchema() precedent.
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    public static function formSchema(): array
+    {
+        return [
                 Forms\Components\Section::make('Call Details')
                     ->columns(2)
                     ->schema([
@@ -90,30 +102,43 @@ class CallRecordResource extends Resource
                             // extraAlpineAttributes() below.
                             ->afterStateUpdated(fn ($state, Set $set) => $state === self::CREATE_NEW_PROSPECT
                                 && $set('prospect_id', null))
-                            // Every field on a Filament CreateRecord/
-                            // EditRecord page lives under a 'data.'
-                            // statePath prefix (both pages'
-                            // getFormStatePath() return 'data'), so this
-                            // field's real mountFormComponentAction()
-                            // component key is "data.prospect_id", not
-                            // "prospect_id" — confirmed by instrumenting a
-                            // real Livewire::test() run and inspecting
-                            // getFlatComponentsByKey(). Triggering from
-                            // genuine client-side Alpine JS (rather than
-                            // from inside afterStateUpdated() above) keeps
-                            // this a real top-level $wire call, matching
-                            // how Filament's own action buttons trigger it.
-                            ->extraAlpineAttributes([
-                                'x-init' => <<<'JS'
-                                    $watch('state', (value) => {
-                                        if (value !== '__create_new_prospect__') {
-                                            return;
-                                        }
+                            // mountFormComponentAction()'s first argument is
+                            // this field's absolute statePath, which is NOT
+                            // a constant "data.prospect_id" — that's only
+                            // true when this schema renders on a Resource's
+                            // CreateRecord/EditRecord page (both pages'
+                            // getFormStatePath() return 'data'). Reused
+                            // as-is inside a page-level Actions\Action (see
+                            // PipelineBoard's "+ Log a call" header action,
+                            // which calls this same formSchema()), the real
+                            // path is "mountedActionsData.{index}.
+                            // prospect_id" instead — confirmed by
+                            // instrumenting both contexts and inspecting
+                            // getFlatComponentsByKey(). $component (bound to
+                            // $this via Filament's evaluationIdentifier —
+                            // see Forms\Components\Component) exposes
+                            // ->getStatePath() so this resolves correctly in
+                            // either context rather than hardcoding one of
+                            // them. Triggering from genuine client-side
+                            // Alpine JS (rather than from inside
+                            // afterStateUpdated() above) keeps this a real
+                            // top-level $wire call, matching how Filament's
+                            // own action buttons trigger it.
+                            ->extraAlpineAttributes(fn (Forms\Components\Field $component): array => [
+                                'x-init' => sprintf(
+                                    <<<'JS'
+                                        $watch('state', (value) => {
+                                            if (value !== '%s') {
+                                                return;
+                                            }
 
-                                        state = null;
-                                        $wire.mountFormComponentAction('data.prospect_id', 'createProspect');
-                                    })
-                                    JS,
+                                            state = null;
+                                            $wire.mountFormComponentAction('%s', 'createProspect');
+                                        })
+                                        JS,
+                                    self::CREATE_NEW_PROSPECT,
+                                    $component->getStatePath(),
+                                ),
                             ])
                             // registerActions() (NOT ->suffixAction()) is
                             // the actual root-cause fix: an Action's
@@ -251,7 +276,7 @@ class CallRecordResource extends Resource
                                 },
                             ),
                     ]),
-            ]);
+        ];
     }
 
     /**

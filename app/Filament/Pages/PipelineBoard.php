@@ -14,7 +14,6 @@ use App\Filament\Resources\CallRecordResource;
 use App\Filament\Resources\FollowUpResource;
 use App\Filament\Resources\LeadResource;
 use App\Filament\Resources\ProposalResource;
-use App\Filament\Resources\ProspectResource;
 use App\Models\Appointment;
 use App\Models\CallRecord;
 use App\Models\FollowUp;
@@ -149,39 +148,26 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * @return array<string, array{label: string, stages: array<string, array{label: string, terminal: bool, cards: array<int, array<string, mixed>>}>}>
      */
     /**
-     * Phase 5: "+ Create company" — Call is the pipeline's ORIGIN lane (see
-     * callLane()'s own docblock), so a brand-new company can't sensibly
-     * enter the board at any other point than its first logged call. One
-     * combined dialog rather than two separate steps: ProspectResource's
-     * own formSchema() (identical Company/Location/Ownership/Notes fields,
-     * same validation) plus callLogFormSchema() (identical to the "Log a
-     * New Call" dialog — see the Phase 4 docblock above), prefixed 'call_'
-     * to avoid colliding with Prospect's own `designation`/`notes` fields.
+     * "+ Log a call" — Call is the pipeline's ORIGIN lane (see callLane()'s
+     * own docblock), so this is where a brand-new company enters the board,
+     * exactly like before. Reuses CallRecordResource::formSchema()
+     * verbatim rather than a board-specific copy: its prospect_id field is
+     * a searchable select over existing companies AND carries the same
+     * "+ Create new company…" sentinel/nested-action pattern the real Call
+     * Record create form uses (see that field's own docblock), so this one
+     * dialog now covers both "log a call against an existing company" and
+     * "create a brand-new company's first call" — no separate flow needed.
      * See performCreateCompany().
      */
     protected function getHeaderActions(): array
     {
         return [
             Actions\Action::make('createCompany')
-                ->label('+ Create company')
-                ->modalHeading('Create Company')
+                ->label('+ Log a call')
+                ->modalHeading('Log a Call')
                 ->modalWidth('2xl')
-                ->modalSubmitActionLabel('Add to board')
-                // ProspectResource::formSchema()'s assigned_to field uses
-                // ->relationship('assignedEmployee', 'name'), which crashes
-                // resolving against this page-level action's default (no)
-                // container model — same root cause CallRecordResource's
-                // own "+ Create new company…" sub-action already hit and
-                // fixed with ->actionFormModel(); here it's ->model()
-                // instead, since this is a top-level Actions\Action.
-                ->model(Prospect::class)
-                ->form(array_merge(
-                    ProspectResource::formSchema(),
-                    [
-                        Forms\Components\Section::make('First Call')
-                            ->schema($this->callLogFormSchema('call_')),
-                    ]
-                ))
+                ->modalSubmitActionLabel('Log call')
+                ->form(CallRecordResource::formSchema())
                 ->action(function (array $data) {
                     $this->performCreateCompany($data);
                 }),
@@ -189,43 +175,28 @@ class PipelineBoard extends Page implements HasActions, HasForms
     }
 
     /**
-     * Two real writes in one transaction, same shape as performCrossDrop():
-     * the Prospect first, then its first Call Record (an ordinary Eloquent
-     * ::create(), so CallRecordObserver fires and routes it through the
-     * real CallRoutingService exactly like logNewCall() does) — never a
-     * hand-rolled substitute for either write.
+     * A single ordinary Eloquent ::create() — CallRecordResource::
+     * formSchema()'s prospect_id field already resolved to either an
+     * existing Prospect's id or one just created by its own nested
+     * "+ Create new company…" action (see that field's own docblock), so
+     * there's no separate Prospect-creation step left here to orchestrate.
+     * CallRecordObserver fires exactly as it would from the real Call
+     * Record create form, routing through CallRoutingService as usual.
      */
     private function performCreateCompany(array $data): void
     {
-        $data['created_by'] = auth()->id();
+        $data['user_id'] = auth()->id();
 
-        $prospectData = collect($data)->only((new Prospect)->getFillable())->all();
+        $callData = collect($data)->only((new CallRecord)->getFillable())->all();
 
         try {
-            $prospect = DB::transaction(function () use ($data, $prospectData) {
-                $prospect = Prospect::create($prospectData);
-
-                CallRecord::create([
-                    'prospect_id' => $prospect->id,
-                    'user_id' => auth()->id(),
-                    'called_at' => $data['call_called_at'] ?? now(),
-                    'outcome' => $data['call_outcome'] ?? null,
-                    'notes' => $data['call_notes'] ?? null,
-                    'follow_up_at' => $data['call_follow_up_at'] ?? null,
-                    'appointment_at' => $data['call_appointment_at'] ?? null,
-                    'contact_person_spoken_to' => $data['call_contact_person_spoken_to'] ?? null,
-                    'designation' => $data['call_designation'] ?? null,
-                    'phone_called' => $data['call_phone_called'] ?? null,
-                ]);
-
-                return $prospect;
-            });
+            $call = CallRecord::create($callData);
         } catch (\LogicException $e) {
-            Notification::make()->title("Couldn't create the company")->body($e->getMessage())->danger()->send();
+            Notification::make()->title("Couldn't log the call")->body($e->getMessage())->danger()->send();
             throw new Halt;
         }
 
-        Notification::make()->title('Added '.$prospect->company_name.' to the board')->success()->send();
+        Notification::make()->title('Logged call for '.$call->prospect->company_name)->success()->send();
     }
 
     public function getLanes(): array
@@ -1093,15 +1064,13 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * Mirrors CallRecordResource::form()'s own Call Details fields exactly —
      * same validation/config, same outcome-driven conditional visibility for
      * Follow Up At/Appointment At/Notes — minus the Company select, which is
-     * already implied by which Call card was dragged (or, for
-     * createCompanyAction(), by the Prospect just created in the same
-     * submit). Used by the cross-lane dialog when the dragged source is
-     * itself a Call (see crossDropFormSchema()/logNewCall()) and by
-     * createCompanyAction()'s "+ Create company" flow; Call is never a
-     * same-lane drag (it has only the one box) and never a cross-lane
-     * destination. $prefix avoids a field-name collision with
-     * ProspectResource::formSchema()'s own `designation`/`notes` fields
-     * when createCompanyAction() combines both into one form.
+     * already implied by which Call card was dragged. Used only by the
+     * cross-lane dialog when the dragged source is itself a Call (see
+     * crossDropFormSchema()/logNewCall()); Call is never a same-lane drag
+     * (it has only the one box) and never a cross-lane destination. The
+     * "+ Log a call" header action (getHeaderActions()) reuses
+     * CallRecordResource::formSchema() directly instead, since it needs the
+     * real Company select too.
      *
      * @return array<int, Forms\Components\Component>
      */
