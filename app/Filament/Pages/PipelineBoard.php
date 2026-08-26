@@ -80,10 +80,26 @@ use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
  * so creating one pre-"Completed" with nothing behind it would violate that
  * invariant everywhere else in the app relies on.
  *
- * The `RequirementIdentified` dual-routing case (one Call outcome needing
- * to touch both the Appointment AND Lead lanes at once) is deliberately out
- * of scope here, per the same decision that set it aside earlier — Call
- * lane dragging is a later phase, not generalized from this one.
+ * Phase 4: Call becomes a valid cross-lane drag SOURCE into Follow-up/
+ * Appointment/Lead (never a destination — a Call Record is only ever
+ * created by logging a real call, see CallRecordResource's own form; and
+ * never resolved further afterward — a Call has no stage of its own to
+ * advance, see isAlreadyResolved()'s default case). Every Call Record
+ * already auto-creates whichever of those three its own outcome routes to
+ * the instant it's saved (see CallRoutingService, keyed off
+ * CallOutcome::routesToFollowUp()/routesToAppointment()/routesToLead()), so
+ * dragging one is only eligible into a destination type that auto-routing
+ * left empty for it (checked via CallRecord's own followUp()/appointment()/
+ * lead() relations) — otherwise it would create a second, duplicate linked
+ * record for the same call. In practice this matters for the two outcomes
+ * that route nowhere at all (No Current Requirement/Future Opportunity,
+ * Others), letting a rep manually create the linked record later after all,
+ * but the eligibility check itself is generic, not hardcoded to those two.
+ * The `RequirementIdentified` dual-routing case (one Call outcome touching
+ * both Appointment AND Lead) is unaffected by this — both auto-created at
+ * Call-creation time already, so cross-dropping that Call again is simply
+ * blocked for both (already linked), same as any other already-routed
+ * outcome.
  *
  * The drop-confirm dialogs are genuine Filament page-level Actions (mounted
  * via Alpine's `$wire.mountAction(...)`, mirroring the exact mechanism
@@ -647,9 +663,18 @@ class PipelineBoard extends Page implements HasActions, HasForms
         $prospect = $source->prospect;
         $assignedTo = $prospect?->assigned_to ?? auth()->id();
 
+        // Stamping call_record_id when the dragged source is itself a Call
+        // marks the new record as "the one this call routed to" — exactly
+        // like CallRoutingService's own auto-created ones — so the
+        // crossDropSupported() eligibility check (keyed off CallRecord's
+        // own followUp()/appointment()/lead() relations) correctly sees this
+        // as no longer empty and blocks a second, duplicate drag next time.
+        $callRecordId = $source instanceof CallRecord ? $source->id : null;
+
         match ($destResource) {
             'follow_up' => FollowUp::create([
                 'prospect_id' => $prospect->id,
+                'call_record_id' => $callRecordId,
                 'user_id' => $assignedTo,
                 'reason' => $data['destination_reason'] ?? null,
                 'follow_up_at' => $data['destination_follow_up_at'] ?? null,
@@ -659,6 +684,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             ]),
             'appointment' => Appointment::create([
                 'prospect_id' => $prospect->id,
+                'call_record_id' => $callRecordId,
                 'assigned_to' => $assignedTo,
                 'created_by' => auth()->id(),
                 'appointment_at' => $data['destination_appointment_at'] ?? null,
@@ -667,6 +693,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             ]),
             'lead' => Lead::create([
                 'prospect_id' => $prospect->id,
+                'call_record_id' => $callRecordId,
                 'assigned_to' => $assignedTo,
                 'created_by' => auth()->id(),
                 'stage' => $destStage,
@@ -728,9 +755,10 @@ class PipelineBoard extends Page implements HasActions, HasForms
      */
     private function crossDropSupported(?string $sourceResource, ?string $destResource, ?Model $source): bool
     {
-        $validResources = ['follow_up', 'appointment', 'lead', 'proposal'];
+        $validSourceResources = ['follow_up', 'appointment', 'lead', 'proposal', 'call'];
+        $validDestResources = ['follow_up', 'appointment', 'lead', 'proposal'];
 
-        if (! in_array($sourceResource, $validResources, true) || ! in_array($destResource, $validResources, true)) {
+        if (! in_array($sourceResource, $validSourceResources, true) || ! in_array($destResource, $validDestResources, true)) {
             return false;
         }
 
@@ -743,6 +771,21 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 && $source instanceof Lead
                 && $source->stage->isEligibleForProposal()
                 && $source->proposal === null;
+        }
+
+        // A Call Record already auto-creates whichever of Follow-up/
+        // Appointment/Lead its own outcome routes to the moment it's saved
+        // (see CallRoutingService) — so dragging one across is only ever
+        // useful for the destination type(s) that auto-routing left empty
+        // (e.g. a "No Current Requirement" or "Others" call, which routes
+        // nowhere), not to create a second, duplicate linked record.
+        if ($sourceResource === 'call') {
+            return $source instanceof CallRecord && match ($destResource) {
+                'follow_up' => $source->followUp === null,
+                'appointment' => $source->appointment === null,
+                'lead' => $source->lead === null,
+                default => false,
+            };
         }
 
         return true;
@@ -758,20 +801,33 @@ class PipelineBoard extends Page implements HasActions, HasForms
      */
     private function unsupportedCrossDropReason(?string $sourceResource, ?string $destResource, ?Model $source): string
     {
-        if ($destResource !== 'proposal') {
+        if ($destResource === 'proposal') {
+            if ($sourceResource !== 'lead' || ! $source instanceof Lead) {
+                return 'A Proposal needs an existing, Validated Lead behind it — drag a Validated Lead card into this lane instead.';
+            }
+
+            if (! $source->stage->isEligibleForProposal()) {
+                return 'This Lead needs to reach Validated before it can have a Proposal.';
+            }
+
+            if ($source->proposal !== null) {
+                return 'This Lead already has a Proposal — open it directly instead of creating a new one.';
+            }
+
             return 'This combination is not supported yet.';
         }
 
-        if ($sourceResource !== 'lead' || ! $source instanceof Lead) {
-            return 'A Proposal needs an existing, Validated Lead behind it — drag a Validated Lead card into this lane instead.';
-        }
+        if ($sourceResource === 'call' && $source instanceof CallRecord) {
+            $existing = match ($destResource) {
+                'follow_up' => $source->followUp,
+                'appointment' => $source->appointment,
+                'lead' => $source->lead,
+                default => null,
+            };
 
-        if (! $source->stage->isEligibleForProposal()) {
-            return 'This Lead needs to reach Validated before it can have a Proposal.';
-        }
-
-        if ($source->proposal !== null) {
-            return 'This Lead already has a Proposal — open it directly instead of creating a new one.';
+            if ($existing !== null) {
+                return 'This call already has a linked '.$this->resourceLabel((string) $destResource).' — open it directly instead of creating a new one.';
+            }
         }
 
         return 'This combination is not supported yet.';
@@ -832,6 +888,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'lead' => LeadResource::getEloquentQuery()->with('prospect')->find($id),
             'proposal' => ProposalResource::getEloquentQuery()->with('prospect')->find($id),
             'follow_up' => FollowUpResource::getEloquentQuery()->with('prospect')->find($id),
+            'call' => CallRecordResource::getEloquentQuery()->with('prospect')->find($id),
             default => null,
         };
     }

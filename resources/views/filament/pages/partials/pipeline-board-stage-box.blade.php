@@ -1,4 +1,4 @@
-@props(['laneKey', 'stageKey', 'stage', 'isDraggableLane', 'negative' => false, 'compact' => false])
+@props(['laneKey', 'stageKey', 'stage', 'isDraggableLane', 'isDropTarget', 'negative' => false, 'compact' => false])
 
 @php
     $ringClass = $stage['terminal']
@@ -9,7 +9,7 @@
 <div
     data-lane="{{ $laneKey }}"
     data-stage="{{ $stageKey }}"
-    @if ($isDraggableLane)
+    @if ($isDropTarget)
         x-data="{ over: false }"
         x-on:dragover.prevent="over = true"
         x-on:dragleave="over = false"

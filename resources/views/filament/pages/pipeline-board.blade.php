@@ -1,11 +1,15 @@
 @php
-    // Follow-up, Appointment, Lead, and Proposal are all draggable now
-    // (Phase 3) — both within their own lane (a stage mutation) and across
-    // into one another (creates a linked record in the target lane and, per
-    // the class docblock, also resolves the dragged card forward unless
-    // it's already terminal). Call stays out of scope (no stage concept at
-    // all) until a later phase.
-    $draggableLanes = ['follow_up', 'appointment', 'lead', 'proposal'];
+    // Follow-up, Appointment, Lead, and Proposal are all draggable both
+    // within their own lane (a stage mutation, Phase 3) and across into one
+    // another (creates a linked record in the target lane and, per the
+    // class docblock, also resolves the dragged card forward unless it's
+    // already terminal). Call (Phase 4) can be dragged OUT — cross-lane
+    // only, into whichever of those four its own outcome didn't already
+    // auto-route to — but never accepts a drop itself: a Call Record is
+    // only ever created by logging a real call, never by dragging one onto
+    // it. Hence two separate lists rather than one.
+    $draggableLanes = ['follow_up', 'appointment', 'lead', 'proposal', 'call'];
+    $dropTargetLanes = ['follow_up', 'appointment', 'lead', 'proposal'];
 
     // Purely presentational provenance line under each lane header —
     // mirrors the reference mockup's "from: ..." subtitle. Not derived from
@@ -28,7 +32,7 @@
 
 <x-filament-panels::page>
     <p class="text-sm text-gray-500 dark:text-gray-400">
-        Every Call, Follow-up, Appointment, Lead, and Proposal you can see, grouped into its real stage. Drag a card within its own lane to move it, or into another lane to create a linked record there — Call isn't draggable yet.
+        Every Call, Follow-up, Appointment, Lead, and Proposal you can see, grouped into its real stage. Drag a card within its own lane to move it, or into another lane to create a linked record there.
     </p>
 
     <div class="-mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
@@ -36,6 +40,7 @@
             @foreach ($this->getLanes() as $laneKey => $lane)
                 @php
                     $isDraggableLane = in_array($laneKey, $draggableLanes, true);
+                    $isDropTarget = in_array($laneKey, $dropTargetLanes, true);
 
                     // Split into the leading run of non-terminal stages
                     // (rendered in sequence with a connector between each)
@@ -86,6 +91,7 @@
                                 'stageKey' => $stageKey,
                                 'stage' => $stage,
                                 'isDraggableLane' => $isDraggableLane,
+                                'isDropTarget' => $isDropTarget,
                                 'negative' => false,
                             ])
 
@@ -119,6 +125,7 @@
                                     'stageKey' => $stageKey,
                                     'stage' => $stage,
                                     'isDraggableLane' => $isDraggableLane,
+                                    'isDropTarget' => $isDropTarget,
                                     'negative' => $isNegative($stage),
                                 ])
                             @endforeach
@@ -130,6 +137,7 @@
                                         'stageKey' => $stageKey,
                                         'stage' => $stage,
                                         'isDraggableLane' => $isDraggableLane,
+                                        'isDropTarget' => $isDropTarget,
                                         'negative' => $isNegative($stage),
                                         'compact' => true,
                                     ])
