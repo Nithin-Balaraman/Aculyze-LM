@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Enums\AppointmentStage;
 use App\Enums\FollowUpStatus;
 use App\Enums\LeadStage;
+use App\Enums\ProposalOutcome;
 use App\Enums\ProposalStage;
 use App\Filament\Resources\AppointmentResource;
 use App\Filament\Resources\CallRecordResource;
@@ -15,9 +16,20 @@ use App\Models\Appointment;
 use App\Models\CallRecord;
 use App\Models\FollowUp;
 use App\Models\Lead;
-use App\Models\Proposal;
 use App\Models\Prospect;
+use App\Models\Proposal;
+use Filament\Actions;
+use Filament\Actions\Concerns\InteractsWithActions;
+use Filament\Actions\Contracts\HasActions;
+use Filament\Forms;
+use Filament\Forms\Concerns\InteractsWithForms;
+use Filament\Forms\Contracts\HasForms;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Support\Exceptions\Halt;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 /**
  * Pipeline Board: a drag-and-drop visual view of the sales pipeline,
@@ -25,20 +37,43 @@ use Filament\Pages\Page;
  * side — Call, Follow-up, Appointment, Lead, Proposal — each showing that
  * resource's own real records grouped into their real stage/status boxes.
  *
- * Phase 1 (this file, for now): read-only. Five independent queries, one
- * per resource, each reusing that resource's own getEloquentQuery() — which
- * already applies ->visibleTo(auth()->user()) internally — so per-employee
- * scoping is inherited for free, identically to every existing list page,
- * with zero new authorization logic written here. No drag/write behavior
- * yet; that lands in Phase 2+ on top of this same read model.
+ * Phase 1: read-only. Five independent queries, one per resource, each
+ * reusing that resource's own getEloquentQuery() — which already applies
+ * ->visibleTo(auth()->user()) internally — so per-employee scoping is
+ * inherited for free, identically to every existing list page, with zero
+ * new authorization logic written for reads.
+ *
+ * Phase 2 (this file, now): same-lane stage drags for Appointment, Lead,
+ * and Proposal — a single real stage mutation on the same record, going
+ * through the exact same Eloquent ->update() every Edit form uses, so every
+ * existing model `saving()` guard fires identically (see Appointment::
+ * booted()/Lead::booted()/Proposal::booted()). Follow-up's Pending ->
+ * Completed/Cancelled and the Call lane are deliberately out of scope here
+ * (Follow-up's Completed transition creates a real Call Record via the
+ * shared FollowUp::completeWithCall() — a different shape — and Call has no
+ * stage concept at all); both land in a later phase. Cross-lane drag is
+ * also out of scope here.
+ *
+ * The drop-confirm dialog is a genuine Filament page-level Action (mounted
+ * via Alpine's `$wire.mountAction('drop', {...})`, mirroring the exact
+ * mechanism ListFollowUps::summaryAction() already uses in this codebase)
+ * — not a hand-rolled modal — so its `->form()` schema reuses the same
+ * Filament form components (Textarea, FileUpload) with the same
+ * validation/config as the matching Resource's own form, and its
+ * `->action()` ends in an ordinary Eloquent ->update() call. Authorization
+ * is explicit here (auth()->user()->can('update', $record)) rather than
+ * automatic the way a real Resource's row action gets it for free.
  *
  * Deliberately a standalone Page, not a Resource (a Resource is
  * fundamentally single-model; this spans five) and not a Widget (this needs
  * full-page real estate and its own Livewire state, not something embedded
  * inside another page).
  */
-class PipelineBoard extends Page
+class PipelineBoard extends Page implements HasActions, HasForms
 {
+    use InteractsWithActions;
+    use InteractsWithForms;
+
     protected static ?string $navigationIcon = 'heroicon-o-view-columns';
 
     protected static ?string $navigationLabel = 'Pipeline Board';
@@ -68,6 +103,258 @@ class PipelineBoard extends Page
             'lead' => $this->leadLane(),
             'proposal' => $this->proposalLane(),
         ];
+    }
+
+    /**
+     * The one drop-confirm dialog for every same-lane stage drag in this
+     * phase — a single Filament page-level Action (see the class docblock),
+     * dispatched via mountAction('drop', ['resource' => ..., 'id' => ...,
+     * 'stage' => ...]) from the card/stage-box's Alpine drag handlers in the
+     * Blade view. Which fields it asks for, and what the confirm button
+     * actually writes, both key off those same $arguments.
+     */
+    public function dropAction(): Actions\Action
+    {
+        return Actions\Action::make('drop')
+            ->modalHeading(fn (array $arguments) => $this->dropModalHeading($arguments))
+            ->modalSubmitActionLabel('Confirm move')
+            ->form(fn (array $arguments) => $this->dropFormSchema($arguments))
+            ->action(function (array $data, array $arguments) {
+                $this->performDrop($arguments, $data);
+            });
+    }
+
+    private function dropModalHeading(array $arguments): string
+    {
+        $record = $this->resolveDropRecord($arguments);
+        $label = $this->targetStageLabel($arguments);
+
+        return ($record?->prospect?->company_name ?? 'Company').' → '.$label;
+    }
+
+    /**
+     * @return array<int, Forms\Components\Component>
+     */
+    private function dropFormSchema(array $arguments): array
+    {
+        $resource = $arguments['resource'] ?? null;
+        $stage = (string) ($arguments['stage'] ?? '');
+        $record = $this->resolveDropRecord($arguments);
+
+        return match ($resource) {
+            'appointment' => AppointmentStage::tryFrom($stage)?->isTerminal()
+                ? [
+                    Forms\Components\Textarea::make('outcome_notes')
+                        ->label('Outcome Notes')
+                        ->rows(3)
+                        ->required()
+                        ->default($record?->outcome_notes),
+                ]
+                : [],
+            'lead' => $stage === LeadStage::Validated->value
+                ? [
+                    Forms\Components\Textarea::make('notes')
+                        ->label('Notes / Remarks')
+                        ->rows(3)
+                        ->required()
+                        ->default($record?->notes),
+                ]
+                : [],
+            'proposal' => $this->proposalDropFormSchema($stage, $record),
+            default => [],
+        };
+    }
+
+    /**
+     * @return array<int, Forms\Components\Component>
+     */
+    private function proposalDropFormSchema(string $stage, ?Proposal $proposal): array
+    {
+        if ($stage === ProposalStage::Sent->value) {
+            // Same field/config as ProposalResource::form()'s own pdf_path —
+            // required the moment the stage is Sent, same disk/visibility/
+            // validation, so this dialog can never accept something that
+            // Proposal's own Edit form would reject.
+            return [
+                Forms\Components\FileUpload::make('pdf_path')
+                    ->label('Proposal PDF')
+                    ->disk('local')
+                    ->directory('proposal-pdfs')
+                    ->visibility('private')
+                    ->acceptedFileTypes(['application/pdf'])
+                    ->maxSize(10240)
+                    ->previewable(false)
+                    ->default($proposal?->pdf_path)
+                    ->required()
+                    ->deleteUploadedFileUsing(function (string|TemporaryUploadedFile $file): void {
+                        if (is_string($file)) {
+                            Storage::disk('local')->delete($file);
+                        }
+                    }),
+            ];
+        }
+
+        // Confirmed: dragging all the way to Accepted/Rejected also sets the
+        // Final Outcome in this same action (Won/Lost respectively) rather
+        // than leaving that as a separate manual step — and since Won/Lost
+        // both require Notes per Proposal's own model guard
+        // (Proposal::booted()), this dialog asks for it here too.
+        if (in_array($stage, [ProposalStage::CustomerAccepted->value, ProposalStage::CustomerRejected->value], true)) {
+            $outcomeLabel = $stage === ProposalStage::CustomerAccepted->value ? 'Won' : 'Lost';
+
+            return [
+                Forms\Components\Placeholder::make('outcome_preview')
+                    ->label('Final Outcome')
+                    ->content($outcomeLabel),
+                Forms\Components\Textarea::make('notes')
+                    ->label('Notes')
+                    ->rows(3)
+                    ->required()
+                    ->default($proposal?->notes)
+                    ->helperText("Required — Final Outcome {$outcomeLabel} always needs Notes."),
+            ];
+        }
+
+        return [];
+    }
+
+    private function performDrop(array $arguments, array $data): void
+    {
+        match ($arguments['resource'] ?? null) {
+            'appointment' => $this->dropAppointment($arguments, $data),
+            'lead' => $this->dropLead($arguments, $data),
+            'proposal' => $this->dropProposal($arguments, $data),
+            default => null,
+        };
+    }
+
+    private function dropAppointment(array $arguments, array $data): void
+    {
+        $resolved = AppointmentStage::tryFrom((string) ($arguments['stage'] ?? ''));
+        /** @var ?Appointment $appointment */
+        $appointment = $this->resolveDropRecord($arguments);
+
+        if (! $appointment || ! $resolved || $appointment->stage === $resolved) {
+            return;
+        }
+
+        $this->authorizeUpdate($appointment);
+
+        $update = ['stage' => $resolved];
+
+        if ($resolved->isTerminal()) {
+            $update['outcome_notes'] = $data['outcome_notes'] ?? null;
+        }
+
+        $this->applyDrop($appointment, $update, $resolved->getLabel());
+    }
+
+    private function dropLead(array $arguments, array $data): void
+    {
+        $resolved = LeadStage::tryFrom((string) ($arguments['stage'] ?? ''));
+        /** @var ?Lead $lead */
+        $lead = $this->resolveDropRecord($arguments);
+
+        if (! $lead || ! $resolved || $lead->stage === $resolved) {
+            return;
+        }
+
+        $this->authorizeUpdate($lead);
+
+        $update = ['stage' => $resolved];
+
+        if ($resolved === LeadStage::Validated) {
+            $update['notes'] = $data['notes'] ?? null;
+        }
+
+        $this->applyDrop($lead, $update, $resolved->getLabel());
+    }
+
+    private function dropProposal(array $arguments, array $data): void
+    {
+        $resolved = ProposalStage::tryFrom((string) ($arguments['stage'] ?? ''));
+        /** @var ?Proposal $proposal */
+        $proposal = $this->resolveDropRecord($arguments);
+
+        if (! $proposal || ! $resolved || $proposal->stage === $resolved) {
+            return;
+        }
+
+        $this->authorizeUpdate($proposal);
+
+        $update = ['stage' => $resolved];
+
+        if ($resolved === ProposalStage::Sent) {
+            $update['pdf_path'] = $data['pdf_path'] ?? null;
+        } elseif ($resolved === ProposalStage::CustomerAccepted) {
+            $update['outcome'] = ProposalOutcome::Won;
+            $update['notes'] = $data['notes'] ?? null;
+        } elseif ($resolved === ProposalStage::CustomerRejected) {
+            $update['outcome'] = ProposalOutcome::Lost;
+            $update['notes'] = $data['notes'] ?? null;
+        }
+
+        $this->applyDrop($proposal, $update, $resolved->getLabel());
+    }
+
+    /**
+     * The actual write — an ordinary Eloquent ->update(), so every existing
+     * model `saving()` guard (mandatory Outcome Notes/Notes, etc.) fires
+     * exactly as it would from that resource's own Edit form. A guard
+     * throwing \LogicException (defense in depth catching something the
+     * dialog's own ->required() should already have stopped) is surfaced as
+     * a friendly notification rather than a raw error page — mirrors the
+     * Notification+Halt pattern already used elsewhere in this app (see
+     * UserResource's delete-guard notifications).
+     */
+    private function applyDrop(Model $record, array $update, string $targetLabel): void
+    {
+        try {
+            $record->update($update);
+        } catch (\LogicException $e) {
+            Notification::make()->title("Couldn't move to {$targetLabel}")->body($e->getMessage())->danger()->send();
+            throw new Halt;
+        }
+
+        Notification::make()->title("Moved to {$targetLabel}")->success()->send();
+    }
+
+    /**
+     * Explicit per-action authorization — unlike a real Resource's row
+     * action (whose ->visible() already hides the button from anyone
+     * unauthorized), this board's actions aren't wrapped by any Resource
+     * page class, so nothing checks this for free.
+     */
+    private function authorizeUpdate(Model $record): void
+    {
+        if (! auth()->user()?->can('update', $record)) {
+            Notification::make()->title("You can't move this card")->danger()->send();
+            throw new Halt;
+        }
+    }
+
+    private function resolveDropRecord(array $arguments): ?Model
+    {
+        $id = (int) ($arguments['id'] ?? 0);
+
+        return match ($arguments['resource'] ?? null) {
+            'appointment' => AppointmentResource::getEloquentQuery()->with('prospect')->find($id),
+            'lead' => LeadResource::getEloquentQuery()->with('prospect')->find($id),
+            'proposal' => ProposalResource::getEloquentQuery()->with('prospect')->find($id),
+            default => null,
+        };
+    }
+
+    private function targetStageLabel(array $arguments): string
+    {
+        $stage = (string) ($arguments['stage'] ?? '');
+
+        return match ($arguments['resource'] ?? null) {
+            'appointment' => AppointmentStage::tryFrom($stage)?->getLabel() ?? $stage,
+            'lead' => LeadStage::tryFrom($stage)?->getLabel() ?? $stage,
+            'proposal' => ProposalStage::tryFrom($stage)?->getLabel() ?? $stage,
+            default => $stage,
+        };
     }
 
     /**
