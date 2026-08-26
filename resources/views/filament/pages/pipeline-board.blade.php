@@ -108,7 +108,6 @@
                                     <div class="absolute left-1/4 right-1/4 top-3 h-px bg-gray-300 dark:bg-white/15"></div>
                                     <div class="absolute left-1/4 top-3 h-3.5 w-px bg-gray-300 dark:bg-white/15"></div>
                                     <div class="absolute right-1/4 top-3 h-3.5 w-px bg-gray-300 dark:bg-white/15"></div>
-                                    <div class="absolute left-1/2 top-1.5 translate-x-1.5 font-mono text-[8px] tracking-wider text-gray-400 dark:text-white/25">BRANCH</div>
                                 </div>
                             @endif
                         @endforeach

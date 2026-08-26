@@ -31,9 +31,9 @@
     @class([
         'rounded-xl border transition',
         $compact ? 'p-2' : 'p-2.5',
-        'border-brand-coral/30 bg-brand-coral/5' => $stage['terminal'] && $negative,
-        'border-green-500/35 bg-green-500/5 dark:border-green-400/25' => $stage['terminal'] && ! $negative,
-        'border-gray-200 bg-white dark:border-white/10 dark:bg-white/[0.03]' => ! $stage['terminal'],
+        'border-brand-coral/30 bg-brand-coral/10 dark:bg-brand-coral/[0.08]' => $stage['terminal'] && $negative,
+        'border-green-500/35 bg-green-500/10 dark:border-green-400/25 dark:bg-green-400/[0.08]' => $stage['terminal'] && ! $negative,
+        'border-gray-200 bg-white dark:border-white/10 dark:bg-white/[0.06]' => ! $stage['terminal'],
     ])
 >
     <div @class(['mb-2 flex gap-2', 'items-start' => $compact, 'items-center' => ! $compact])>
