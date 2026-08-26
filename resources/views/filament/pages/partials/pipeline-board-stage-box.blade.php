@@ -101,18 +101,6 @@
                     <span class="truncate font-mono text-[10px] text-gray-400 dark:text-gray-500">{{ $card['meta'] }}</span>
                     @if ($card['isLost'])
                         <span class="ms-auto shrink-0 rounded bg-brand-coral/15 px-1 font-mono text-[9px] font-semibold text-brand-coral">LOST</span>
-                    @elseif (in_array($card['resource'], ['appointment', 'lead'], true))
-                        {{-- Available from any stage, not just terminal ones — mirrors
-                        AppointmentResource/LeadResource's own "Mark Lost" row action.
-                        TODO(Phase 5 follow-up): being replaced by drag-to-terminal-box
-                        per the pending design confirmation — left in place until then
-                        so this ability isn't lost with nothing to replace it yet. --}}
-                        <button
-                            type="button"
-                            title="Mark lost (available from any stage)"
-                            x-on:click.stop.prevent="$wire.mountAction('markLost', { resource: '{{ $card['resource'] }}', id: {{ $card['id'] }} })"
-                            class="ms-auto shrink-0 rounded border border-gray-200 px-1 py-0.5 font-mono text-[9px] font-semibold text-gray-400 transition hover:border-brand-coral/60 hover:bg-brand-coral/10 hover:text-brand-coral dark:border-white/10 dark:text-gray-500"
-                        >⊘ LOST</button>
                     @elseif ($card['resource'] === 'follow_up')
                         {{-- Reuses the exact "Follow-Up History" summary modal
                         already on the Follow-Ups list page — same company-wide

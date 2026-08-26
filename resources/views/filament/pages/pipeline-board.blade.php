@@ -27,7 +27,7 @@
     // Cancelled, Succeeded/Not Succeeded, Customer Accepted/Rejected).
     // "Negative" is read straight off each stage's own label, the same
     // stable set of words across every lane, rather than a per-lane list.
-    $negativeWords = ['not', 'cancel', 'reject'];
+    $negativeWords = ['not', 'cancel', 'reject', 'lost'];
 @endphp
 
 <x-filament-panels::page>

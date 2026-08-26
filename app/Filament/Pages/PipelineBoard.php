@@ -278,62 +278,6 @@ class PipelineBoard extends Page implements HasActions, HasForms
     }
 
     /**
-     * Phase 5: Mark Lost, available on Appointment and Lead cards only —
-     * the only two resources with a real `is_lost` flag distinct from
-     * stage (see markLostSupported()) — dispatched via mountAction
-     * ('markLost', ['resource' => ..., 'id' => ...]) from a small button on
-     * the card, not a drag. Mirrors AppointmentResource/LeadResource's own
-     * existing "Mark Lost" row action exactly: same Reason field, same
-     * ->markLost($reason) model call, same authorization.
-     */
-    public function markLostAction(): Actions\Action
-    {
-        return Actions\Action::make('markLost')
-            ->modalHeading(fn (array $arguments) => $this->markLostModalHeading($arguments))
-            ->modalSubmitActionLabel('Mark Lost')
-            ->form([
-                Forms\Components\Textarea::make('reason')
-                    ->label('Reason')
-                    ->required()
-                    ->rows(3)
-                    ->helperText('Required — why this is being marked Lost.'),
-            ])
-            ->action(function (array $data, array $arguments) {
-                $this->performMarkLost($arguments, $data);
-            });
-    }
-
-    private function markLostModalHeading(array $arguments): string
-    {
-        $record = $this->resolveDropRecord($arguments);
-
-        return ($record?->prospect?->company_name ?? 'Company').' — Mark Lost';
-    }
-
-    private function markLostSupported(?string $resource, ?Model $record): bool
-    {
-        return in_array($resource, ['appointment', 'lead'], true)
-            && $record !== null
-            && ! $record->is_lost;
-    }
-
-    private function performMarkLost(array $arguments, array $data): void
-    {
-        $resource = $arguments['resource'] ?? null;
-        $record = $this->resolveDropRecord($arguments);
-
-        if (! $this->markLostSupported($resource, $record)) {
-            return;
-        }
-
-        $this->authorizeUpdate($record);
-
-        $record->markLost($data['reason'] ?? '');
-
-        Notification::make()->title('Marked Lost')->success()->send();
-    }
-
-    /**
      * Phase 5: reuses ListFollowUps::summaryAction() verbatim — same
      * FollowUpResource::companyFollowUpHistory() data and the same
      * modal view, just resolving the target Follow-Up from this page's own
@@ -670,7 +614,12 @@ class PipelineBoard extends Page implements HasActions, HasForms
     {
         $source = $this->resolveDropRecord(['resource' => $arguments['sourceResource'] ?? null, 'id' => $arguments['sourceId'] ?? null]);
 
-        return $this->crossDropSupported($arguments['sourceResource'] ?? null, $arguments['destResource'] ?? null, $source);
+        return $this->crossDropSupported(
+            $arguments['sourceResource'] ?? null,
+            $arguments['destResource'] ?? null,
+            $source,
+            (string) ($arguments['destStage'] ?? '')
+        );
     }
 
     /**
@@ -683,11 +632,11 @@ class PipelineBoard extends Page implements HasActions, HasForms
         $destStage = (string) ($arguments['destStage'] ?? '');
         $source = $this->resolveDropRecord(['resource' => $sourceResource, 'id' => $arguments['sourceId'] ?? null]);
 
-        if (! $this->crossDropSupported($sourceResource, $destResource, $source)) {
+        if (! $this->crossDropSupported($sourceResource, $destResource, $source, $destStage)) {
             return [
                 Forms\Components\Placeholder::make('unsupported')
                     ->label('Not available yet')
-                    ->content($this->unsupportedCrossDropReason($sourceResource, $destResource, $source)),
+                    ->content($this->unsupportedCrossDropReason($sourceResource, $destResource, $source, $destStage)),
             ];
         }
 
@@ -753,7 +702,9 @@ class PipelineBoard extends Page implements HasActions, HasForms
      */
     private function appointmentStageFields(?string $stage, ?Appointment $record, string $prefix): array
     {
-        if (! (AppointmentStage::tryFrom((string) $stage)?->isTerminal() ?? false)) {
+        $resolved = AppointmentStage::tryFrom((string) $stage);
+
+        if (! ($resolved?->isTerminal() ?? false)) {
             return [];
         }
 
@@ -762,7 +713,14 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 ->label('Outcome Notes')
                 ->rows(3)
                 ->required()
-                ->default($record?->outcome_notes),
+                ->default($record?->outcome_notes)
+                // Not Succeeded now also marks the Appointment Lost (see
+                // dropAppointment()) — this same text is stored as the Lost
+                // reason too, rather than asking for near-duplicate content
+                // twice in one dialog.
+                ->helperText($resolved === AppointmentStage::NotSucceeded
+                    ? 'Required — also recorded as this Appointment\'s Lost reason.'
+                    : null),
         ];
     }
 
@@ -771,6 +729,20 @@ class PipelineBoard extends Page implements HasActions, HasForms
      */
     private function leadStageFields(?string $stage, ?Lead $record, string $prefix): array
     {
+        // "lost" is a board-only display grouping (see leadLane()'s own
+        // extractLostBox()), not a real LeadStage case — dragging onto it
+        // asks for the same Reason field LeadResource's own "Mark Lost" row
+        // action does, mirrored here exactly.
+        if ($stage === 'lost') {
+            return [
+                Forms\Components\Textarea::make("{$prefix}reason")
+                    ->label('Reason')
+                    ->required()
+                    ->rows(3)
+                    ->helperText('Required — why this Lead is being marked Lost.'),
+            ];
+        }
+
         if ($stage !== LeadStage::Validated->value) {
             return [];
         }
@@ -1010,6 +982,12 @@ class PipelineBoard extends Page implements HasActions, HasForms
 
         $this->authorizeUpdate($appointment);
 
+        if ($resolved === AppointmentStage::NotSucceeded) {
+            $this->applyAppointmentNotSucceeded($appointment, $data);
+
+            return;
+        }
+
         $update = ['stage' => $resolved];
 
         if ($resolved->isTerminal()) {
@@ -1019,13 +997,71 @@ class PipelineBoard extends Page implements HasActions, HasForms
         $this->applyDrop($appointment, $update, $resolved->getLabel());
     }
 
+    /**
+     * Not Succeeded always means Lost now — there is no separate Mark Lost
+     * button any more (see the class docblock). is_lost/lost_at_stage/
+     * lost_reason/lost_at are deliberately absent from Appointment's own
+     * $fillable (see Appointment::markLost(), which forceFill()s them for
+     * the same reason), so this can't go through applyDrop()'s plain
+     * ->update() the way every other same-lane drop does — those keys
+     * would silently be dropped. lost_at_stage captures the PRE-drop stage
+     * (not NotSucceeded itself, which would just duplicate `stage` and
+     * lose the "what stage was this really sitting in" signal the field
+     * exists for), and lost_reason reuses the same Outcome Notes text
+     * rather than asking twice for near-duplicate content.
+     */
+    private function applyAppointmentNotSucceeded(Appointment $appointment, array $data): void
+    {
+        $lostAtStage = $appointment->stage;
+
+        try {
+            $appointment->forceFill([
+                'stage' => AppointmentStage::NotSucceeded,
+                'outcome_notes' => $data['outcome_notes'] ?? null,
+                'is_lost' => true,
+                'lost_at_stage' => $lostAtStage,
+                'lost_reason' => $data['outcome_notes'] ?? null,
+                'lost_at' => now(),
+            ])->save();
+        } catch (\LogicException $e) {
+            Notification::make()->title("Couldn't move to Not Succeeded")->body($e->getMessage())->danger()->send();
+            throw new Halt;
+        }
+
+        Notification::make()->title('Moved to Not Succeeded')->success()->send();
+    }
+
     private function dropLead(array $arguments, array $data): void
     {
-        $resolved = LeadStage::tryFrom((string) ($arguments['stage'] ?? ''));
+        $stage = (string) ($arguments['stage'] ?? '');
         /** @var ?Lead $lead */
         $lead = $this->resolveDropRecord($arguments);
 
-        if (! $lead || ! $resolved || $lead->stage === $resolved) {
+        if (! $lead) {
+            return;
+        }
+
+        // "lost" is a board-only display grouping, not a real LeadStage —
+        // dragging onto it calls the exact same markLost() LeadResource's
+        // own row action does; `stage` deliberately stays untouched (see
+        // Lead::markLost()'s own docblock: "Lost is an outcome applied on
+        // top of wherever the Lead currently is"), unlike Not Succeeded on
+        // the Appointment lane above.
+        if ($stage === 'lost') {
+            if ($lead->is_lost) {
+                return;
+            }
+
+            $this->authorizeUpdate($lead);
+            $lead->markLost($data['reason'] ?? '');
+            Notification::make()->title('Marked Lost')->success()->send();
+
+            return;
+        }
+
+        $resolved = LeadStage::tryFrom($stage);
+
+        if (! $resolved || $lead->stage === $resolved) {
             return;
         }
 
@@ -1152,7 +1188,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
 
         $source = $this->resolveDropRecord(['resource' => $sourceResource, 'id' => $arguments['sourceId'] ?? null]);
 
-        if (! $source || ! $this->crossDropSupported($sourceResource, $destResource, $source)) {
+        if (! $source || ! $this->crossDropSupported($sourceResource, $destResource, $source, $destStage)) {
             return;
         }
 
@@ -1300,7 +1336,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * UniqueConstraintViolationException on `proposals_lead_id_unique` —
      * the seeded Metro Auto Components Lead already has a Sent Proposal.
      */
-    private function crossDropSupported(?string $sourceResource, ?string $destResource, ?Model $source): bool
+    private function crossDropSupported(?string $sourceResource, ?string $destResource, ?Model $source, string $destStage = ''): bool
     {
         $validSourceResources = ['follow_up', 'appointment', 'lead', 'proposal', 'call'];
         $validDestResources = ['follow_up', 'appointment', 'lead', 'proposal'];
@@ -1310,6 +1346,15 @@ class PipelineBoard extends Page implements HasActions, HasForms
         }
 
         if ($sourceResource === $destResource) {
+            return false;
+        }
+
+        // Lead's "lost" box is a board-only display grouping, not a real
+        // LeadStage a brand-new Lead could ever be created at — a Lead
+        // needs a real stage before "Lost" (an outcome applied on top of
+        // wherever it already is) can mean anything. Drag an EXISTING Lead
+        // card there instead (see dropLead()).
+        if ($destResource === 'lead' && $destStage === 'lost') {
             return false;
         }
 
@@ -1344,8 +1389,12 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * Validated but already has a Proposal — a different, equally real
      * reason to block it).
      */
-    private function unsupportedCrossDropReason(?string $sourceResource, ?string $destResource, ?Model $source): string
+    private function unsupportedCrossDropReason(?string $sourceResource, ?string $destResource, ?Model $source, string $destStage = ''): string
     {
+        if ($destResource === 'lead' && $destStage === 'lost') {
+            return 'A new Lead can\'t be created directly as Lost — drag an existing Lead card into this box instead.';
+        }
+
         if ($destResource === 'proposal') {
             if ($sourceResource !== 'lead' || ! $source instanceof Lead) {
                 return 'A Proposal needs an existing, Validated Lead behind it — drag a Validated Lead card into this lane instead.';
@@ -1427,6 +1476,10 @@ class PipelineBoard extends Page implements HasActions, HasForms
 
     private function targetStageLabel(?string $resource, string $stage): string
     {
+        if ($resource === 'lead' && $stage === 'lost') {
+            return 'Lost';
+        }
+
         return match ($resource) {
             'appointment' => AppointmentStage::tryFrom($stage)?->getLabel() ?? $stage,
             'lead' => LeadStage::tryFrom($stage)?->getLabel() ?? $stage,
@@ -1525,7 +1578,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
 
     private function leadLane(): array
     {
-        return $this->stageBasedLane(
+        $lane = $this->stageBasedLane(
             label: 'Lead',
             records: LeadResource::getEloquentQuery()->with('prospect')->latest('created_at')->get(),
             cases: LeadStage::cases(),
@@ -1535,6 +1588,47 @@ class PipelineBoard extends Page implements HasActions, HasForms
             resourceKey: 'lead',
             urlFor: fn (Lead $lead) => LeadResource::getUrl('view', ['record' => $lead]),
         );
+
+        return $this->extractLostBox($lane);
+    }
+
+    /**
+     * Lead's "Lost" box is a board-only display grouping, not a real
+     * LeadStage — is_lost is orthogonal to stage (Lead::markLost() never
+     * touches `stage`, see its own docblock: "Lost is an outcome applied
+     * on top of wherever the Lead currently is"). Pulled out of its real
+     * stage's box here so each card sits in exactly one box, matching
+     * every other lane's mutually-exclusive-terminal-boxes convention
+     * (e.g. Succeeded vs Not Succeeded), rather than appearing both in its
+     * normal stage AND in Lost. `terminal => true` sweeps it into the same
+     * branching terminal-pair rendering Validated already uses — no Blade
+     * change needed beyond the negativeWords list.
+     */
+    private function extractLostBox(array $lane): array
+    {
+        $lostCards = [];
+
+        foreach ($lane['stages'] as $stageKey => $stage) {
+            $stillHere = [];
+
+            foreach ($stage['cards'] as $card) {
+                if ($card['isLost']) {
+                    $lostCards[] = $card;
+                } else {
+                    $stillHere[] = $card;
+                }
+            }
+
+            $lane['stages'][$stageKey]['cards'] = $stillHere;
+        }
+
+        $lane['stages']['lost'] = [
+            'label' => 'Lost',
+            'terminal' => true,
+            'cards' => $lostCards,
+        ];
+
+        return $lane;
     }
 
     private function proposalLane(): array
