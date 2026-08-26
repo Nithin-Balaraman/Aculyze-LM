@@ -40,8 +40,21 @@ class ProposalResource extends Resource
 
     public static function form(Form $form): Form
     {
-        return $form
-            ->schema([
+        return $form->schema(self::formSchema());
+    }
+
+    /**
+     * Extracted so PipelineBoard's in-board Edit/View actions (which reuse
+     * every resource's real form for full parity — see PipelineBoard's
+     * editRecordAction()/viewRecordAction()) can call this directly instead
+     * of duplicating these fields — matches the ProspectResource::
+     * formSchema() precedent.
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    public static function formSchema(): array
+    {
+        return [
                 Forms\Components\Section::make()
                     ->columns(2)
                     ->schema([
@@ -188,7 +201,7 @@ class ProposalResource extends Resource
                                 }
                             }),
                     ]),
-            ]);
+        ];
     }
 
     /**

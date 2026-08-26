@@ -30,6 +30,7 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -319,7 +320,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
     }
 
     /**
-     * @return array{fields: array<int, array{label: string, value: string}>, lineage: array<int, string>, url: ?string}
+     * @return array{fields: array<int, array{label: string, value: string}>, lineage: array<int, string>, resource: ?string, id: ?int, canEdit: bool}
      */
     private function cardHistoryData(array $arguments): array
     {
@@ -327,7 +328,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
         $record = $this->resolveDropRecord($arguments);
 
         if (! $record) {
-            return ['fields' => [], 'lineage' => [], 'url' => null, 'editUrl' => null];
+            return ['fields' => [], 'lineage' => [], 'resource' => $resource, 'id' => null, 'canEdit' => false];
         }
 
         return [
@@ -340,9 +341,166 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 default => [],
             },
             'lineage' => $this->recordLineage($resource, $record),
-            'url' => $this->recordHistoryUrl($resource, $record),
-            'editUrl' => auth()->user()?->can('update', $record) ? $this->recordEditUrl($resource, $record) : null,
+            'resource' => $resource,
+            'id' => $record->getKey(),
+            'canEdit' => (bool) auth()->user()?->can('update', $record),
         ];
+    }
+
+    /**
+     * Nothing ever navigates the user away from the Pipeline Board (see
+     * the class docblock) — the popup's "Edit" button and "View full
+     * record →" link both dispatch these instead of a Filament resource
+     * URL. Both reuse the real Resource's own formSchema() for full
+     * parity, exactly like Filament's own EditAction/ViewAction (see
+     * vendor/filament/actions/src/EditAction.php and ViewAction.php) —
+     * just without the Resource/Table coupling those classes assume,
+     * since one Action here has to span five different models.
+     * ->record() (Concerns\InteractsWithRecord) gives relationship-based
+     * fields (prospect_id, assigned_to) a real container model to resolve
+     * against, exactly like CallRecordResource's own nested "+ Create new
+     * company…" action needed ->actionFormModel() for (see that field's
+     * own docblock) — just at the page level instead of the field level.
+     */
+    public function editRecordAction(): Actions\Action
+    {
+        return Actions\Action::make('editRecord')
+            ->modalHeading(fn (array $arguments) => $this->recordModalHeading($arguments, 'Edit'))
+            ->modalWidth('2xl')
+            ->modalSubmitActionLabel('Save changes')
+            ->record(fn (array $arguments) => $this->resolveDropRecord($arguments))
+            ->fillForm(fn (array $arguments) => $this->recordFillData(
+                $arguments['resource'] ?? null,
+                $this->resolveDropRecord($arguments),
+            ))
+            ->form(fn (array $arguments) => $this->recordFormSchema($arguments['resource'] ?? null))
+            ->action(function (array $data, array $arguments) {
+                $record = $this->resolveDropRecord($arguments);
+
+                if (! $record) {
+                    return;
+                }
+
+                $this->authorizeUpdate($record);
+                $this->saveRecordEdit($arguments['resource'] ?? null, $record, $data);
+
+                Notification::make()->title('Saved')->success()->send();
+            });
+    }
+
+    /**
+     * The "View full record →" counterpart — disabledForm() + no submit
+     * action, exactly like Filament's own ViewAction, so it's a genuine
+     * read-only rendering of the same real form rather than a hand-rolled
+     * summary.
+     */
+    public function viewRecordAction(): Actions\Action
+    {
+        return Actions\Action::make('viewRecord')
+            ->modalHeading(fn (array $arguments) => $this->recordModalHeading($arguments, 'View'))
+            ->modalWidth('2xl')
+            ->record(fn (array $arguments) => $this->resolveDropRecord($arguments))
+            ->fillForm(fn (array $arguments) => $this->recordFillData(
+                $arguments['resource'] ?? null,
+                $this->resolveDropRecord($arguments),
+            ))
+            ->form(fn (array $arguments) => $this->recordFormSchema($arguments['resource'] ?? null))
+            ->disabledForm()
+            ->modalSubmitAction(false)
+            ->modalCancelActionLabel('Close');
+    }
+
+    private function recordModalHeading(array $arguments, string $verb): string
+    {
+        $record = $this->resolveDropRecord($arguments);
+        $company = $record?->prospect?->company_name ?? 'Unknown Company';
+        $label = $this->resourceLabel((string) ($arguments['resource'] ?? ''));
+
+        return "{$company} — {$verb} {$label}";
+    }
+
+    /**
+     * @return array<int, Forms\Components\Component>
+     */
+    private function recordFormSchema(?string $resource): array
+    {
+        return match ($resource) {
+            'call' => CallRecordResource::formSchema(),
+            'follow_up' => FollowUpResource::formSchema(),
+            'appointment' => AppointmentResource::formSchema(),
+            'lead' => LeadResource::formSchema(),
+            'proposal' => ProposalResource::formSchema(),
+            default => [],
+        };
+    }
+
+    /**
+     * Mirrors EditFollowUp::mutateFormDataBeforeFill() exactly for
+     * Follow-up: none of outcome/call_notes/appointment_at/
+     * new_follow_up_at persists on the FollowUp record itself once
+     * Completed (see that page's own docblock) — they only ever live on
+     * the Call Record its completion created — so an already-Completed
+     * Follow-up needs the same pre-fill, or its own required-when-
+     * Completed rules would demand they be re-entered just to resave an
+     * unrelated field. Every other resource's real attribute data needs
+     * no such massaging.
+     *
+     * @return array<string, mixed>
+     */
+    private function recordFillData(?string $resource, ?Model $record): array
+    {
+        if (! $record) {
+            return [];
+        }
+
+        $data = $record->attributesToArray();
+
+        if ($resource === 'follow_up' && $record instanceof FollowUp && $record->status === FollowUpStatus::Completed) {
+            $callRecord = $record->generatedCallRecord;
+            $data['outcome'] = $callRecord?->outcome?->value;
+            $data['call_notes'] = $callRecord?->notes;
+            $data['appointment_at'] = $callRecord?->appointment_at;
+            $data['new_follow_up_at'] = $callRecord?->follow_up_at;
+        }
+
+        return $data;
+    }
+
+    /**
+     * Mirrors EditFollowUp::handleRecordUpdate() exactly for Follow-up: a
+     * genuine Pending -> Completed transition here creates a real Call
+     * Record via completeWithCall() (routed through CallRoutingService
+     * exactly like any other logged call), same as the row-action
+     * "Completed" modal and the real Edit page both already do — never a
+     * bare ->update() that would leave a Completed Follow-up with no call
+     * behind it. Every other resource just updates directly.
+     */
+    private function saveRecordEdit(?string $resource, Model $record, array $data): void
+    {
+        if ($resource === 'follow_up' && $record instanceof FollowUp) {
+            $outcome = Arr::pull($data, 'outcome');
+            $callNotes = Arr::pull($data, 'call_notes');
+            $appointmentAt = Arr::pull($data, 'appointment_at');
+            $newFollowUpAt = Arr::pull($data, 'new_follow_up_at');
+
+            $isCompleting = $record->status === FollowUpStatus::Pending
+                && FollowUpResource::resolveStatus($data['status'] ?? null) === FollowUpStatus::Completed;
+
+            if ($isCompleting) {
+                $record->completeWithCall([
+                    'outcome' => $outcome,
+                    'notes' => $callNotes,
+                    'appointment_at' => $appointmentAt,
+                    'follow_up_at' => $newFollowUpAt,
+                ]);
+            }
+
+            $record->update($data);
+
+            return;
+        }
+
+        $record->update($data);
     }
 
     /**
@@ -599,30 +757,6 @@ class PipelineBoard extends Page implements HasActions, HasForms
     private function proposalLineage(Proposal $proposal): array
     {
         return ['Created from Lead #'.$proposal->lead_id];
-    }
-
-    private function recordHistoryUrl(?string $resource, Model $record): ?string
-    {
-        return match ($resource) {
-            'appointment' => AppointmentResource::getUrl('view', ['record' => $record]),
-            'lead' => LeadResource::getUrl('view', ['record' => $record]),
-            'proposal' => ProposalResource::getUrl('view', ['record' => $record]),
-            'follow_up' => FollowUpResource::getUrl('view', ['record' => $record]),
-            'call' => CallRecordResource::getUrl('view', ['record' => $record]),
-            default => null,
-        };
-    }
-
-    private function recordEditUrl(?string $resource, Model $record): ?string
-    {
-        return match ($resource) {
-            'appointment' => AppointmentResource::getUrl('edit', ['record' => $record]),
-            'lead' => LeadResource::getUrl('edit', ['record' => $record]),
-            'proposal' => ProposalResource::getUrl('edit', ['record' => $record]),
-            'follow_up' => FollowUpResource::getUrl('edit', ['record' => $record]),
-            'call' => CallRecordResource::getUrl('edit', ['record' => $record]),
-            default => null,
-        };
     }
 
     private function dropModalHeading(array $arguments): string
