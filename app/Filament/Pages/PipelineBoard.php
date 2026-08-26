@@ -252,6 +252,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
         return Actions\Action::make('drop')
             ->modalHeading(fn (array $arguments) => $this->dropModalHeading($arguments))
             ->modalSubmitActionLabel('Confirm move')
+            ->modalSubmitAction(fn (array $arguments) => $this->isDropEligible($arguments) ? null : false)
+            ->modalCancelActionLabel(fn (array $arguments) => $this->isDropEligible($arguments) ? 'Cancel' : 'Close')
             ->form(fn (array $arguments) => $this->dropFormSchema($arguments))
             ->action(function (array $data, array $arguments) {
                 $this->performDrop($arguments, $data);
@@ -628,11 +630,47 @@ class PipelineBoard extends Page implements HasActions, HasForms
      */
     private function dropFormSchema(array $arguments): array
     {
+        if (! $this->isDropEligible($arguments)) {
+            return [
+                Forms\Components\Placeholder::make('unsupported')
+                    ->label('Not available')
+                    ->content($this->unsupportedDropReason($arguments)),
+            ];
+        }
+
         $resource = $arguments['resource'] ?? null;
         $stage = (string) ($arguments['stage'] ?? '');
         $record = $this->resolveDropRecord($arguments);
 
         return $this->stageFields($resource, $stage, '', $record);
+    }
+
+    /**
+     * Lost is a one-way door for Lead, matching the rest of the app —
+     * there is no "un-lose" mechanism anywhere else (is_lost/lost_reason
+     * aren't even in Lead's own $fillable, only markLost() sets them via
+     * forceFill()), so dragging a Lost Lead into any active stage is
+     * rejected outright — a genuine drop-eligibility gate, mirroring the
+     * same submit-disabled placeholder pattern crossDropAction() already
+     * uses for its own blocked cases, rather than silently reviving it or
+     * failing quietly while still claiming success.
+     */
+    private function isDropEligible(array $arguments): bool
+    {
+        $resource = $arguments['resource'] ?? null;
+        $stage = (string) ($arguments['stage'] ?? '');
+        $record = $this->resolveDropRecord($arguments);
+
+        if ($resource === 'lead' && $record instanceof Lead && $record->is_lost && $stage !== 'lost') {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function unsupportedDropReason(array $arguments): string
+    {
+        return 'This Lead is marked Lost — open it directly if you need to revisit that.';
     }
 
     private function isCrossDropEligible(array $arguments): bool
@@ -815,6 +853,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
      */
     private function proposalStageFields(?string $stage, ?Proposal $record, string $prefix): array
     {
+        $resetFields = $this->proposalOutcomeResetFields($stage, $record, $prefix);
+
         if ($stage === ProposalStage::Sent->value) {
             // Same fields/config as ProposalResource::form()'s own value/
             // sent_at/pdf_path — neither value nor sent_at is required
@@ -823,7 +863,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             // have. pdf_path is required the moment the stage is Sent, same
             // disk/visibility/validation, so this dialog can never accept
             // something that Proposal's own Edit form would reject.
-            return [
+            return array_merge($resetFields, [
                 Forms\Components\TextInput::make("{$prefix}value")
                     ->label('Proposal Value (₹)')
                     ->numeric()
@@ -846,7 +886,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                             Storage::disk('local')->delete($file);
                         }
                     }),
-            ];
+            ]);
         }
 
         // Confirmed: dragging all the way to Accepted/Rejected also sets the
@@ -870,7 +910,43 @@ class PipelineBoard extends Page implements HasActions, HasForms
             ];
         }
 
-        return [];
+        // Being Prepared with no outcome to reset: no fields at all, same
+        // as before.
+        return $resetFields;
+    }
+
+    /**
+     * Moving backward out of a decided Final Outcome (Won/Lost) into a
+     * non-terminal stage doesn't silently drop that decision — outcome and
+     * stage are independent Proposal columns with no automatic sync
+     * anywhere in the app (ProposalResource's own Edit form treats Final
+     * Outcome as a plain, independently-editable Select the human manages
+     * themselves), so the rep must explicitly confirm clearing it via this
+     * required, ->accepted() checkbox. Once Filament's own validation lets
+     * the submission through at all, dropProposal() knows the confirmation
+     * already happened and clears `outcome` unconditionally.
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    private function proposalOutcomeResetFields(?string $stage, ?Proposal $record, string $prefix): array
+    {
+        if (! in_array($stage, [ProposalStage::BeingPrepared->value, ProposalStage::Sent->value], true)) {
+            return [];
+        }
+
+        if ($record?->outcome === null) {
+            return [];
+        }
+
+        return [
+            Forms\Components\Placeholder::make("{$prefix}outcome_reset_notice")
+                ->label('Final Outcome will be cleared')
+                ->content("Currently {$record->outcome->getLabel()} — moving this Proposal back means it's no longer decided."),
+            Forms\Components\Checkbox::make("{$prefix}confirm_outcome_reset")
+                ->label('Yes, clear the Final Outcome and move this Proposal back')
+                ->required()
+                ->accepted(),
+        ];
     }
 
     /**
@@ -1125,6 +1201,14 @@ class PipelineBoard extends Page implements HasActions, HasForms
             return;
         }
 
+        // Lost is a one-way door — re-verified here server-side, not just
+        // in isDropEligible()'s dialog-gating, since arguments travel from
+        // client-side JS (same reasoning as the cross-drop eligibility
+        // re-checks elsewhere in this file).
+        if ($lead->is_lost) {
+            return;
+        }
+
         $resolved = LeadStage::tryFrom($stage);
 
         if (! $resolved || $lead->stage === $resolved) {
@@ -1166,6 +1250,14 @@ class PipelineBoard extends Page implements HasActions, HasForms
         } elseif ($resolved === ProposalStage::CustomerRejected) {
             $update['outcome'] = ProposalOutcome::Lost;
             $update['notes'] = $data['notes'] ?? null;
+        }
+
+        // Moving backward out of a decided Final Outcome — the dialog's own
+        // required ->accepted() checkbox (see proposalOutcomeResetFields())
+        // already gated reaching this line at all whenever there was an
+        // outcome to clear, so it's cleared unconditionally here.
+        if (! $resolved->isTerminal() && $proposal->outcome !== null) {
+            $update['outcome'] = null;
         }
 
         $this->applyDrop($proposal, $update, $resolved->getLabel());
