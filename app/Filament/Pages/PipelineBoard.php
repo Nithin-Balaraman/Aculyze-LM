@@ -14,6 +14,7 @@ use App\Filament\Resources\CallRecordResource;
 use App\Filament\Resources\FollowUpResource;
 use App\Filament\Resources\LeadResource;
 use App\Filament\Resources\ProposalResource;
+use App\Filament\Resources\ProspectResource;
 use App\Models\Appointment;
 use App\Models\CallRecord;
 use App\Models\FollowUp;
@@ -147,6 +148,86 @@ class PipelineBoard extends Page implements HasActions, HasForms
      *
      * @return array<string, array{label: string, stages: array<string, array{label: string, terminal: bool, cards: array<int, array<string, mixed>>}>}>
      */
+    /**
+     * Phase 5: "+ Create company" — Call is the pipeline's ORIGIN lane (see
+     * callLane()'s own docblock), so a brand-new company can't sensibly
+     * enter the board at any other point than its first logged call. One
+     * combined dialog rather than two separate steps: ProspectResource's
+     * own formSchema() (identical Company/Location/Ownership/Notes fields,
+     * same validation) plus callLogFormSchema() (identical to the "Log a
+     * New Call" dialog — see the Phase 4 docblock above), prefixed 'call_'
+     * to avoid colliding with Prospect's own `designation`/`notes` fields.
+     * See performCreateCompany().
+     */
+    protected function getHeaderActions(): array
+    {
+        return [
+            Actions\Action::make('createCompany')
+                ->label('+ Create company')
+                ->modalHeading('Create Company')
+                ->modalWidth('2xl')
+                ->modalSubmitActionLabel('Add to board')
+                // ProspectResource::formSchema()'s assigned_to field uses
+                // ->relationship('assignedEmployee', 'name'), which crashes
+                // resolving against this page-level action's default (no)
+                // container model — same root cause CallRecordResource's
+                // own "+ Create new company…" sub-action already hit and
+                // fixed with ->actionFormModel(); here it's ->model()
+                // instead, since this is a top-level Actions\Action.
+                ->model(Prospect::class)
+                ->form(array_merge(
+                    ProspectResource::formSchema(),
+                    [
+                        Forms\Components\Section::make('First Call')
+                            ->schema($this->callLogFormSchema('call_')),
+                    ]
+                ))
+                ->action(function (array $data) {
+                    $this->performCreateCompany($data);
+                }),
+        ];
+    }
+
+    /**
+     * Two real writes in one transaction, same shape as performCrossDrop():
+     * the Prospect first, then its first Call Record (an ordinary Eloquent
+     * ::create(), so CallRecordObserver fires and routes it through the
+     * real CallRoutingService exactly like logNewCall() does) — never a
+     * hand-rolled substitute for either write.
+     */
+    private function performCreateCompany(array $data): void
+    {
+        $data['created_by'] = auth()->id();
+
+        $prospectData = collect($data)->only((new Prospect)->getFillable())->all();
+
+        try {
+            $prospect = DB::transaction(function () use ($data, $prospectData) {
+                $prospect = Prospect::create($prospectData);
+
+                CallRecord::create([
+                    'prospect_id' => $prospect->id,
+                    'user_id' => auth()->id(),
+                    'called_at' => $data['call_called_at'] ?? now(),
+                    'outcome' => $data['call_outcome'] ?? null,
+                    'notes' => $data['call_notes'] ?? null,
+                    'follow_up_at' => $data['call_follow_up_at'] ?? null,
+                    'appointment_at' => $data['call_appointment_at'] ?? null,
+                    'contact_person_spoken_to' => $data['call_contact_person_spoken_to'] ?? null,
+                    'designation' => $data['call_designation'] ?? null,
+                    'phone_called' => $data['call_phone_called'] ?? null,
+                ]);
+
+                return $prospect;
+            });
+        } catch (\LogicException $e) {
+            Notification::make()->title("Couldn't create the company")->body($e->getMessage())->danger()->send();
+            throw new Halt;
+        }
+
+        Notification::make()->title('Added '.$prospect->company_name.' to the board')->success()->send();
+    }
+
     public function getLanes(): array
     {
         return [
@@ -194,6 +275,338 @@ class PipelineBoard extends Page implements HasActions, HasForms
             ->action(function (array $data, array $arguments) {
                 $this->performCrossDrop($arguments, $data);
             });
+    }
+
+    /**
+     * Phase 5: Mark Lost, available on Appointment and Lead cards only —
+     * the only two resources with a real `is_lost` flag distinct from
+     * stage (see markLostSupported()) — dispatched via mountAction
+     * ('markLost', ['resource' => ..., 'id' => ...]) from a small button on
+     * the card, not a drag. Mirrors AppointmentResource/LeadResource's own
+     * existing "Mark Lost" row action exactly: same Reason field, same
+     * ->markLost($reason) model call, same authorization.
+     */
+    public function markLostAction(): Actions\Action
+    {
+        return Actions\Action::make('markLost')
+            ->modalHeading(fn (array $arguments) => $this->markLostModalHeading($arguments))
+            ->modalSubmitActionLabel('Mark Lost')
+            ->form([
+                Forms\Components\Textarea::make('reason')
+                    ->label('Reason')
+                    ->required()
+                    ->rows(3)
+                    ->helperText('Required — why this is being marked Lost.'),
+            ])
+            ->action(function (array $data, array $arguments) {
+                $this->performMarkLost($arguments, $data);
+            });
+    }
+
+    private function markLostModalHeading(array $arguments): string
+    {
+        $record = $this->resolveDropRecord($arguments);
+
+        return ($record?->prospect?->company_name ?? 'Company').' — Mark Lost';
+    }
+
+    private function markLostSupported(?string $resource, ?Model $record): bool
+    {
+        return in_array($resource, ['appointment', 'lead'], true)
+            && $record !== null
+            && ! $record->is_lost;
+    }
+
+    private function performMarkLost(array $arguments, array $data): void
+    {
+        $resource = $arguments['resource'] ?? null;
+        $record = $this->resolveDropRecord($arguments);
+
+        if (! $this->markLostSupported($resource, $record)) {
+            return;
+        }
+
+        $this->authorizeUpdate($record);
+
+        $record->markLost($data['reason'] ?? '');
+
+        Notification::make()->title('Marked Lost')->success()->send();
+    }
+
+    /**
+     * Phase 5: reuses ListFollowUps::summaryAction() verbatim — same
+     * FollowUpResource::companyFollowUpHistory() data and the same
+     * modal view, just resolving the target Follow-Up from this page's own
+     * {id} argument instead of a table row's followUpId. A small "review"
+     * button on Follow-up lane cards only (see the stage-box partial),
+     * dispatched via mountAction('reviewFollowUp', ['id' => ...]).
+     */
+    public function reviewFollowUpAction(): Actions\Action
+    {
+        return Actions\Action::make('reviewFollowUp')
+            ->modalHeading(fn (array $arguments) => ($this->reviewFollowUpRecord($arguments)?->prospect?->company_name ?? 'Unknown Company').' — Follow-Up History')
+            ->modalContent(function (array $arguments) {
+                $followUp = $this->reviewFollowUpRecord($arguments);
+
+                return view('filament.resources.follow-up-resource.pages.follow-up-summary-modal', [
+                    'entries' => $followUp ? FollowUpResource::companyFollowUpHistory($followUp) : collect(),
+                ]);
+            })
+            ->modalSubmitAction(false)
+            ->modalCancelActionLabel('Close');
+    }
+
+    private function reviewFollowUpRecord(array $arguments): ?FollowUp
+    {
+        return FollowUpResource::getEloquentQuery()->with('prospect')->find($arguments['id'] ?? null);
+    }
+
+    /**
+     * Phase 5: a right-click "History" menu item on every card, regardless
+     * of resource (see the stage-box partial's contextmenu handler),
+     * dispatched via mountAction('cardHistory', ['resource' => ...,
+     * 'id' => ...]). Deliberately different in kind from
+     * reviewFollowUpAction() above (which is per-company, Follow-up only,
+     * and reuses an existing feature verbatim): this is new, per-record,
+     * and spans all five resources.
+     *
+     * There is no audit-log table anywhere in this schema — every model
+     * carries only a single `stage_changed_at` timestamp for its LAST
+     * transition, never a full history of every prior one (confirmed
+     * across Appointment/Lead/Proposal's migrations and casts()). So this
+     * is scoped honestly to what the data actually supports: that one
+     * record's own current detail, plus its lineage — what created it
+     * (e.g. "Created from Call #12"), and what it in turn created (e.g.
+     * "Created Appointment #4") — never a fabricated change-by-change
+     * timeline the schema doesn't have.
+     */
+    public function cardHistoryAction(): Actions\Action
+    {
+        return Actions\Action::make('cardHistory')
+            ->modalHeading(fn (array $arguments) => $this->cardHistoryHeading($arguments))
+            ->modalContent(fn (array $arguments) => view(
+                'filament.pages.partials.pipeline-board-history-modal',
+                $this->cardHistoryData($arguments)
+            ))
+            ->modalSubmitAction(false)
+            ->modalCancelActionLabel('Close');
+    }
+
+    private function cardHistoryHeading(array $arguments): string
+    {
+        $record = $this->resolveDropRecord($arguments);
+        $company = $record?->prospect?->company_name ?? 'Unknown Company';
+        $label = $this->resourceLabel((string) ($arguments['resource'] ?? ''));
+
+        return "{$company} — {$label} History";
+    }
+
+    /**
+     * @return array{fields: array<int, array{label: string, value: string}>, lineage: array<int, string>, url: ?string}
+     */
+    private function cardHistoryData(array $arguments): array
+    {
+        $resource = $arguments['resource'] ?? null;
+        $record = $this->resolveDropRecord($arguments);
+
+        if (! $record) {
+            return ['fields' => [], 'lineage' => [], 'url' => null];
+        }
+
+        return [
+            'fields' => match ($resource) {
+                'call' => $this->callHistoryFields($record),
+                'follow_up' => $this->followUpHistoryFields($record),
+                'appointment' => $this->appointmentHistoryFields($record),
+                'lead' => $this->leadHistoryFields($record),
+                'proposal' => $this->proposalHistoryFields($record),
+                default => [],
+            },
+            'lineage' => $this->recordLineage($resource, $record),
+            'url' => $this->recordHistoryUrl($resource, $record),
+        ];
+    }
+
+    /**
+     * @return array<int, array{label: string, value: string}>
+     */
+    private function callHistoryFields(CallRecord $call): array
+    {
+        return [
+            ['label' => 'Outcome', 'value' => $call->outcome->getLabel()],
+            ['label' => 'Called At', 'value' => $call->called_at?->format('d M Y, h:i A') ?? '—'],
+            ['label' => 'Contact Person Spoken To', 'value' => $call->contact_person_spoken_to ?: '—'],
+            ['label' => 'Designation', 'value' => $call->designation ?: '—'],
+            ['label' => 'Phone Called', 'value' => $call->phone_called ?: '—'],
+            ['label' => 'Notes', 'value' => $call->notes ?: '—'],
+        ];
+    }
+
+    /**
+     * @return array<int, array{label: string, value: string}>
+     */
+    private function followUpHistoryFields(FollowUp $followUp): array
+    {
+        return [
+            ['label' => 'Status', 'value' => $followUp->status->getLabel()],
+            ['label' => 'Reason', 'value' => $followUp->reason ?: '—'],
+            ['label' => 'Follow Up At', 'value' => $followUp->follow_up_at?->format('d M Y, h:i A') ?? '—'],
+            ['label' => 'Notes', 'value' => $followUp->notes ?: '—'],
+            ['label' => 'Created', 'value' => $followUp->created_at?->format('d M Y, h:i A') ?? '—'],
+        ];
+    }
+
+    /**
+     * @return array<int, array{label: string, value: string}>
+     */
+    private function appointmentHistoryFields(Appointment $appointment): array
+    {
+        return [
+            ['label' => 'Stage', 'value' => $appointment->stage->getLabel()],
+            ['label' => 'Stage Changed At', 'value' => $appointment->stage_changed_at?->format('d M Y, h:i A') ?? '—'],
+            ['label' => 'Appointment At', 'value' => $appointment->appointment_at?->format('d M Y, h:i A') ?? '—'],
+            ['label' => 'Outcome Notes', 'value' => $appointment->outcome_notes ?: '—'],
+            ['label' => 'Lost', 'value' => $appointment->is_lost ? ('Yes — '.($appointment->lost_reason ?: 'no reason given')) : 'No'],
+            ['label' => 'Created', 'value' => $appointment->created_at?->format('d M Y, h:i A') ?? '—'],
+        ];
+    }
+
+    /**
+     * @return array<int, array{label: string, value: string}>
+     */
+    private function leadHistoryFields(Lead $lead): array
+    {
+        return [
+            ['label' => 'Stage', 'value' => $lead->stage->getLabel()],
+            ['label' => 'Stage Changed At', 'value' => $lead->stage_changed_at?->format('d M Y, h:i A') ?? '—'],
+            ['label' => 'Temperature', 'value' => $lead->temperature->getLabel()],
+            ['label' => 'Requirement Details', 'value' => $lead->requirement_details ?: '—'],
+            ['label' => 'Notes', 'value' => $lead->notes ?: '—'],
+            ['label' => 'Lost', 'value' => $lead->is_lost ? ('Yes — '.($lead->lost_reason ?: 'no reason given')) : 'No'],
+            ['label' => 'Created', 'value' => $lead->created_at?->format('d M Y, h:i A') ?? '—'],
+        ];
+    }
+
+    /**
+     * @return array<int, array{label: string, value: string}>
+     */
+    private function proposalHistoryFields(Proposal $proposal): array
+    {
+        return [
+            ['label' => 'Stage', 'value' => $proposal->stage->getLabel()],
+            ['label' => 'Stage Changed At', 'value' => $proposal->stage_changed_at?->format('d M Y, h:i A') ?? '—'],
+            ['label' => 'Outcome', 'value' => $proposal->outcome?->getLabel() ?? '—'],
+            ['label' => 'Value', 'value' => $proposal->value ? '₹'.number_format((float) $proposal->value) : '—'],
+            ['label' => 'Notes', 'value' => $proposal->notes ?: '—'],
+            ['label' => 'Created', 'value' => $proposal->created_at?->format('d M Y, h:i A') ?? '—'],
+        ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function recordLineage(?string $resource, Model $record): array
+    {
+        return match ($resource) {
+            'call' => $this->callLineage($record),
+            'follow_up' => $this->followUpLineage($record),
+            'appointment' => $this->appointmentLineage($record),
+            'lead' => $this->leadLineage($record),
+            'proposal' => $this->proposalLineage($record),
+            default => [],
+        };
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function callLineage(CallRecord $call): array
+    {
+        $lines = [
+            $call->follow_up_id
+                ? 'Generated by completing Follow-up #'.$call->follow_up_id
+                : 'Logged directly — not generated by completing a Follow-up',
+        ];
+
+        if ($call->followUp) {
+            $lines[] = 'Created Follow-up #'.$call->followUp->id;
+        }
+        if ($call->appointment) {
+            $lines[] = 'Created Appointment #'.$call->appointment->id;
+        }
+        if ($call->lead) {
+            $lines[] = 'Created Lead #'.$call->lead->id;
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function followUpLineage(FollowUp $followUp): array
+    {
+        $lines = [
+            $followUp->call_record_id
+                ? 'Created from Call #'.$followUp->call_record_id
+                : 'Created directly — not from a logged call',
+        ];
+
+        if ($followUp->generatedCallRecord) {
+            $lines[] = 'Completing this created Call #'.$followUp->generatedCallRecord->id;
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function appointmentLineage(Appointment $appointment): array
+    {
+        return [
+            $appointment->call_record_id
+                ? 'Created from Call #'.$appointment->call_record_id
+                : 'Created directly — not from a logged call',
+        ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function leadLineage(Lead $lead): array
+    {
+        $lines = [
+            $lead->call_record_id
+                ? 'Created from Call #'.$lead->call_record_id
+                : 'Created directly — not from a logged call',
+        ];
+
+        if ($lead->proposal) {
+            $lines[] = 'Has Proposal #'.$lead->proposal->id;
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function proposalLineage(Proposal $proposal): array
+    {
+        return ['Created from Lead #'.$proposal->lead_id];
+    }
+
+    private function recordHistoryUrl(?string $resource, Model $record): ?string
+    {
+        return match ($resource) {
+            'appointment' => AppointmentResource::getUrl('view', ['record' => $record]),
+            'lead' => LeadResource::getUrl('view', ['record' => $record]),
+            'proposal' => ProposalResource::getUrl('view', ['record' => $record]),
+            'follow_up' => FollowUpResource::getUrl('view', ['record' => $record]),
+            'call' => CallRecordResource::getUrl('view', ['record' => $record]),
+            default => null,
+        };
     }
 
     private function dropModalHeading(array $arguments): string
@@ -494,50 +907,57 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * Mirrors CallRecordResource::form()'s own Call Details fields exactly —
      * same validation/config, same outcome-driven conditional visibility for
      * Follow Up At/Appointment At/Notes — minus the Company select, which is
-     * already implied by which Call card was dragged. Used only by the
-     * cross-lane dialog when the dragged source is itself a Call (see
-     * crossDropFormSchema()/logNewCall()); Call is never a same-lane drag
-     * (it has only the one box) and never a cross-lane destination.
+     * already implied by which Call card was dragged (or, for
+     * createCompanyAction(), by the Prospect just created in the same
+     * submit). Used by the cross-lane dialog when the dragged source is
+     * itself a Call (see crossDropFormSchema()/logNewCall()) and by
+     * createCompanyAction()'s "+ Create company" flow; Call is never a
+     * same-lane drag (it has only the one box) and never a cross-lane
+     * destination. $prefix avoids a field-name collision with
+     * ProspectResource::formSchema()'s own `designation`/`notes` fields
+     * when createCompanyAction() combines both into one form.
      *
      * @return array<int, Forms\Components\Component>
      */
-    private function callLogFormSchema(): array
+    private function callLogFormSchema(string $prefix = ''): array
     {
         return [
-            Forms\Components\DateTimePicker::make('called_at')
+            Forms\Components\DateTimePicker::make("{$prefix}called_at")
                 ->label('Called At')
                 ->seconds(false)
                 ->required()
                 ->default(now()),
-            Forms\Components\Select::make('outcome')
+            Forms\Components\Select::make("{$prefix}outcome")
                 ->label('Call Outcome')
                 ->options(CallOutcome::class)
                 ->required()
                 ->live()
                 ->helperText('Determines what happens next — see the Follow-Ups, Appointments, and Leads panels.'),
-            Forms\Components\TextInput::make('contact_person_spoken_to')
+            Forms\Components\TextInput::make("{$prefix}contact_person_spoken_to")
                 ->label('Contact Person Spoken To')
                 ->maxLength(255),
-            Forms\Components\TextInput::make('designation')
+            Forms\Components\TextInput::make("{$prefix}designation")
+                ->label('Designation')
                 ->placeholder('e.g. Manager, Owner, Procurement Head')
                 ->maxLength(255),
-            Forms\Components\TextInput::make('phone_called')
+            Forms\Components\TextInput::make("{$prefix}phone_called")
                 ->label('Phone Called')
                 ->tel()
                 ->maxLength(20),
-            Forms\Components\DateTimePicker::make('follow_up_at')
+            Forms\Components\DateTimePicker::make("{$prefix}follow_up_at")
                 ->label('Follow Up At')
                 ->seconds(false)
-                ->visible(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome'))?->routesToFollowUp() ?? false)
-                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome'))?->routesToFollowUp() ?? false),
-            Forms\Components\DateTimePicker::make('appointment_at')
+                ->visible(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->routesToFollowUp() ?? false)
+                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->routesToFollowUp() ?? false),
+            Forms\Components\DateTimePicker::make("{$prefix}appointment_at")
                 ->label('Appointment At')
                 ->seconds(false)
-                ->visible(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome'))?->routesToAppointment() ?? false)
-                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome'))?->routesToAppointment() ?? false),
-            Forms\Components\Textarea::make('notes')
+                ->visible(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->routesToAppointment() ?? false)
+                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->routesToAppointment() ?? false),
+            Forms\Components\Textarea::make("{$prefix}notes")
+                ->label('Call Notes')
                 ->rows(3)
-                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome'))?->requiresNotes() ?? false)
+                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->requiresNotes() ?? false)
                 ->validationMessages([
                     'required' => 'Notes are required for this outcome — only No Answer, Switched Off, and Not Reachable are exempt.',
                 ]),
