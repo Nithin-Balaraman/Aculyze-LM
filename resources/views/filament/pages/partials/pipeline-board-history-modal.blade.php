@@ -1,10 +1,12 @@
 {{--
     Read-only content for the "cardHistory" action's modal — see
-    PipelineBoard::cardHistoryData() for how $fields/$lineage/$url are built.
-    There is no audit-log table in this schema (only a single
+    PipelineBoard::cardHistoryData() for how $fields/$lineage/$url/$editUrl
+    are built. There is no audit-log table in this schema (only a single
     stage_changed_at timestamp per record), so this is deliberately scoped
     to that one record's own current detail plus its lineage — not a
-    fabricated change-by-change timeline.
+    fabricated change-by-change timeline. This is also the primary way a
+    plain click on a card reaches this record now (replacing straight
+    navigation) — $editUrl is the way back to the real Edit page.
 --}}
 <div class="space-y-4">
     <div class="rounded-lg border border-gray-200 dark:border-white/10">
@@ -29,7 +31,16 @@
         </div>
     @endif
 
-    @if ($url)
-        <a href="{{ $url }}" class="text-sm font-medium text-brand-cyan hover:underline">View full record →</a>
-    @endif
+    <div class="flex items-center gap-3">
+        @if ($url)
+            <a href="{{ $url }}" class="text-sm font-medium text-brand-cyan hover:underline">View full record →</a>
+        @endif
+
+        @if ($editUrl)
+            <a
+                href="{{ $editUrl }}"
+                class="ms-auto rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:border-white/15 dark:text-gray-200 dark:hover:bg-white/5"
+            >Edit</a>
+        @endif
+    </div>
 </div>

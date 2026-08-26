@@ -410,7 +410,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
         $record = $this->resolveDropRecord($arguments);
 
         if (! $record) {
-            return ['fields' => [], 'lineage' => [], 'url' => null];
+            return ['fields' => [], 'lineage' => [], 'url' => null, 'editUrl' => null];
         }
 
         return [
@@ -424,6 +424,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             },
             'lineage' => $this->recordLineage($resource, $record),
             'url' => $this->recordHistoryUrl($resource, $record),
+            'editUrl' => auth()->user()?->can('update', $record) ? $this->recordEditUrl($resource, $record) : null,
         ];
     }
 
@@ -447,11 +448,21 @@ class PipelineBoard extends Page implements HasActions, HasForms
      */
     private function followUpHistoryFields(FollowUp $followUp): array
     {
+        // Completing a Follow-Up stores its Notes on the CALL RECORD that
+        // completion creates (see FollowUp::completeWithCall()), never on
+        // the Follow-Up's own `notes` column — mirrors the exact same
+        // conditional FollowUpResource::companyFollowUpHistory() already
+        // uses, which this method previously failed to (a real bug: a
+        // completed Follow-Up's real Notes always read back as "—" here).
+        $notes = $followUp->status === FollowUpStatus::Completed
+            ? $followUp->generatedCallRecord?->notes
+            : $followUp->notes;
+
         return [
             ['label' => 'Status', 'value' => $followUp->status->getLabel()],
             ['label' => 'Reason', 'value' => $followUp->reason ?: '—'],
             ['label' => 'Follow Up At', 'value' => $followUp->follow_up_at?->format('d M Y, h:i A') ?? '—'],
-            ['label' => 'Notes', 'value' => $followUp->notes ?: '—'],
+            ['label' => 'Notes', 'value' => $notes ?: '—'],
             ['label' => 'Created', 'value' => $followUp->created_at?->format('d M Y, h:i A') ?? '—'],
         ];
     }
@@ -605,6 +616,18 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'proposal' => ProposalResource::getUrl('view', ['record' => $record]),
             'follow_up' => FollowUpResource::getUrl('view', ['record' => $record]),
             'call' => CallRecordResource::getUrl('view', ['record' => $record]),
+            default => null,
+        };
+    }
+
+    private function recordEditUrl(?string $resource, Model $record): ?string
+    {
+        return match ($resource) {
+            'appointment' => AppointmentResource::getUrl('edit', ['record' => $record]),
+            'lead' => LeadResource::getUrl('edit', ['record' => $record]),
+            'proposal' => ProposalResource::getUrl('edit', ['record' => $record]),
+            'follow_up' => FollowUpResource::getUrl('edit', ['record' => $record]),
+            'call' => CallRecordResource::getUrl('edit', ['record' => $record]),
             default => null,
         };
     }
