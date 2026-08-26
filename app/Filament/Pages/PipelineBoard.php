@@ -29,6 +29,7 @@ use Filament\Forms\Contracts\HasForms;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Exceptions\Halt;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -200,6 +201,16 @@ class PipelineBoard extends Page implements HasActions, HasForms
         Notification::make()->title('Logged call for '.$call->prospect->company_name)->success()->send();
     }
 
+    /**
+     * Board-wide period filter (Phase 6) — a plain public Livewire
+     * property so the header's `wire:model.live` select re-renders the
+     * whole board on change, same as any other reactive property. Options
+     * are validated in periodRange() below (an unrecognized value, e.g. a
+     * stale bookmark, falls through to its `default` branch and behaves
+     * as "All time" rather than throwing).
+     */
+    public string $period = 'all';
+
     public function getLanes(): array
     {
         return [
@@ -209,6 +220,36 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'lead' => $this->leadLane(),
             'proposal' => $this->proposalLane(),
         ];
+    }
+
+    /**
+     * @return array{0: \Illuminate\Support\Carbon, 1: \Illuminate\Support\Carbon}|null
+     */
+    private function periodRange(): ?array
+    {
+        return match ($this->period) {
+            'today' => [now()->startOfDay(), now()->endOfDay()],
+            'week' => [now()->startOfWeek(), now()->endOfWeek()],
+            'month' => [now()->startOfMonth(), now()->endOfMonth()],
+            'quarter' => [now()->startOfQuarter(), now()->endOfQuarter()],
+            default => null,
+        };
+    }
+
+    /**
+     * Applied per-lane against whichever date column is most meaningful
+     * for that resource's own recency — Call -> called_at, Follow-up ->
+     * created_at, Appointment/Lead/Proposal -> stage_changed_at (when a
+     * card's CURRENT position on the board became true, not when the
+     * underlying row was first created) — a decision made explicitly for
+     * this feature rather than reusing whatever column each lane's query
+     * already happened to sort by.
+     */
+    private function scopeToPeriod(Builder $query, string $column): Builder
+    {
+        $range = $this->periodRange();
+
+        return $range ? $query->whereBetween($column, $range) : $query;
     }
 
     /**
@@ -1822,8 +1863,10 @@ class PipelineBoard extends Page implements HasActions, HasForms
      */
     private function callLane(): array
     {
-        $calls = CallRecordResource::getEloquentQuery()
-            ->with('prospect')
+        $calls = $this->scopeToPeriod(
+            CallRecordResource::getEloquentQuery()->with('prospect'),
+            'called_at',
+        )
             ->latest('called_at')
             ->get();
 
@@ -1847,8 +1890,10 @@ class PipelineBoard extends Page implements HasActions, HasForms
 
     private function followUpLane(): array
     {
-        $followUps = FollowUpResource::getEloquentQuery()
-            ->with('prospect')
+        $followUps = $this->scopeToPeriod(
+            FollowUpResource::getEloquentQuery()->with('prospect'),
+            'created_at',
+        )
             ->latest('follow_up_at')
             ->get()
             ->groupBy(fn (FollowUp $followUp) => $followUp->status->value);
@@ -1883,7 +1928,10 @@ class PipelineBoard extends Page implements HasActions, HasForms
     {
         return $this->stageBasedLane(
             label: 'Appointment',
-            records: AppointmentResource::getEloquentQuery()->with('prospect')->latest('appointment_at')->get(),
+            records: $this->scopeToPeriod(
+                AppointmentResource::getEloquentQuery()->with('prospect'),
+                'stage_changed_at',
+            )->latest('appointment_at')->get(),
             cases: AppointmentStage::cases(),
             stageOf: fn (Appointment $appointment) => $appointment->stage,
             meta: fn (Appointment $appointment) => $appointment->appointment_at?->format('d M, h:i A') ?? 'Not scheduled',
@@ -1897,7 +1945,10 @@ class PipelineBoard extends Page implements HasActions, HasForms
     {
         $lane = $this->stageBasedLane(
             label: 'Lead',
-            records: LeadResource::getEloquentQuery()->with('prospect')->latest('created_at')->get(),
+            records: $this->scopeToPeriod(
+                LeadResource::getEloquentQuery()->with('prospect'),
+                'stage_changed_at',
+            )->latest('created_at')->get(),
             cases: LeadStage::cases(),
             stageOf: fn (Lead $lead) => $lead->stage,
             meta: fn (Lead $lead) => $lead->temperature->getLabel().' · since '.$lead->stage_changed_at?->format('d M'),
@@ -1952,7 +2003,10 @@ class PipelineBoard extends Page implements HasActions, HasForms
     {
         return $this->stageBasedLane(
             label: 'Proposal',
-            records: ProposalResource::getEloquentQuery()->with('prospect')->latest('created_at')->get(),
+            records: $this->scopeToPeriod(
+                ProposalResource::getEloquentQuery()->with('prospect'),
+                'stage_changed_at',
+            )->latest('created_at')->get(),
             cases: ProposalStage::cases(),
             stageOf: fn (Proposal $proposal) => $proposal->stage,
             meta: fn (Proposal $proposal) => $proposal->value ? '₹'.number_format((float) $proposal->value) : 'No value set',

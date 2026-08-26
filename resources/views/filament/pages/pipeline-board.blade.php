@@ -31,9 +31,30 @@
 @endphp
 
 <x-filament-panels::page>
-    <p class="text-sm text-gray-500 dark:text-gray-400">
-        Every Call, Follow-up, Appointment, Lead, and Proposal you can see, grouped into its real stage. Drag a card within its own lane to move it, or into another lane to create a linked record there.
-    </p>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <p class="text-sm text-gray-500 dark:text-gray-400">
+            Every Call, Follow-up, Appointment, Lead, and Proposal you can see, grouped into its real stage. Drag a card within its own lane to move it, or into another lane to create a linked record there.
+        </p>
+
+        {{-- Phase 6: filters which cards appear across every lane at once,
+        based on each resource's own most meaningful recency date rather
+        than a single shared column — see PipelineBoard::periodRange()/
+        scopeToPeriod(). --}}
+        <div class="flex shrink-0 items-center gap-2">
+            <label for="pipeline-board-period" class="font-mono text-[10px] uppercase tracking-wider text-gray-400 dark:text-white/40">Period</label>
+            <select
+                id="pipeline-board-period"
+                wire:model.live="period"
+                class="block rounded-lg border-gray-300 py-1.5 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-white/10 dark:bg-white/5 dark:text-white"
+            >
+                <option value="all">All time</option>
+                <option value="today">Today</option>
+                <option value="week">This week</option>
+                <option value="month">This month</option>
+                <option value="quarter">This quarter</option>
+            </select>
+        </div>
+    </div>
 
     <div class="-mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
         <div class="flex items-start gap-5">
