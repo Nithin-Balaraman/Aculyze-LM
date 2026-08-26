@@ -108,10 +108,10 @@
                         triggers the same action; this button keeps it discoverable. --}}
                         <button
                             type="button"
-                            title="Review this company's Follow-Up history"
+                            title="This company's Follow-Up Summary"
                             x-on:click.stop.prevent="$wire.mountAction('reviewFollowUp', { id: {{ $card['id'] }} })"
                             class="ms-auto shrink-0 rounded border border-gray-200 px-1 py-0.5 font-mono text-[9px] font-semibold text-gray-400 transition hover:border-brand-cyan/60 hover:bg-brand-cyan/10 hover:text-brand-cyan dark:border-white/10 dark:text-gray-500"
-                        >↻ REVIEW</button>
+                        >↻ SUMMARY</button>
                     @endif
                 </div>
             </a>

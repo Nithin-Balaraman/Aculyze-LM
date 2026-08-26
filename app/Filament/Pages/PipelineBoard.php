@@ -408,6 +408,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             ['label' => 'Follow Up At', 'value' => $followUp->follow_up_at?->format('d M Y, h:i A') ?? '—'],
             ['label' => 'Notes', 'value' => $notes ?: '—'],
             ['label' => 'Created', 'value' => $followUp->created_at?->format('d M Y, h:i A') ?? '—'],
+            ...$this->originatingCallFields($followUp->callRecord),
         ];
     }
 
@@ -420,9 +421,11 @@ class PipelineBoard extends Page implements HasActions, HasForms
             ['label' => 'Stage', 'value' => $appointment->stage->getLabel()],
             ['label' => 'Stage Changed At', 'value' => $appointment->stage_changed_at?->format('d M Y, h:i A') ?? '—'],
             ['label' => 'Appointment At', 'value' => $appointment->appointment_at?->format('d M Y, h:i A') ?? '—'],
+            ['label' => 'Meeting Notes', 'value' => $appointment->meeting_notes ?: '—'],
             ['label' => 'Outcome Notes', 'value' => $appointment->outcome_notes ?: '—'],
             ['label' => 'Lost', 'value' => $appointment->is_lost ? ('Yes — '.($appointment->lost_reason ?: 'no reason given')) : 'No'],
             ['label' => 'Created', 'value' => $appointment->created_at?->format('d M Y, h:i A') ?? '—'],
+            ...$this->originatingCallFields($appointment->callRecord),
         ];
     }
 
@@ -439,6 +442,28 @@ class PipelineBoard extends Page implements HasActions, HasForms
             ['label' => 'Notes', 'value' => $lead->notes ?: '—'],
             ['label' => 'Lost', 'value' => $lead->is_lost ? ('Yes — '.($lead->lost_reason ?: 'no reason given')) : 'No'],
             ['label' => 'Created', 'value' => $lead->created_at?->format('d M Y, h:i A') ?? '—'],
+            ...$this->originatingCallFields($lead->callRecord),
+        ];
+    }
+
+    /**
+     * The originating Call Record's own outcome/notes, surfaced as
+     * read-only reference context on any record it routed to (Follow-up/
+     * Appointment/Lead) — not stored on that resource's own columns at all,
+     * so without this there was no way to see "why does this record
+     * exist" short of separately following the lineage link.
+     *
+     * @return array<int, array{label: string, value: string}>
+     */
+    private function originatingCallFields(?CallRecord $callRecord): array
+    {
+        if (! $callRecord) {
+            return [];
+        }
+
+        return [
+            ['label' => 'From Call — Outcome', 'value' => $callRecord->outcome->getLabel()],
+            ['label' => 'From Call — Notes', 'value' => $callRecord->notes ?: '—'],
         ];
     }
 
@@ -704,6 +729,35 @@ class PipelineBoard extends Page implements HasActions, HasForms
     {
         $resolved = AppointmentStage::tryFrom((string) $stage);
 
+        // Mirrors AppointmentResource::form()'s own meeting_notes field
+        // exactly — optional there, so optional here too rather than
+        // introducing a stricter rule the resource's own form doesn't have.
+        if ($resolved === AppointmentStage::VisitConducted) {
+            return [
+                Forms\Components\Textarea::make("{$prefix}meeting_notes")
+                    ->label('Meeting Notes')
+                    ->rows(3)
+                    ->default($record?->meeting_notes),
+            ];
+        }
+
+        // Discussion Completed writes into the SAME outcome_notes column the
+        // terminal branch below required()s — not yet required here (the
+        // model only requires it once terminal, matching
+        // AppointmentResource::form()'s own outcome_notes rule), but the
+        // terminal branch's ->default($record?->outcome_notes) means
+        // whatever's typed here carries forward automatically once the
+        // Appointment actually reaches Succeeded/Not Succeeded, so the rep
+        // isn't retyping the same context.
+        if ($resolved === AppointmentStage::DiscussionCompleted) {
+            return [
+                Forms\Components\Textarea::make("{$prefix}outcome_notes")
+                    ->label('Outcome Notes')
+                    ->rows(3)
+                    ->default($record?->outcome_notes),
+            ];
+        }
+
         if (! ($resolved?->isTerminal() ?? false)) {
             return [];
         }
@@ -762,11 +816,21 @@ class PipelineBoard extends Page implements HasActions, HasForms
     private function proposalStageFields(?string $stage, ?Proposal $record, string $prefix): array
     {
         if ($stage === ProposalStage::Sent->value) {
-            // Same field/config as ProposalResource::form()'s own pdf_path —
-            // required the moment the stage is Sent, same disk/visibility/
-            // validation, so this dialog can never accept something that
-            // Proposal's own Edit form would reject.
+            // Same fields/config as ProposalResource::form()'s own value/
+            // sent_at/pdf_path — neither value nor sent_at is required
+            // there either, so this dialog mirrors that exactly rather than
+            // introducing a stricter rule the resource's own form doesn't
+            // have. pdf_path is required the moment the stage is Sent, same
+            // disk/visibility/validation, so this dialog can never accept
+            // something that Proposal's own Edit form would reject.
             return [
+                Forms\Components\TextInput::make("{$prefix}value")
+                    ->label('Proposal Value (₹)')
+                    ->numeric()
+                    ->prefix('₹')
+                    ->default($record?->value),
+                Forms\Components\DatePicker::make("{$prefix}sent_at")
+                    ->default($record?->sent_at),
                 Forms\Components\FileUpload::make("{$prefix}pdf_path")
                     ->label('Proposal PDF')
                     ->disk('local')
@@ -990,7 +1054,9 @@ class PipelineBoard extends Page implements HasActions, HasForms
 
         $update = ['stage' => $resolved];
 
-        if ($resolved->isTerminal()) {
+        if ($resolved === AppointmentStage::VisitConducted) {
+            $update['meeting_notes'] = $data['meeting_notes'] ?? null;
+        } elseif ($resolved === AppointmentStage::DiscussionCompleted || $resolved->isTerminal()) {
             $update['outcome_notes'] = $data['outcome_notes'] ?? null;
         }
 
@@ -1092,6 +1158,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
 
         if ($resolved === ProposalStage::Sent) {
             $update['pdf_path'] = $data['pdf_path'] ?? null;
+            $update['value'] = $data['value'] ?? null;
+            $update['sent_at'] = $data['sent_at'] ?? null;
         } elseif ($resolved === ProposalStage::CustomerAccepted) {
             $update['outcome'] = ProposalOutcome::Won;
             $update['notes'] = $data['notes'] ?? null;
@@ -1273,6 +1341,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 'created_by' => auth()->id(),
                 'appointment_at' => $data['destination_appointment_at'] ?? null,
                 'stage' => $destStage,
+                'meeting_notes' => $data['destination_meeting_notes'] ?? null,
                 'outcome_notes' => $data['destination_outcome_notes'] ?? null,
             ]),
             'lead' => Lead::create([
@@ -1290,6 +1359,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 'created_by' => auth()->id(),
                 'stage' => $destStage,
                 'pdf_path' => $data['destination_pdf_path'] ?? null,
+                'value' => $data['destination_value'] ?? null,
+                'sent_at' => $data['destination_sent_at'] ?? null,
                 'outcome' => match ($destStage) {
                     ProposalStage::CustomerAccepted->value => ProposalOutcome::Won,
                     ProposalStage::CustomerRejected->value => ProposalOutcome::Lost,

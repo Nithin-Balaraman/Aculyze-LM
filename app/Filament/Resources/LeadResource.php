@@ -104,6 +104,28 @@ class LeadResource extends Resource
                                 },
                             ),
                     ]),
+                // is_lost/lost_reason/lost_at/lost_at_stage are deliberately
+                // absent from Lead's own $fillable (only markLost() sets
+                // them, via forceFill() — see its own docblock: "Lost is an
+                // outcome applied on top of wherever the Lead currently
+                // is"), so these are read-only Placeholders, never an
+                // editable field — there was previously no way to see WHY a
+                // Lost Lead was marked Lost anywhere on this page at all.
+                Forms\Components\Section::make('Lost')
+                    ->visible(fn (?Lead $record) => $record?->is_lost ?? false)
+                    ->columns(3)
+                    ->schema([
+                        Forms\Components\Placeholder::make('lost_reason_display')
+                            ->label('Reason')
+                            ->columnSpanFull()
+                            ->content(fn (Lead $record) => $record->lost_reason ?: '—'),
+                        Forms\Components\Placeholder::make('lost_at_stage_display')
+                            ->label('Stage At Time Of Loss')
+                            ->content(fn (Lead $record) => $record->lost_at_stage?->getLabel() ?? '—'),
+                        Forms\Components\Placeholder::make('lost_at_display')
+                            ->label('Lost At')
+                            ->content(fn (Lead $record) => $record->lost_at?->format('d M Y, h:i A') ?? '—'),
+                    ]),
             ]);
     }
 
