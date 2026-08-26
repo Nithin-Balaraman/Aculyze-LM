@@ -6,6 +6,24 @@
     // it's already terminal). Call stays out of scope (no stage concept at
     // all) until a later phase.
     $draggableLanes = ['follow_up', 'appointment', 'lead', 'proposal'];
+
+    // Purely presentational provenance line under each lane header —
+    // mirrors the reference mockup's "from: ..." subtitle. Not derived from
+    // $this->getLanes() since it's fixed per lane, not per-record data.
+    $laneSubtitles = [
+        'call' => 'from: agent logs a call',
+        'follow_up' => 'from: Call outcome',
+        'appointment' => 'from: Call outcome',
+        'lead' => 'from: Call outcome',
+        'proposal' => 'from: Lead validated (manual)',
+    ];
+
+    // A lane's terminal stages are either one lone box (Lead's Validated —
+    // no negative counterpart exists) or a branching pair (Completed/
+    // Cancelled, Succeeded/Not Succeeded, Customer Accepted/Rejected).
+    // "Negative" is read straight off each stage's own label, the same
+    // stable set of words across every lane, rather than a per-lane list.
+    $negativeWords = ['not', 'cancel', 'reject'];
 @endphp
 
 <x-filament-panels::page>
@@ -14,111 +32,112 @@
     </p>
 
     <div class="-mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
-        <div class="flex items-start gap-4">
+        <div class="flex items-start gap-5">
             @foreach ($this->getLanes() as $laneKey => $lane)
-                @php $isDraggableLane = in_array($laneKey, $draggableLanes, true); @endphp
-                <div class="flex w-72 shrink-0 flex-col gap-3">
-                    <div class="flex items-center gap-2 px-1">
-                        <h2 class="fi-header-heading text-sm font-semibold tracking-tight text-gray-950 dark:text-white">
-                            {{ $lane['label'] }}
-                        </h2>
-                        <span class="rounded-md bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-gray-500 dark:bg-white/5 dark:text-gray-400">
-                            {{ count($lane['stages']) }} {{ Str::plural('stage', count($lane['stages'])) }}
-                        </span>
+                @php
+                    $isDraggableLane = in_array($laneKey, $draggableLanes, true);
+
+                    // Split into the leading run of non-terminal stages
+                    // (rendered in sequence with a connector between each)
+                    // and the trailing run of terminal ones (rendered
+                    // together — a single box, or side by side with a
+                    // BRANCH connector leading into them). Derived purely
+                    // from each stage's own `terminal` flag, already present
+                    // on every lane's data — no PHP page-class change needed
+                    // for this purely visual grouping.
+                    $sequentialStages = [];
+                    $terminalStages = [];
+
+                    foreach ($lane['stages'] as $stageKey => $stage) {
+                        if ($stage['terminal']) {
+                            $terminalStages[$stageKey] = $stage;
+                        } else {
+                            $sequentialStages[$stageKey] = $stage;
+                        }
+                    }
+
+                    $isNegative = fn (array $stage) => Str::contains(strtolower($stage['label']), $negativeWords);
+                @endphp
+
+                <div class="flex w-72 shrink-0 flex-col">
+                    {{-- Lane header: deliberately its own block, not styled
+                    like a card, so it reads as a section title above the
+                    real stage boxes rather than one more box in the stack. --}}
+                    <div class="px-0.5 pb-3">
+                        <div class="flex items-baseline gap-2">
+                            <h2 class="text-[13.5px] font-semibold tracking-tight text-gray-900 dark:text-gray-50">
+                                {{ $lane['label'] }}
+                            </h2>
+                            <span class="rounded-md bg-gray-100 px-1.5 py-0.5 font-mono text-[9px] font-medium uppercase tracking-wider text-gray-500 dark:bg-white/[0.06] dark:text-gray-400">
+                                {{ count($lane['stages']) }} {{ Str::plural('stage', count($lane['stages'])) }}
+                            </span>
+                        </div>
+                        @if (isset($laneSubtitles[$laneKey]))
+                            <div class="mt-1 font-mono text-[10px] tracking-wide text-gray-400 dark:text-white/30">
+                                {{ $laneSubtitles[$laneKey] }}
+                            </div>
+                        @endif
                     </div>
 
-                    @foreach ($lane['stages'] as $stageKey => $stage)
-                        <div
-                            data-lane="{{ $laneKey }}"
-                            data-stage="{{ $stageKey }}"
-                            @if ($isDraggableLane)
-                                x-data="{ over: false }"
-                                x-on:dragover.prevent="over = true"
-                                x-on:dragleave="over = false"
-                                x-on:drop.prevent="
-                                    over = false;
-                                    let dragged = {};
-                                    try { dragged = JSON.parse($event.dataTransfer.getData('text/plain') || '{}'); } catch (e) {}
-                                    if (! dragged.resource) return;
-                                    if (dragged.resource === '{{ $laneKey }}') {
-                                        if (dragged.fromStage !== '{{ $stageKey }}') {
-                                            $wire.mountAction('drop', { resource: dragged.resource, id: dragged.id, stage: '{{ $stageKey }}' });
-                                        }
-                                    } else {
-                                        $wire.mountAction('crossDrop', { sourceResource: dragged.resource, sourceId: dragged.id, destResource: '{{ $laneKey }}', destStage: '{{ $stageKey }}' });
-                                    }
-                                "
-                                :class="over ? 'ring-2 ring-brand-cyan ring-offset-1 ring-offset-white dark:ring-offset-gray-900' : ''"
-                            @endif
-                            @class([
-                                'rounded-xl border p-2.5 transition',
-                                'border-brand-coral/30 bg-brand-coral/5' => $stage['terminal'] && Str::contains(strtolower($stage['label']), ['not', 'cancel', 'reject']),
-                                'border-green-500/30 bg-green-500/5 dark:border-green-400/25 dark:bg-green-400/5' => $stage['terminal'] && ! Str::contains(strtolower($stage['label']), ['not', 'cancel', 'reject']),
-                                'border-gray-200 bg-white dark:border-white/10 dark:bg-white/[0.03]' => ! $stage['terminal'],
+                    <div class="flex flex-col gap-0">
+                        @foreach ($sequentialStages as $stageKey => $stage)
+                            @include('filament.pages.partials.pipeline-board-stage-box', [
+                                'laneKey' => $laneKey,
+                                'stageKey' => $stageKey,
+                                'stage' => $stage,
+                                'isDraggableLane' => $isDraggableLane,
+                                'negative' => false,
                             ])
-                        >
-                            <div class="mb-2 flex items-center gap-2">
-                                <span
-                                    @class([
-                                        'h-1.5 w-1.5 shrink-0 rounded-full',
-                                        'bg-brand-coral' => $stage['terminal'] && Str::contains(strtolower($stage['label']), ['not', 'cancel', 'reject']),
-                                        'bg-green-500' => $stage['terminal'] && ! Str::contains(strtolower($stage['label']), ['not', 'cancel', 'reject']),
-                                        'bg-brand-cyan' => ! $stage['terminal'],
+
+                            @php $isLastSequential = $loop->last; @endphp
+                            @if (! $isLastSequential)
+                                {{-- Plain chevron: the next box is another sequential (non-terminal) stage. --}}
+                                <div class="flex justify-center py-1">
+                                    <div class="-mt-0.5 h-2 w-2 rotate-45 border-b-[1.5px] border-r-[1.5px] border-gray-300 dark:border-white/20"></div>
+                                </div>
+                            @elseif (count($terminalStages) === 1)
+                                {{-- Exactly one terminal stage ahead (e.g. Lead's Validated) — still a
+                                plain chevron, just tinted toward the destination's own color. --}}
+                                <div class="flex justify-center py-1">
+                                    <div class="-mt-0.5 h-2 w-2 rotate-45 border-b-[1.5px] border-r-[1.5px] border-brand-cyan/70"></div>
+                                </div>
+                            @elseif (count($terminalStages) > 1)
+                                {{-- Branching into two terminal outcomes. --}}
+                                <div class="relative h-6">
+                                    <div class="absolute left-1/2 top-0 h-3 w-px -translate-x-1/2 bg-gray-300 dark:bg-white/15"></div>
+                                    <div class="absolute left-1/4 right-1/4 top-3 h-px bg-gray-300 dark:bg-white/15"></div>
+                                    <div class="absolute left-1/4 top-3 h-3.5 w-px bg-gray-300 dark:bg-white/15"></div>
+                                    <div class="absolute right-1/4 top-3 h-3.5 w-px bg-gray-300 dark:bg-white/15"></div>
+                                    <div class="absolute left-1/2 top-1.5 translate-x-1.5 font-mono text-[8px] tracking-wider text-gray-400 dark:text-white/25">BRANCH</div>
+                                </div>
+                            @endif
+                        @endforeach
+
+                        @if (count($terminalStages) === 1)
+                            @foreach ($terminalStages as $stageKey => $stage)
+                                @include('filament.pages.partials.pipeline-board-stage-box', [
+                                    'laneKey' => $laneKey,
+                                    'stageKey' => $stageKey,
+                                    'stage' => $stage,
+                                    'isDraggableLane' => $isDraggableLane,
+                                    'negative' => $isNegative($stage),
+                                ])
+                            @endforeach
+                        @elseif (count($terminalStages) > 1)
+                            <div class="grid grid-cols-2 gap-2">
+                                @foreach ($terminalStages as $stageKey => $stage)
+                                    @include('filament.pages.partials.pipeline-board-stage-box', [
+                                        'laneKey' => $laneKey,
+                                        'stageKey' => $stageKey,
+                                        'stage' => $stage,
+                                        'isDraggableLane' => $isDraggableLane,
+                                        'negative' => $isNegative($stage),
+                                        'compact' => true,
                                     ])
-                                ></span>
-                                <span class="text-xs font-medium text-gray-700 dark:text-gray-200">{{ $stage['label'] }}</span>
-                                <span class="ms-auto font-mono text-[10px] text-gray-400 dark:text-gray-500">{{ count($stage['cards']) }}</span>
+                                @endforeach
                             </div>
-
-                            <div class="flex flex-col gap-1.5">
-                                @forelse ($stage['cards'] as $card)
-                                    <a
-                                        href="{{ $card['url'] }}"
-                                        data-card="{{ $card['resource'] }}-{{ $card['id'] }}"
-                                        @if ($isDraggableLane)
-                                            draggable="true"
-                                            x-on:dragstart="$event.dataTransfer.setData('text/plain', JSON.stringify({ resource: '{{ $card['resource'] }}', id: {{ $card['id'] }}, fromStage: '{{ $stageKey }}' })); $el.style.opacity = 0.4"
-                                            x-on:dragend="$el.style.opacity = 1"
-                                        @else
-                                            draggable="false"
-                                        @endif
-                                        class="flex flex-col gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-2 shadow-sm transition hover:border-gray-300 dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/25"
-                                    >
-                                        <div class="flex items-start gap-2">
-                                            <span class="flex-1 truncate text-xs font-medium text-gray-900 dark:text-gray-100">{{ $card['company'] }}</span>
-                                            <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gray-100 font-mono text-[8px] font-semibold text-gray-500 dark:bg-white/10 dark:text-gray-300">
-                                                {{ $card['initials'] }}
-                                            </span>
-                                        </div>
-
-                                        @if ($card['outcome'])
-                                            <span
-                                                @class([
-                                                    'w-fit rounded border px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wide',
-                                                    'border-green-500/40 text-green-600 dark:text-green-400' => $card['outcome'] === 'won',
-                                                    'border-brand-gold/50 text-brand-gold' => $card['outcome'] === 'hold',
-                                                    'border-brand-coral/40 text-brand-coral' => $card['outcome'] === 'lost',
-                                                ])
-                                            >
-                                                {{ strtoupper($card['outcome']) }}
-                                            </span>
-                                        @endif
-
-                                        <div class="flex items-center gap-1.5">
-                                            <span class="truncate font-mono text-[10px] text-gray-400 dark:text-gray-500">{{ $card['meta'] }}</span>
-                                            @if ($card['isLost'])
-                                                <span class="ms-auto shrink-0 rounded bg-brand-coral/15 px-1 font-mono text-[9px] font-semibold text-brand-coral">LOST</span>
-                                            @endif
-                                        </div>
-                                    </a>
-                                @empty
-                                    <div class="rounded-lg border border-dashed border-gray-200 py-2 text-center font-mono text-[9px] tracking-wide text-gray-300 dark:border-white/10 dark:text-white/20">
-                                        NONE
-                                    </div>
-                                @endforelse
-                            </div>
-                        </div>
-                    @endforeach
+                        @endif
+                    </div>
                 </div>
             @endforeach
         </div>
