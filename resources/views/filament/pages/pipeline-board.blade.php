@@ -112,7 +112,15 @@
         </div>
     </div>
 
-    <div class="-mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
+    {{-- data-pipeline-board-scroll: the ONE horizontal scroll container on
+    this page (every lane sits inside it) — the auto-scroll script below
+    targets this exact node for left/right scrolling while a card is
+    dragged near its edge; vertical scrolling targets the page/window
+    itself instead, since nothing here scrolls vertically as a unit other
+    than the whole document (a stage box's own internal scroll, added
+    above, is a small capped area, not the page's primary vertical
+    navigation). --}}
+    <div data-pipeline-board-scroll class="-mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
         <div class="flex items-start gap-5">
             @foreach ($this->getLanes() as $laneKey => $lane)
                 @php
@@ -234,4 +242,118 @@
             @endforeach
         </div>
     </div>
+
+    {{--
+        Auto-scroll while dragging (Trello/Notion-style edge scrolling).
+
+        HTML5 drag-and-drop does NOT do this for you: browsers fire
+        `dragover` with real clientX/clientY the whole time a drag is over
+        a valid target, but there is no built-in "scroll the container
+        when the pointer nears its edge" behavior for anything other than
+        the browser's own outermost document scroll in a couple of
+        engines, and that's inconsistent enough not to rely on. Every
+        library that has this (Trello, dnd-kit, react-dnd, ...)
+        implements it the same way this does: track the pointer position
+        from `dragover`, and drive the actual scrolling from a
+        requestAnimationFrame loop rather than the dragover events
+        themselves — `dragover` firing is throttled and its rate isn't
+        consistent across browsers (Firefox in particular fires it far
+        less often than Chrome), so scrolling would stutter if it were
+        driven directly from the event instead of a steady per-frame loop.
+
+        Two independent targets, matching the board's own layout — there
+        is no single "the board" scroll container that covers both axes:
+        - Vertical: the page/window itself. Nothing in this layout scrolls
+          vertically as a unit other than the whole document (a stage
+          box's own internal scroll, added above, is a small ~10-card-cap
+          area, not how you'd navigate the length of a lane).
+        - Horizontal: the one `[data-pipeline-board-scroll]` wrapper that
+          all the lanes sit inside (see its own comment above).
+
+        A plain listener on `document` (not scoped to individual
+        drop-target stage boxes) is deliberate: the pointer spends most of
+        a real drag over card text, box padding, lane headers, and the
+        gaps between lanes — none of which are drop targets — and
+        auto-scroll needs to keep working across all of that, not just
+        while hovering a valid box. It doesn't call preventDefault()
+        itself, so it doesn't change which spots are (or aren't) valid
+        drop targets — that's still decided entirely by each stage box's
+        own dragover handler.
+
+        Bound once per page load, not re-bound on every Livewire re-render
+        (the listeners are on `document`/`window`, which persist across
+        this component's own morphs — only the DOM nodes inside it get
+        replaced). The `window.__pipelineBoardAutoScrollBound` guard is
+        just cheap insurance against ever double-binding if this partial
+        somehow gets included/executed more than once.
+    --}}
+    <script>
+        if (! window.__pipelineBoardAutoScrollBound) {
+            window.__pipelineBoardAutoScrollBound = true;
+
+            (function () {
+                const EDGE_SIZE = 72; // px from the edge where auto-scroll starts
+                const MAX_SPEED = 18; // px per animation frame, right at the edge
+
+                let pointer = null;
+                let rafId = null;
+
+                // Linear falloff: full speed exactly at the edge, zero at
+                // the inner boundary of the EDGE_SIZE zone.
+                function speedFor(distanceFromEdge) {
+                    const ratio = 1 - (distanceFromEdge / EDGE_SIZE);
+
+                    return Math.max(0, Math.min(1, ratio)) * MAX_SPEED;
+                }
+
+                function tick() {
+                    if (! pointer) {
+                        rafId = null;
+
+                        return;
+                    }
+
+                    const viewportHeight = window.innerHeight;
+
+                    if (pointer.y < EDGE_SIZE) {
+                        window.scrollBy(0, -speedFor(pointer.y));
+                    } else if (pointer.y > viewportHeight - EDGE_SIZE) {
+                        window.scrollBy(0, speedFor(viewportHeight - pointer.y));
+                    }
+
+                    // Queried fresh every frame rather than cached once:
+                    // cheap at 60fps, and safe even if a Livewire render
+                    // ever replaced this exact node.
+                    const scroller = document.querySelector('[data-pipeline-board-scroll]');
+
+                    if (scroller) {
+                        const rect = scroller.getBoundingClientRect();
+
+                        if (pointer.x < rect.left + EDGE_SIZE) {
+                            scroller.scrollLeft -= speedFor(pointer.x - rect.left);
+                        } else if (pointer.x > rect.right - EDGE_SIZE) {
+                            scroller.scrollLeft += speedFor(rect.right - pointer.x);
+                        }
+                    }
+
+                    rafId = requestAnimationFrame(tick);
+                }
+
+                document.addEventListener('dragover', (event) => {
+                    pointer = { x: event.clientX, y: event.clientY };
+
+                    if (! rafId) {
+                        rafId = requestAnimationFrame(tick);
+                    }
+                });
+
+                const stop = () => {
+                    pointer = null;
+                };
+
+                document.addEventListener('drop', stop);
+                document.addEventListener('dragend', stop);
+            })();
+        }
+    </script>
 </x-filament-panels::page>

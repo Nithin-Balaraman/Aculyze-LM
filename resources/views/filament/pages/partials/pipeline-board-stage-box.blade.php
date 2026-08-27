@@ -71,7 +71,17 @@
         @endif
     </div>
 
-    <div class="flex flex-col gap-1.5" @if ($stage['terminal']) x-show="! collapsed" x-cloak @endif>
+        {{-- Grows with the card count up to ~10 visible cards
+        (max-h-[40rem] ≈ 10 cards' worth of height + gaps at this card
+        size), then scrolls internally rather than pushing the page's own
+        height around — every card past the cap is still present and
+        reachable, just scrolled to. The scrollbar utilities are Tailwind
+        arbitrary variants (no plugin needed), themed to match the board
+        rather than left as a default OS scrollbar. --}}
+    <div
+        class="flex max-h-[40rem] flex-col gap-1.5 overflow-y-auto pe-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-track]:bg-transparent dark:[&::-webkit-scrollbar-thumb]:bg-white/15"
+        @if ($stage['terminal']) x-show="! collapsed" x-cloak @endif
+    >
         @forelse ($stage['cards'] as $card)
             {{-- Plain click opens the detail+lineage popup (all resources —
             see PipelineBoard::cardHistoryAction()) instead of navigating
