@@ -28,6 +28,18 @@
     // "Negative" is read straight off each stage's own label, the same
     // stable set of words across every lane, rather than a per-lane list.
     $negativeWords = ['not', 'cancel', 'reject', 'lost'];
+
+    // Connector glow (arrows + branch lines) — one shared pair of class
+    // strings so every connector uses the exact same brand-cyan glow
+    // rather than each spot hand-tuning its own shadow value. drop-shadow
+    // (not box-shadow) for the chevrons: they're built from two visible
+    // border edges on an otherwise-transparent rotated box, and
+    // drop-shadow traces the rendered (border) pixels rather than the
+    // full invisible box, so the glow reads as coming from the line
+    // itself. The branch lines are real filled bars, so box-shadow (via
+    // `shadow-[...]`) works fine for those.
+    $glowChevronClasses = 'border-brand-cyan drop-shadow-[0_0_3px_#2DC4ED] dark:drop-shadow-[0_0_5px_#2DC4ED]';
+    $glowLineClasses = 'bg-brand-cyan shadow-[0_0_5px_1px_rgba(45,196,237,0.65)] dark:shadow-[0_0_7px_1px_rgba(45,196,237,0.85)]';
 @endphp
 
 <x-filament-panels::page>
@@ -39,20 +51,64 @@
         {{-- Phase 6: filters which cards appear across every lane at once,
         based on each resource's own most meaningful recency date rather
         than a single shared column — see PipelineBoard::periodRange()/
-        scopeToPeriod(). --}}
-        <div class="flex shrink-0 items-center gap-2">
-            <label for="pipeline-board-period" class="font-mono text-[10px] uppercase tracking-wider text-gray-400 dark:text-white/40">Period</label>
-            <select
-                id="pipeline-board-period"
-                wire:model.live="period"
-                class="block rounded-lg border-gray-300 py-1.5 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-white/10 dark:bg-white/5 dark:text-white"
+        scopeToPeriod(). A custom Alpine dropdown rather than a native
+        <select>: a native select's OPEN options popup is drawn by the OS,
+        not the page, so it ignores our dark-mode CSS entirely on some
+        platforms even with color-scheme set — this one is fully our own
+        markup, so it always matches the board's theme. @entangle(...).live
+        keeps it a real two-way binding to the same $period property
+        wire:model.live would have used. --}}
+        <div
+            x-data="{
+                open: false,
+                value: @entangle('period').live,
+                options: [
+                    { value: 'all', label: 'All time' },
+                    { value: 'today', label: 'Today' },
+                    { value: 'week', label: 'This week' },
+                    { value: 'month', label: 'This month' },
+                    { value: 'quarter', label: 'This quarter' },
+                ],
+                label() {
+                    return this.options.find((option) => option.value === this.value)?.label ?? 'All time';
+                },
+            }"
+            x-on:click.outside="open = false"
+            class="relative flex shrink-0 items-center gap-2"
+        >
+            <label id="pipeline-board-period-label" class="font-mono text-[10px] uppercase tracking-wider text-gray-400 dark:text-white/40">Period</label>
+            <button
+                type="button"
+                aria-haspopup="listbox"
+                :aria-expanded="open"
+                aria-labelledby="pipeline-board-period-label"
+                x-on:click="open = !open"
+                class="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 shadow-sm transition hover:border-gray-400 dark:border-white/10 dark:bg-white/5 dark:text-gray-100 dark:hover:border-white/25"
             >
-                <option value="all">All time</option>
-                <option value="today">Today</option>
-                <option value="week">This week</option>
-                <option value="month">This month</option>
-                <option value="quarter">This quarter</option>
-            </select>
+                <span x-text="label()"></span>
+                <span class="text-gray-400 dark:text-white/40">⌄</span>
+            </button>
+
+            <div
+                x-show="open"
+                x-cloak
+                x-transition.origin.top.right
+                role="listbox"
+                class="absolute right-0 top-full z-10 mt-1 w-36 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-gray-800"
+            >
+                <template x-for="option in options" :key="option.value">
+                    <button
+                        type="button"
+                        role="option"
+                        x-on:click="value = option.value; open = false"
+                        x-text="option.label"
+                        class="block w-full px-3 py-1.5 text-left text-sm transition"
+                        :class="value === option.value
+                            ? 'font-medium text-brand-cyan'
+                            : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-white/10'"
+                    ></button>
+                </template>
+            </div>
         </div>
     </div>
 
@@ -120,21 +176,20 @@
                             @if (! $isLastSequential)
                                 {{-- Plain chevron: the next box is another sequential (non-terminal) stage. --}}
                                 <div class="flex justify-center py-1">
-                                    <div class="-mt-0.5 h-2 w-2 rotate-45 border-b-[1.5px] border-r-[1.5px] border-gray-300 dark:border-white/20"></div>
+                                    <div @class(['-mt-0.5 h-2 w-2 rotate-45 border-b-[1.5px] border-r-[1.5px]', $glowChevronClasses])></div>
                                 </div>
                             @elseif (count($terminalStages) === 1)
-                                {{-- Exactly one terminal stage ahead (e.g. Lead's Validated) — still a
-                                plain chevron, just tinted toward the destination's own color. --}}
+                                {{-- Exactly one terminal stage ahead (e.g. Lead's Validated) — same glow, same connector. --}}
                                 <div class="flex justify-center py-1">
-                                    <div class="-mt-0.5 h-2 w-2 rotate-45 border-b-[1.5px] border-r-[1.5px] border-brand-cyan/70"></div>
+                                    <div @class(['-mt-0.5 h-2 w-2 rotate-45 border-b-[1.5px] border-r-[1.5px]', $glowChevronClasses])></div>
                                 </div>
                             @elseif (count($terminalStages) > 1)
                                 {{-- Branching into two terminal outcomes. --}}
                                 <div class="relative h-6">
-                                    <div class="absolute left-1/2 top-0 h-3 w-px -translate-x-1/2 bg-gray-300 dark:bg-white/15"></div>
-                                    <div class="absolute left-1/4 right-1/4 top-3 h-px bg-gray-300 dark:bg-white/15"></div>
-                                    <div class="absolute left-1/4 top-3 h-3.5 w-px bg-gray-300 dark:bg-white/15"></div>
-                                    <div class="absolute right-1/4 top-3 h-3.5 w-px bg-gray-300 dark:bg-white/15"></div>
+                                    <div @class(['absolute left-1/2 top-0 h-3 w-px -translate-x-1/2', $glowLineClasses])></div>
+                                    <div @class(['absolute left-1/4 right-1/4 top-3 h-px', $glowLineClasses])></div>
+                                    <div @class(['absolute left-1/4 top-3 h-3.5 w-px', $glowLineClasses])></div>
+                                    <div @class(['absolute right-1/4 top-3 h-3.5 w-px', $glowLineClasses])></div>
                                 </div>
                             @endif
                         @endforeach
@@ -151,7 +206,16 @@
                                 ])
                             @endforeach
                         @elseif (count($terminalStages) > 1)
-                            <div class="grid grid-cols-2 gap-2">
+                            {{-- items-start: without it, CSS Grid's default
+                            align-items: stretch makes both cells match the
+                            row's tallest content — so expanding just ONE
+                            terminal box (its own x-show reveals its cards,
+                            growing its content height) visually stretched
+                            its still-collapsed sibling to the same height
+                            too, even though the sibling's own cards stayed
+                            hidden. Each box's height is now driven purely by
+                            its own content. --}}
+                            <div class="grid grid-cols-2 items-start gap-2">
                                 @foreach ($terminalStages as $stageKey => $stage)
                                     @include('filament.pages.partials.pipeline-board-stage-box', [
                                         'laneKey' => $laneKey,

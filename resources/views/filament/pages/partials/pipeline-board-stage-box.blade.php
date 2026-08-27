@@ -40,7 +40,7 @@
         $compact ? 'p-2' : 'p-2.5',
         'border-brand-coral/30 bg-brand-coral/10 dark:bg-brand-coral/[0.08]' => $stage['terminal'] && $negative,
         'border-green-500/35 bg-green-500/10 dark:border-green-400/25 dark:bg-green-400/[0.08]' => $stage['terminal'] && ! $negative,
-        'border-gray-200 bg-white dark:border-white/10 dark:bg-white/[0.06]' => ! $stage['terminal'],
+        'border-gray-200 bg-gray-50 dark:border-white/10 dark:bg-white/[0.06]' => ! $stage['terminal'],
     ])
 >
     <div
@@ -93,7 +93,7 @@
                 @if ($card['resource'] === 'follow_up')
                     x-on:contextmenu.prevent="$wire.mountAction('reviewFollowUp', { id: {{ $card['id'] }} })"
                 @endif
-                class="flex flex-col gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-2 shadow-sm transition hover:border-gray-300 dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/25"
+                class="flex flex-col gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-2 shadow-sm transition hover:border-gray-300 dark:border-white/15 dark:bg-white/10 dark:hover:border-white/30"
             >
                 <div class="flex items-start gap-2">
                     <span class="flex-1 truncate text-xs font-medium text-gray-900 dark:text-gray-100">{{ $card['company'] }}</span>
