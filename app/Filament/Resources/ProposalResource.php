@@ -98,10 +98,11 @@ class ProposalResource extends Resource
                             ->searchable()
                             ->disabled(fn () => ! auth()->user()->isAdmin())
                             ->dehydrated(),
-                        // ->live() so pdf_path's visible()/required() below
-                        // react the moment Stage changes — same mechanism as
-                        // CallRecordResource's outcome-driven fields and
-                        // LeadResource's stage-driven Notes requirement.
+                        // ->live() so attachment_paths' visible()/required()
+                        // below react the moment Stage changes — same
+                        // mechanism as CallRecordResource's outcome-driven
+                        // fields and LeadResource's stage-driven Notes
+                        // requirement.
                         Forms\Components\Select::make('stage')
                             ->options(ProposalStage::class)
                             ->required()
@@ -154,40 +155,53 @@ class ProposalResource extends Resource
                         // and silently fall back to a plain unsigned URL
                         // that the signature-checking route would then
                         // reject. Viewing/downloading instead goes through
-                        // downloadPdfAction() below, which streams the file
-                        // directly and rides the same page-level
+                        // downloadAttachmentAction() below, which streams
+                        // each file directly and rides the same page-level
                         // authorization Filament already applies to reach
                         // this Resource's Edit/View pages.
-                        Forms\Components\FileUpload::make('pdf_path')
-                            ->label('Proposal PDF')
+                        //
+                        // ->multiple(): a Proposal can carry any number of
+                        // attachments now, of any file type (dropped
+                        // acceptedFileTypes(['application/pdf']) — no
+                        // longer PDF-only). ->storeFileNamesIn() persists
+                        // each file's real original filename into
+                        // attachment_names (keyed by its stored path — see
+                        // Proposal::attachments()), since Filament stores
+                        // the file itself under a generated name to avoid
+                        // collisions between different uploads that happen
+                        // to share a filename.
+                        Forms\Components\FileUpload::make('attachment_paths')
+                            ->label('Attachments')
+                            ->multiple()
+                            ->storeFileNamesIn('attachment_names')
                             ->disk('local')
-                            ->directory('proposal-pdfs')
+                            ->directory('proposal-attachments')
                             ->visibility('private')
-                            ->acceptedFileTypes(['application/pdf'])
                             ->maxSize(10240)
                             ->previewable(false)
                             ->columnSpanFull()
-                            // Visible once Sent OR once a PDF already
-                            // exists — so a Proposal that moves on to a
-                            // later stage (Customer Accepted, or a Lost
-                            // outcome) doesn't lose sight of the PDF it
-                            // already has; required-ness is untouched and
-                            // still keys only off Sent.
-                            ->visible(fn (Get $get) => self::stageIsSent($get('stage')) || filled($get('pdf_path')))
+                            // Visible once Sent OR once at least one file
+                            // already exists — so a Proposal that moves on
+                            // to a later stage (Customer Accepted, or a
+                            // Lost outcome) doesn't lose sight of what it
+                            // already has attached; required-ness is
+                            // untouched and still keys only off Sent.
+                            ->visible(fn (Get $get) => self::stageIsSent($get('stage')) || filled($get('attachment_paths')))
                             ->required(fn (Get $get) => self::stageIsSent($get('stage')))
                             ->validationMessages([
-                                'required' => 'A PDF must be uploaded once the Proposal stage is Proposal Sent.',
+                                'required' => 'At least one attachment is required once the Proposal stage is Proposal Sent.',
                             ])
-                            // visible() above depends on pdf_path's own
-                            // value, so removing the file (clearing it to
-                            // empty) can itself make the field hidden in
-                            // the same save (stage moved away from Sent at
-                            // the same time) — and Filament's fields don't
-                            // dehydrate while hidden by default, which
-                            // would silently keep the stale path in the
-                            // database. dehydratedWhenHidden() makes sure
-                            // the cleared state still overwrites pdf_path
-                            // regardless of visibility at save time.
+                            // visible() above depends on attachment_paths'
+                            // own value, so removing every file (clearing
+                            // it to empty) can itself make the field hidden
+                            // in the same save (stage moved away from Sent
+                            // at the same time) — and Filament's fields
+                            // don't dehydrate while hidden by default,
+                            // which would silently keep the stale paths in
+                            // the database. dehydratedWhenHidden() makes
+                            // sure the cleared state still overwrites
+                            // attachment_paths regardless of visibility at
+                            // save time.
                             ->dehydratedWhenHidden()
                             // Filament's FileUpload does NOT delete the
                             // underlying stored file when removed via the
@@ -229,81 +243,91 @@ class ProposalResource extends Resource
     /**
      * Shared by ViewProposal's and EditProposal's header actions. Streams
      * the file straight from the 'local' disk rather than relying on
-     * Filament's own private-file preview link (see the pdf_path field's
-     * comment in form() for why that link doesn't work out of the box for
-     * this disk) — and since this only ever runs from inside this
+     * Filament's own private-file preview link (see the attachment_paths
+     * field's comment in form() for why that link doesn't work out of the
+     * box for this disk) — and since this only ever runs from inside this
      * Resource's own Edit/View pages, it automatically rides the same
      * ProposalPolicy::view() / getEloquentQuery() scoping already gating
      * access to those pages, with no separate authorization check needed
      * here.
+     *
+     * One action regardless of how many files are attached: with exactly
+     * one, the picker form is empty, which Filament runs immediately with
+     * no modal at all (the same "no components -> no confirmation step"
+     * behavior used elsewhere in this app) — so the common single-
+     * attachment case is still a single click, exactly like the old
+     * single-PDF action was. With more than one, the Select asks which
+     * file, keyed by its own real name (see Proposal::attachments()).
      */
-    public static function downloadPdfAction(): Actions\Action
+    public static function downloadAttachmentAction(): Actions\Action
     {
-        return Actions\Action::make('downloadPdf')
-            ->label('Download PDF')
+        return Actions\Action::make('downloadAttachment')
+            ->label('Download')
             ->icon('heroicon-o-arrow-down-tray')
             ->color('gray')
-            ->visible(fn (Proposal $record) => filled($record->pdf_path))
-            ->action(fn (Proposal $record) => Storage::disk('local')->download(
-                $record->pdf_path,
-                self::pdfDownloadFilename($record),
-            ));
+            ->visible(fn (Proposal $record) => $record->hasAttachments())
+            ->form(fn (Proposal $record) => self::attachmentPickerFormSchema($record))
+            ->action(fn (Proposal $record, array $data) => self::downloadAttachment($record, $data));
     }
 
     /**
-     * Same visibility condition and download logic as downloadPdfAction()
-     * above — just wrapped in Filament\Tables\Actions\Action instead of
-     * Filament\Actions\Action, since a table's own ->actions([...]) needs
-     * the former (the two are unrelated classes, so one Action instance
-     * can't serve both a page header and a table row). No additional
-     * admin/owner check is needed here either: both call sites for this
-     * (ProposalResource::table() and ProspectProposalsTable) build their
-     * query on top of ProposalResource::getEloquentQuery(), which already
-     * applies the same visibleTo() scoping the Edit/View pages rely on —
-     * an employee's own table rows are already only their own Proposals.
+     * Same visibility condition and download logic as
+     * downloadAttachmentAction() above — just wrapped in
+     * Filament\Tables\Actions\Action instead of Filament\Actions\Action,
+     * since a table's own ->actions([...]) needs the former (the two are
+     * unrelated classes, so one Action instance can't serve both a page
+     * header and a table row). No additional admin/owner check is needed
+     * here either: both call sites for this (ProposalResource::table()
+     * and ProspectProposalsTable) build their query on top of
+     * ProposalResource::getEloquentQuery(), which already applies the
+     * same visibleTo() scoping the Edit/View pages rely on — an
+     * employee's own table rows are already only their own Proposals.
      */
-    public static function downloadPdfTableAction(): Tables\Actions\Action
+    public static function downloadAttachmentTableAction(): Tables\Actions\Action
     {
-        return Tables\Actions\Action::make('downloadPdf')
-            ->label('Download PDF')
+        return Tables\Actions\Action::make('downloadAttachment')
+            ->label('Download')
             ->icon('heroicon-o-arrow-down-tray')
             ->color('gray')
-            ->visible(fn (Proposal $record) => filled($record->pdf_path))
-            ->action(fn (Proposal $record) => Storage::disk('local')->download(
-                $record->pdf_path,
-                self::pdfDownloadFilename($record),
-            ));
+            ->visible(fn (Proposal $record) => $record->hasAttachments())
+            ->form(fn (Proposal $record) => self::attachmentPickerFormSchema($record))
+            ->action(fn (Proposal $record, array $data) => self::downloadAttachment($record, $data));
     }
 
     /**
-     * "{Company Name} - {Proposal ID}.pdf" — the ID is the Proposal's own
-     * database id (no separate reference system), and the company name is
-     * free text, so it's sanitized here since a raw '/' or similarly
-     * filesystem-unsafe character would otherwise end up in a saved
-     * filename (Symfony's Content-Disposition header encoding already
-     * makes the HTTP response itself safe for any UTF-8 text — this is
-     * purely about what the browser actually names the saved file).
+     * Empty once there's only one attachment (Filament runs an action
+     * with no form fields immediately, no modal), so the common
+     * single-attachment case stays a single click either way.
+     *
+     * @return array<int, Forms\Components\Component>
      */
-    private static function pdfDownloadFilename(Proposal $record): string
+    private static function attachmentPickerFormSchema(Proposal $record): array
     {
-        // Characters invalid in Windows filenames (also the ones most
-        // likely to confuse a browser's own "save as" naming) become a
-        // space; collapses any run of whitespace that creates (including
-        // ones already in the company name) down to one before trimming.
-        $companyName = trim(preg_replace(
-            '/\s+/',
-            ' ',
-            preg_replace('/[\/\\\\:*?"<>|]+/', ' ', $record->prospect->company_name),
-        ));
+        if (count($record->attachments()) <= 1) {
+            return [];
+        }
 
-        return "{$companyName} - {$record->getKey()}.pdf";
+        return [
+            Forms\Components\Select::make('path')
+                ->label('Which file?')
+                ->options($record->attachments())
+                ->required(),
+        ];
+    }
+
+    private static function downloadAttachment(Proposal $record, array $data): mixed
+    {
+        $attachments = $record->attachments();
+        $path = $data['path'] ?? array_key_first($attachments);
+
+        return Storage::disk('local')->download($path, $attachments[$path] ?? basename($path));
     }
 
     /**
      * Shown on the Edit/View pages (as the page subheading, next to the
      * main heading) so the Proposal's own database ID is visible before
-     * ever downloading its PDF — the same ID used in
-     * pdfDownloadFilename() above, not a separate reference number.
+     * ever downloading any of its attachments — there's no separate
+     * reference number.
      */
     public static function recordSubheading(Proposal $record): string
     {
@@ -381,7 +405,7 @@ class ProposalResource extends Resource
                 // matches the Prospect View page's Proposals mini-table,
                 // where this is already a plain row icon, not a dropdown
                 // item. Placed first so it renders to the left of "⋮".
-                static::downloadPdfTableAction(),
+                static::downloadAttachmentTableAction(),
                 Tables\Actions\ActionGroup::make([
                     Tables\Actions\ViewAction::make(),
                     // Carries the tab the user is currently on through to

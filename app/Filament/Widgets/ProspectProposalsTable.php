@@ -58,7 +58,7 @@ class ProspectProposalsTable extends BaseWidget
             ->paginated([5, 10, 25])
             ->defaultPaginationPageOption(5)
             ->actions([
-                ProposalResource::downloadPdfTableAction(),
+                ProposalResource::downloadAttachmentTableAction(),
             ])
             ->emptyStateHeading('No proposals for this company yet.')
             ->emptyStateIcon('heroicon-o-document-text');

@@ -16,25 +16,25 @@ use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
- * "Download PDF" surfaced as a quick-access row action in two more
- * places it wasn't previously visible: the main Proposals list
- * (ListProposals) and the Prospect View page's Proposals mini-table
- * (ProspectProposalsTable) — reusing
- * ProposalResource::downloadPdfTableAction(), which shares the exact
- * same visibility condition and download logic as the pre-existing
- * Edit/View header action (ProposalResource::downloadPdfAction()), just
- * wrapped in Filament\Tables\Actions\Action instead of
- * Filament\Actions\Action (the two are unrelated classes — a table's own
- * ->actions([...]) can't accept the page-header Action type).
+ * "Download" surfaced as a quick-access row action in two more places it
+ * wasn't previously visible: the main Proposals list (ListProposals) and
+ * the Prospect View page's Proposals mini-table (ProspectProposalsTable) —
+ * reusing ProposalResource::downloadAttachmentTableAction(), which shares
+ * the exact same visibility condition and download logic as the
+ * pre-existing Edit/View header action
+ * (ProposalResource::downloadAttachmentAction()), just wrapped in
+ * Filament\Tables\Actions\Action instead of Filament\Actions\Action (the
+ * two are unrelated classes — a table's own ->actions([...]) can't accept
+ * the page-header Action type).
  *
  * No new admin/owner check was needed for either new location: both
  * ListProposals's table and ProspectProposalsTable's query are built on
  * ProposalResource::getEloquentQuery(), which already applies the same
  * visibleTo() scoping the Edit/View pages rely on — an employee's own
- * table rows are already only their own Proposals, so filled($record->
- * pdf_path) alone is sufficient in both places too.
+ * table rows are already only their own Proposals, so
+ * $record->hasAttachments() alone is sufficient in both places too.
  */
-class ProposalPdfDownloadActionLocationsTest extends TestCase
+class ProposalAttachmentDownloadActionLocationsTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -45,7 +45,7 @@ class ProposalPdfDownloadActionLocationsTest extends TestCase
         Storage::fake('local');
     }
 
-    private function proposalFor(User $owner, ?string $pdfPath): Proposal
+    private function proposalFor(User $owner, ?string $attachmentPath): Proposal
     {
         $prospect = Prospect::factory()->create(['company_name' => 'Acme Textiles', 'assigned_to' => $owner->id, 'created_by' => $owner->id]);
         $lead = Lead::create([
@@ -63,11 +63,12 @@ class ProposalPdfDownloadActionLocationsTest extends TestCase
             'assigned_to' => $owner->id,
             'created_by' => $owner->id,
             'stage' => ProposalStage::Sent,
-            'pdf_path' => $pdfPath,
+            'attachment_paths' => $attachmentPath ? [$attachmentPath] : null,
+            'attachment_names' => $attachmentPath ? [$attachmentPath => basename($attachmentPath)] : null,
         ]);
 
-        if ($pdfPath) {
-            Storage::disk('local')->put($pdfPath, 'fake pdf contents');
+        if ($attachmentPath) {
+            Storage::disk('local')->put($attachmentPath, 'fake file contents');
         }
 
         return $proposal;
@@ -75,40 +76,40 @@ class ProposalPdfDownloadActionLocationsTest extends TestCase
 
     // --- Proposals list page ---
 
-    public function test_the_list_page_shows_download_pdf_only_on_rows_with_a_pdf_attached(): void
+    public function test_the_list_page_shows_download_only_on_rows_with_an_attachment(): void
     {
         $employee = User::factory()->create();
-        $withPdf = $this->proposalFor($employee, 'proposal-pdfs/with.pdf');
-        $withoutPdf = $this->proposalFor($employee, null);
+        $withAttachment = $this->proposalFor($employee, 'proposal-attachments/with.pdf');
+        $withoutAttachment = $this->proposalFor($employee, null);
 
         $this->actingAs($employee);
 
         Livewire::test(ListProposals::class)
-            ->assertTableActionVisible('downloadPdf', $withPdf)
-            ->assertTableActionHidden('downloadPdf', $withoutPdf);
+            ->assertTableActionVisible('downloadAttachment', $withAttachment)
+            ->assertTableActionHidden('downloadAttachment', $withoutAttachment);
     }
 
-    public function test_the_list_page_shows_download_pdf_to_the_assigned_owner(): void
+    public function test_the_list_page_shows_download_to_the_assigned_owner(): void
     {
         $employee = User::factory()->create();
-        $proposal = $this->proposalFor($employee, 'proposal-pdfs/with.pdf');
+        $proposal = $this->proposalFor($employee, 'proposal-attachments/with.pdf');
 
         $this->actingAs($employee);
 
         Livewire::test(ListProposals::class)
-            ->assertTableActionVisible('downloadPdf', $proposal);
+            ->assertTableActionVisible('downloadAttachment', $proposal);
     }
 
-    public function test_the_list_page_shows_download_pdf_to_admin(): void
+    public function test_the_list_page_shows_download_to_admin(): void
     {
         $employee = User::factory()->create();
         $admin = User::factory()->admin()->create();
-        $proposal = $this->proposalFor($employee, 'proposal-pdfs/with.pdf');
+        $proposal = $this->proposalFor($employee, 'proposal-attachments/with.pdf');
 
         $this->actingAs($admin);
 
         Livewire::test(ListProposals::class)
-            ->assertTableActionVisible('downloadPdf', $proposal);
+            ->assertTableActionVisible('downloadAttachment', $proposal);
     }
 
     /**
@@ -122,7 +123,7 @@ class ProposalPdfDownloadActionLocationsTest extends TestCase
     {
         $owner = User::factory()->create();
         $intruder = User::factory()->create();
-        $proposal = $this->proposalFor($owner, 'proposal-pdfs/with.pdf');
+        $proposal = $this->proposalFor($owner, 'proposal-attachments/with.pdf');
 
         $this->actingAs($intruder);
 
@@ -130,26 +131,26 @@ class ProposalPdfDownloadActionLocationsTest extends TestCase
             ->assertCanNotSeeTableRecords([$proposal]);
     }
 
-    public function test_clicking_download_pdf_on_the_list_page_downloads_the_correct_file(): void
+    public function test_clicking_download_on_the_list_page_downloads_the_correct_file(): void
     {
         $employee = User::factory()->create();
-        $proposal = $this->proposalFor($employee, 'proposal-pdfs/with.pdf');
+        $proposal = $this->proposalFor($employee, 'proposal-attachments/with.pdf');
 
         $this->actingAs($employee);
 
         Livewire::test(ListProposals::class)
-            ->callTableAction('downloadPdf', $proposal)
-            ->assertFileDownloaded("Acme Textiles - {$proposal->id}.pdf");
+            ->callTableAction('downloadAttachment', $proposal)
+            ->assertFileDownloaded('with.pdf');
     }
 
     // --- Prospect View mini-table ---
 
-    public function test_the_mini_table_shows_download_pdf_only_on_rows_with_a_pdf_attached(): void
+    public function test_the_mini_table_shows_download_only_on_rows_with_an_attachment(): void
     {
         $employee = User::factory()->create();
-        $withPdf = $this->proposalFor($employee, 'proposal-pdfs/with.pdf');
+        $withAttachment = $this->proposalFor($employee, 'proposal-attachments/with.pdf');
 
-        $prospect = $withPdf->prospect;
+        $prospect = $withAttachment->prospect;
         $lead = Lead::create([
             'prospect_id' => $prospect->id,
             'assigned_to' => $employee->id,
@@ -158,7 +159,7 @@ class ProposalPdfDownloadActionLocationsTest extends TestCase
             'temperature' => 'hot',
             'notes' => 'x',
         ]);
-        $withoutPdf = Proposal::create([
+        $withoutAttachment = Proposal::create([
             'lead_id' => $lead->id,
             'prospect_id' => $prospect->id,
             'assigned_to' => $employee->id,
@@ -169,38 +170,38 @@ class ProposalPdfDownloadActionLocationsTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(ProspectProposalsTable::class, ['record' => $prospect, 'filters' => []])
-            ->assertTableActionVisible('downloadPdf', $withPdf)
-            ->assertTableActionHidden('downloadPdf', $withoutPdf);
+            ->assertTableActionVisible('downloadAttachment', $withAttachment)
+            ->assertTableActionHidden('downloadAttachment', $withoutAttachment);
     }
 
-    public function test_the_mini_table_shows_download_pdf_to_the_assigned_owner(): void
+    public function test_the_mini_table_shows_download_to_the_assigned_owner(): void
     {
         $employee = User::factory()->create();
-        $proposal = $this->proposalFor($employee, 'proposal-pdfs/with.pdf');
+        $proposal = $this->proposalFor($employee, 'proposal-attachments/with.pdf');
 
         $this->actingAs($employee);
 
         Livewire::test(ProspectProposalsTable::class, ['record' => $proposal->prospect, 'filters' => []])
-            ->assertTableActionVisible('downloadPdf', $proposal);
+            ->assertTableActionVisible('downloadAttachment', $proposal);
     }
 
-    public function test_the_mini_table_shows_download_pdf_to_admin(): void
+    public function test_the_mini_table_shows_download_to_admin(): void
     {
         $employee = User::factory()->create();
         $admin = User::factory()->admin()->create();
-        $proposal = $this->proposalFor($employee, 'proposal-pdfs/with.pdf');
+        $proposal = $this->proposalFor($employee, 'proposal-attachments/with.pdf');
 
         $this->actingAs($admin);
 
         Livewire::test(ProspectProposalsTable::class, ['record' => $proposal->prospect, 'filters' => []])
-            ->assertTableActionVisible('downloadPdf', $proposal);
+            ->assertTableActionVisible('downloadAttachment', $proposal);
     }
 
     public function test_a_different_employee_does_not_even_see_the_row_in_the_mini_table(): void
     {
         $owner = User::factory()->create();
         $intruder = User::factory()->create();
-        $proposal = $this->proposalFor($owner, 'proposal-pdfs/with.pdf');
+        $proposal = $this->proposalFor($owner, 'proposal-attachments/with.pdf');
 
         $this->actingAs($intruder);
 
@@ -208,15 +209,15 @@ class ProposalPdfDownloadActionLocationsTest extends TestCase
             ->assertCanNotSeeTableRecords([$proposal]);
     }
 
-    public function test_clicking_download_pdf_in_the_mini_table_downloads_the_correct_file(): void
+    public function test_clicking_download_in_the_mini_table_downloads_the_correct_file(): void
     {
         $employee = User::factory()->create();
-        $proposal = $this->proposalFor($employee, 'proposal-pdfs/with.pdf');
+        $proposal = $this->proposalFor($employee, 'proposal-attachments/with.pdf');
 
         $this->actingAs($employee);
 
         Livewire::test(ProspectProposalsTable::class, ['record' => $proposal->prospect, 'filters' => []])
-            ->callTableAction('downloadPdf', $proposal)
-            ->assertFileDownloaded("Acme Textiles - {$proposal->id}.pdf");
+            ->callTableAction('downloadAttachment', $proposal)
+            ->assertFileDownloaded('with.pdf');
     }
 }

@@ -1054,11 +1054,13 @@ class PipelineBoard extends Page implements HasActions, HasForms
 
         if ($stage === ProposalStage::Sent->value) {
             // Same fields/config as ProposalResource::form()'s own value/
-            // sent_at/pdf_path — neither value nor sent_at is required
-            // there either, so this dialog mirrors that exactly rather than
-            // introducing a stricter rule the resource's own form doesn't
-            // have. pdf_path is required the moment the stage is Sent, same
-            // disk/visibility/validation, so this dialog can never accept
+            // sent_at/attachment_paths — neither value nor sent_at is
+            // required there either, so this dialog mirrors that exactly
+            // rather than introducing a stricter rule the resource's own
+            // form doesn't have. attachment_paths is required the moment
+            // the stage is Sent, same disk/visibility/validation (any file
+            // type, not just PDF — see ProposalResource::formSchema()'s
+            // own field for why), so this dialog can never accept
             // something that Proposal's own Edit form would reject.
             return array_merge($resetFields, [
                 Forms\Components\TextInput::make("{$prefix}value")
@@ -1068,15 +1070,42 @@ class PipelineBoard extends Page implements HasActions, HasForms
                     ->default($record?->value),
                 Forms\Components\DatePicker::make("{$prefix}sent_at")
                     ->default($record?->sent_at),
-                Forms\Components\FileUpload::make("{$prefix}pdf_path")
-                    ->label('Proposal PDF')
+                Forms\Components\FileUpload::make("{$prefix}attachment_paths")
+                    ->label('Attachments')
+                    ->multiple()
+                    ->storeFileNamesIn("{$prefix}attachment_names")
+                    // attachment_names is a virtual companion path (see
+                    // storeFileNamesIn() above) with no real Component of
+                    // its own to seed via ->default() the way every other
+                    // field here does directly on itself. This dialog has
+                    // no ->fillForm() to pull it from a record's own
+                    // attributesToArray() the way a real EditRecord page
+                    // would (and deliberately doesn't gain one just for
+                    // this: Actions\Concerns\CanBeMounted::fillForm()
+                    // replaces the WHOLE action's mount behavior with
+                    // "$form->fill($data)", which sets the form's ENTIRE
+                    // state to exactly that array — confirmed directly by
+                    // reading the trait — so it would silently blank out
+                    // every OTHER field's own ->default() in this same
+                    // dialog, not just seed this one). ->afterStateHydrated()
+                    // instead runs right after THIS field's own state
+                    // hydrates (default or otherwise), so it only touches
+                    // this one companion path. Without it, re-entering
+                    // Proposal's Sent stage on a record that already has
+                    // attachments (e.g. bounced back to another stage and
+                    // dragged to Sent again) would dehydrate a blank
+                    // attachment_names, silently wiping the display names
+                    // of files nobody touched in this dialog.
+                    ->afterStateHydrated(fn (Forms\Set $set) => $set(
+                        "{$prefix}attachment_names",
+                        $record?->attachment_names ?? [],
+                    ))
                     ->disk('local')
-                    ->directory('proposal-pdfs')
+                    ->directory('proposal-attachments')
                     ->visibility('private')
-                    ->acceptedFileTypes(['application/pdf'])
                     ->maxSize(10240)
                     ->previewable(false)
-                    ->default($record?->pdf_path)
+                    ->default($record?->attachment_paths ?? [])
                     ->required()
                     ->deleteUploadedFileUsing(function (string|TemporaryUploadedFile $file): void {
                         if (is_string($file)) {
@@ -1436,7 +1465,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
         $update = ['stage' => $resolved];
 
         if ($resolved === ProposalStage::Sent) {
-            $update['pdf_path'] = $data['pdf_path'] ?? null;
+            $update['attachment_paths'] = $data['attachment_paths'] ?? [];
+            $update['attachment_names'] = $data['attachment_names'] ?? [];
             $update['value'] = $data['value'] ?? null;
             $update['sent_at'] = $data['sent_at'] ?? null;
         } elseif ($resolved === ProposalStage::CustomerAccepted) {
@@ -1645,7 +1675,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 'assigned_to' => $assignedTo,
                 'created_by' => auth()->id(),
                 'stage' => $destStage,
-                'pdf_path' => $data['destination_pdf_path'] ?? null,
+                'attachment_paths' => $data['destination_attachment_paths'] ?? [],
+                'attachment_names' => $data['destination_attachment_names'] ?? [],
                 'value' => $data['destination_value'] ?? null,
                 'sent_at' => $data['destination_sent_at'] ?? null,
                 'outcome' => match ($destStage) {

@@ -109,13 +109,15 @@ class EditRecordRedirectsToIndexTest extends TestCase
             'value' => 450000,
             'sent_at' => now()->subDays(2),
             'notes' => 'Proposal fixture.',
-            // A Sent Proposal requires a PDF on every save (strict, no
-            // grandfathering — see ProposalPdfRequirementTest) — unrelated
-            // to what this test actually covers (the redirect), so the
-            // fixture just already has one. The file must actually exist
-            // on the (faked) disk, or Filament's FileUpload hydration
-            // treats it as missing and required() fails anyway.
-            'pdf_path' => 'proposal-pdfs/existing.pdf',
+            // A Sent Proposal requires at least one attachment on every
+            // save (strict, no grandfathering — see
+            // ProposalAttachmentRequirementTest) — unrelated to what this
+            // test actually covers (the redirect), so the fixture just
+            // already has one. The file must actually exist on the (faked)
+            // disk, or Filament's FileUpload hydration treats it as
+            // missing and required() fails anyway.
+            'attachment_paths' => ['proposal-pdfs/existing.pdf'],
+            'attachment_names' => ['proposal-pdfs/existing.pdf' => 'existing.pdf'],
         ]);
         Storage::fake('local')->put('proposal-pdfs/existing.pdf', 'fake pdf contents');
 

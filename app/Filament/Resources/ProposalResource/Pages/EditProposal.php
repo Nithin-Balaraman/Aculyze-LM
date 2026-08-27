@@ -22,14 +22,13 @@ class EditProposal extends EditRecord
     {
         return [
             Actions\ViewAction::make(),
-            ProposalResource::downloadPdfAction(),
+            ProposalResource::downloadAttachmentAction(),
             Actions\DeleteAction::make(),
         ];
     }
 
-    // Surfaces the Proposal's own database ID next to the page heading —
-    // the same ID used in ProposalResource::pdfDownloadFilename() — so
-    // it's visible before ever downloading the PDF, not just after.
+    // Surfaces the Proposal's own database ID next to the page heading so
+    // it's visible before ever downloading an attachment, not just after.
     public function getSubheading(): ?string
     {
         return ProposalResource::recordSubheading($this->getRecord());

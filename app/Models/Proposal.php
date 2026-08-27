@@ -25,7 +25,8 @@ class Proposal extends Model
         'value',
         'sent_at',
         'notes',
-        'pdf_path',
+        'attachment_paths',
+        'attachment_names',
     ];
 
     protected function casts(): array
@@ -36,6 +37,8 @@ class Proposal extends Model
             'value' => 'decimal:2',
             'sent_at' => 'date',
             'stage_changed_at' => 'datetime',
+            'attachment_paths' => 'array',
+            'attachment_names' => 'array',
         ];
     }
 
@@ -72,6 +75,31 @@ class Proposal extends Model
     public function hasMeaningfulNotes(): bool
     {
         return filled($this->notes);
+    }
+
+    public function hasAttachments(): bool
+    {
+        return filled($this->attachment_paths);
+    }
+
+    /**
+     * Every attached file as [stored path => display name], in upload
+     * order. attachment_names is keyed by stored path (the same shape
+     * Filament's FileUpload field itself writes via storeFileNamesIn() —
+     * see BaseFileUpload::storeFileName()); falls back to the stored
+     * path's own basename for an attachment that somehow has no recorded
+     * name (shouldn't happen for anything uploaded through the field
+     * itself, but keeps this honest rather than emitting a blank label).
+     *
+     * @return array<string, string>
+     */
+    public function attachments(): array
+    {
+        $names = $this->attachment_names ?? [];
+
+        return collect($this->attachment_paths ?? [])
+            ->mapWithKeys(fn (string $path) => [$path => $names[$path] ?? basename($path)])
+            ->all();
     }
 
     public function lead(): BelongsTo
