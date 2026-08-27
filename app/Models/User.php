@@ -125,14 +125,12 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
      * a blocked-delete notification can list exactly what's still attached
      * (Change Request Section 5).
      *
-     * 'Call Record(s)' is deliberately NOT scoped to ->directlyLogged(),
-     * unlike every display of Call Records elsewhere in the app — this
-     * array both decides whether UserResource's bulk-delete is blocked
-     * AND supplies the notification's counts (App\Support\DeletionGuard::
-     * guardRecords()), so it must reflect every Call Record, hidden or
-     * not: bulk delete has no reassignment step, so blocking on the true
-     * count is what stops a hidden Call Record's user_id being left
-     * pointing at a deleted employee.
+     * This array both decides whether UserResource's bulk-delete is
+     * blocked AND supplies the notification's counts (App\Support\
+     * DeletionGuard::guardRecords()), so 'Call Record(s)' must reflect
+     * every Call Record: bulk delete has no reassignment step, so
+     * blocking on the true count is what stops a Call Record's user_id
+     * being left pointing at a deleted employee.
      *
      * @return array<string, int>
      */

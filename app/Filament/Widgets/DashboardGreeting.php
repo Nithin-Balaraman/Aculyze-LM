@@ -16,11 +16,11 @@ use Illuminate\Support\Facades\Date;
  *
  * The subtitle's call count is deliberately the exact same query KpiBand's
  * "Calls" tile already runs (App\Filament\Widgets\KpiBand::getTiles() —
- * CallRecord::query()->directlyLogged(), scoped by user_id, filtered by
- * the same selected period) rather than a new metric invented for this
- * widget — confirmed this data (already shown elsewhere on the same
- * dashboard) was the only thing reasonably available to summarize here
- * without fabricating something new.
+ * CallRecord::query(), scoped by user_id, filtered by the same selected
+ * period) rather than a new metric invented for this widget — confirmed
+ * this data (already shown elsewhere on the same dashboard) was the only
+ * thing reasonably available to summarize here without fabricating
+ * something new.
  */
 class DashboardGreeting extends Widget
 {
@@ -58,7 +58,7 @@ class DashboardGreeting extends Widget
     {
         [$from, $until] = DashboardPeriod::resolve($this->filters);
 
-        $query = CallRecord::query()->directlyLogged();
+        $query = CallRecord::query();
 
         if ($this->employeeId) {
             $query->where('user_id', $this->employeeId);
