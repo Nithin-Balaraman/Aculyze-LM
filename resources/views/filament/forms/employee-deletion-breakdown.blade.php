@@ -6,6 +6,7 @@
         'appointments' => 'Appointments',
         'leads' => 'Leads',
         'proposals' => 'Proposals',
+        'directReports' => 'Direct Reports',
     ];
 @endphp
 

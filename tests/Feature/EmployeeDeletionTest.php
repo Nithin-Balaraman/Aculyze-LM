@@ -117,6 +117,7 @@ class EmployeeDeletionTest extends TestCase
             'appointments' => 1,
             'leads' => 1,
             'proposals' => 1,
+            'directReports' => 0,
         ], $breakdown);
     }
 

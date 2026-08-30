@@ -4,6 +4,9 @@ namespace App\Models;
 
 use App\Enums\ContactMode;
 use App\Enums\FollowUpStatus;
+use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\EnforcesSameOrganizationRelations;
+use App\Models\Scopes\OrganizationScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -14,7 +17,7 @@ use Illuminate\Support\Facades\DB;
 
 class FollowUp extends Model
 {
-    use HasFactory;
+    use BelongsToOrganization, EnforcesSameOrganizationRelations, HasFactory;
 
     protected $fillable = [
         'prospect_id',
@@ -62,6 +65,8 @@ class FollowUp extends Model
      */
     protected static function booted(): void
     {
+        static::addGlobalScope(new OrganizationScope);
+
         static::saving(function (self $followUp) {
             if (blank($followUp->reason)) {
                 throw new \LogicException('A Follow-Up cannot be saved without a Reason.');
@@ -143,9 +148,33 @@ class FollowUp extends Model
         });
     }
 
+    /**
+     * Senior Managers see every Follow-Up in their organization; Managers
+     * see their own + their direct reports'; Employees see only their own.
+     */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        return $user->isAdmin() ? $query : $query->where('user_id', $user->id);
+        return \App\Support\Authorization\HierarchyVisibility::scopeFor($query, $user, 'user_id');
+    }
+
+    /** Inherits organization_id from the Prospect this Follow-Up is against. */
+    protected function inheritedOrganizationId(): ?int
+    {
+        if (! $this->prospect_id) {
+            return null;
+        }
+
+        return DB::table('prospects')->where('id', $this->prospect_id)->value('organization_id');
+    }
+
+    /** @return array<string, array{0: string, 1: string}> */
+    protected function organizationScopedRelations(): array
+    {
+        return [
+            'prospect_id' => ['prospects', 'Prospect'],
+            'call_record_id' => ['call_records', 'Call Record'],
+            'user_id' => ['users', 'User'],
+        ];
     }
 
     /**

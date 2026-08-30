@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use LogicException;
 use Throwable;
 
 /**
@@ -31,7 +32,7 @@ class EmployeeDeletionService
      * lists — this and every deletion below always reads live counts, never
      * a snapshot passed in from the UI.
      *
-     * @return array{prospects: int, callRecords: int, followUps: int, appointments: int, leads: int, proposals: int}
+     * @return array{prospects: int, callRecords: int, followUps: int, appointments: int, leads: int, proposals: int, directReports: int}
      */
     public function dependencyBreakdown(User $employee): array
     {
@@ -42,12 +43,13 @@ class EmployeeDeletionService
             'appointments' => $employee->assignedAppointments()->count(),
             'leads' => $employee->assignedLeads()->count(),
             'proposals' => $employee->assignedProposals()->count(),
+            'directReports' => $employee->directReports()->count(),
         ];
     }
 
     public function hasDependencies(User $employee): bool
     {
-        if ($employee->callRecords()->exists()) {
+        if ($employee->callRecords()->exists() || $employee->directReports()->exists()) {
             return true;
         }
 
@@ -60,16 +62,19 @@ class EmployeeDeletionService
     }
 
     /**
-     * A replacement owner must be chosen whenever the employee has Call
-     * Records (which must always be reassigned, never deleted) OR any
-     * record they merely *created* that is currently owned by someone else
-     * — that record isn't part of this employee's cleanup (it stays, it
-     * isn't theirs), but its created_by foreign key still points at this
+     * A replacement must be chosen whenever the employee has Call Records
+     * (which must always be reassigned, never deleted), direct reports
+     * (Phase 1 hierarchy — manager_id is a RESTRICT foreign key like
+     * everything else here, so a Manager/Senior Manager with reports
+     * cannot simply be deleted out from under them), or any record they
+     * merely *created* that is currently owned by someone else — that
+     * record isn't part of this employee's cleanup (it stays, it isn't
+     * theirs), but its created_by foreign key still points at this
      * employee and would otherwise block deletion.
      */
     public function requiresReplacement(User $employee): bool
     {
-        if ($employee->callRecords()->exists()) {
+        if ($employee->callRecords()->exists() || $employee->directReports()->exists()) {
             return true;
         }
 
@@ -173,6 +178,20 @@ class EmployeeDeletionService
                     }
                 }
 
+                // 2.5. Direct reports (Phase 1 hierarchy): manager_id is a
+                // RESTRICT foreign key, so anyone still reporting to this
+                // employee must be reassigned before it can be deleted.
+                // Updated one at a time via Eloquent (never a bulk query-
+                // builder update) so App\Models\User's own hierarchy guard
+                // — same-organization, correct tier, no cycle — actually
+                // runs for each one; a bulk update() would silently bypass
+                // it entirely.
+                if ($replacement) {
+                    foreach ($fresh->directReports as $report) {
+                        $report->update(['manager_id' => $replacement->id]);
+                    }
+                }
+
                 // 3. Prospects genuinely assigned to this employee. These
                 // are the one record type that survives either option
                 // (soft-deleted, or just unassigned) rather than being
@@ -213,6 +232,14 @@ class EmployeeDeletionService
             });
         } catch (EmployeeDeletionFailedException $e) {
             throw $e;
+        } catch (LogicException $e) {
+            // Thrown by App\Models\User's own hierarchy guard when
+            // reassigning a direct report to the chosen replacement would
+            // be invalid (different organization, wrong tier, or a cycle).
+            throw new EmployeeDeletionFailedException(
+                "{$employee->name}'s direct reports could not be reassigned to the chosen replacement: {$e->getMessage()} ".
+                'Choose a different replacement and try again.'
+            );
         } catch (Throwable $e) {
             Log::error('Employee deletion failed', [
                 'employee_id' => $employee->id,

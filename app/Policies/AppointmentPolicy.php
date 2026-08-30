@@ -4,11 +4,14 @@ namespace App\Policies;
 
 use App\Models\Appointment;
 use App\Models\User;
+use App\Support\Authorization\HierarchyVisibility;
 
 /**
- * Only Admin may delete an Appointment — it is critical sales history
- * (AGENTS.md section 37). Employees fully manage appointments assigned to
- * them, including advancing the stage.
+ * Only Senior Manager (Admin) may delete an Appointment — it is critical
+ * sales history (AGENTS.md section 37). Employees fully manage appointments
+ * assigned to them; Managers additionally manage their direct reports'
+ * (Phase 1 hierarchy — Master BA permission matrix rows 18-19), including
+ * advancing the stage.
  */
 class AppointmentPolicy
 {
@@ -19,7 +22,7 @@ class AppointmentPolicy
 
     public function view(User $user, Appointment $appointment): bool
     {
-        return $user->isAdmin() || $appointment->assigned_to === $user->id;
+        return HierarchyVisibility::canAccess($user, $appointment, 'assigned_to');
     }
 
     public function create(User $user): bool
@@ -29,16 +32,17 @@ class AppointmentPolicy
 
     public function update(User $user, Appointment $appointment): bool
     {
-        return $user->isAdmin() || $appointment->assigned_to === $user->id;
+        return HierarchyVisibility::canAccess($user, $appointment, 'assigned_to');
     }
 
     public function delete(User $user, Appointment $appointment): bool
     {
-        return $user->isAdmin();
+        return $user->isSeniorManager();
     }
 
+    /** Assign/reassign, including across teams — Manager and Senior Manager (permission matrix rows 44-45). */
     public function assign(User $user, Appointment $appointment): bool
     {
-        return $user->isAdmin();
+        return $user->isManager() || $user->isSeniorManager();
     }
 }

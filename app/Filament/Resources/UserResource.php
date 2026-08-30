@@ -13,6 +13,7 @@ use App\Support\TableBulkActions;
 use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Support\Exceptions\Halt;
@@ -73,7 +74,14 @@ class UserResource extends Resource
                         Forms\Components\Select::make('role')
                             ->options(UserRole::class)
                             ->required()
-                            ->default(UserRole::Employee),
+                            ->default(UserRole::Employee)
+                            ->live(),
+                        Forms\Components\Select::make('manager_id')
+                            ->label('Reports To')
+                            ->helperText('An Employee must report to a Manager; a Manager must report to a Senior Manager; a Senior Manager reports to no one.')
+                            ->options(fn (Get $get, ?User $record) => static::managerOptionsFor($get('role'), $record))
+                            ->visible(fn (Get $get) => in_array(static::resolveRole($get('role')), [UserRole::Employee, UserRole::Manager], true))
+                            ->searchable(),
                         Forms\Components\TextInput::make('password')
                             ->password()
                             ->revealable()
@@ -84,6 +92,43 @@ class UserResource extends Resource
                             ->helperText('Leave blank to keep the current password when editing.'),
                     ]),
             ]);
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, string>
+     */
+    protected static function managerOptionsFor(mixed $rawRole, ?User $record): \Illuminate\Support\Collection
+    {
+        $role = static::resolveRole($rawRole);
+
+        $expectedTier = match ($role) {
+            UserRole::Employee => UserRole::Manager,
+            UserRole::Manager => UserRole::Admin,
+            default => null,
+        };
+
+        if ($expectedTier === null) {
+            return collect();
+        }
+
+        return User::query()
+            ->where('organization_id', $record?->organization_id ?? auth()->user()?->organization_id)
+            ->where('role', $expectedTier)
+            ->when($record, fn ($query) => $query->whereKeyNot($record->id))
+            ->orderBy('name')
+            ->pluck('name', 'id');
+    }
+
+    /**
+     * $get('role') can return either the raw string or the actual UserRole
+     * instance depending on context (mirrors CallRecordResource::
+     * resolveOutcome() — the same Filament quirk this codebase already
+     * works around elsewhere). Comparing against it with strict equality
+     * without normalizing first silently never matches.
+     */
+    private static function resolveRole(mixed $rawRole): ?UserRole
+    {
+        return $rawRole instanceof UserRole ? $rawRole : UserRole::tryFrom((string) $rawRole);
     }
 
     public static function table(Table $table): Table
@@ -223,9 +268,9 @@ class UserResource extends Resource
                 ->required()
                 ->default('reassign'),
             Forms\Components\Select::make('replacement_id')
-                ->label('Reassign their Call Records to')
-                ->helperText('Required — Call Records are permanent history and are never deleted, only handed to someone else. Any record they merely created (but that belongs to someone else) also moves to this person.')
-                ->options(fn () => User::query()->whereKeyNot($record->id)->orderBy('name')->pluck('name', 'id'))
+                ->label('Reassign their Call Records (and direct reports, if any) to')
+                ->helperText('Required — Call Records are permanent history and are never deleted, only handed to someone else. Any record they merely created (but that belongs to someone else), and anyone reporting to them, also move to this person.')
+                ->options(fn () => User::query()->where('organization_id', $record->organization_id)->whereKeyNot($record->id)->orderBy('name')->pluck('name', 'id'))
                 ->searchable()
                 ->required($requiresReplacement)
                 ->visible($requiresReplacement),
@@ -283,8 +328,8 @@ class UserResource extends Resource
             return "You can't delete your own account while logged in as it.";
         }
 
-        if ($record->role === UserRole::Admin && User::query()->where('role', UserRole::Admin)->count() <= 1) {
-            return 'This is the last remaining admin — promote another employee to Admin first.';
+        if ($record->role === UserRole::Admin && User::query()->where('role', UserRole::Admin)->where('organization_id', $record->organization_id)->count() <= 1) {
+            return 'This is the last remaining Senior Manager in this organization — promote another employee to Senior Manager first.';
         }
 
         return null;

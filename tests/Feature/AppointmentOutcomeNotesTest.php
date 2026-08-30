@@ -196,13 +196,43 @@ class AppointmentOutcomeNotesTest extends TestCase
     public function test_reassigning_a_pre_existing_succeeded_appointment_with_blank_outcome_notes_still_succeeds(): void
     {
         $admin = User::factory()->admin()->create();
-        $appointment = Appointment::withoutEvents(fn () => Appointment::create([
-            'prospect_id' => Prospect::factory()->create()->id,
-            'assigned_to' => $admin->id,
-            'created_by' => $admin->id,
-            'appointment_at' => now(),
-            'stage' => AppointmentStage::Succeeded,
-        ]));
+
+        // withoutEvents() disables Eloquent events globally (not just for
+        // Appointment) for the duration of the closure — including the
+        // organization_id auto-fill hook (App\Models\Concerns\
+        // BelongsToOrganization), which is itself event-driven. Since this
+        // test deliberately simulates data old enough to predate the
+        // outcome_notes guard, it's old enough to predate organization_id
+        // too — so both the nested Prospect and the Appointment need it
+        // supplied explicitly here rather than relying on the (bypassed)
+        // auto-fill. organization_id is deliberately excluded from every
+        // model's $fillable (it must never be mass-assignable from a
+        // Filament form), so create() would silently drop it — forceFill()
+        // is the correct tool here, matching what this test is already
+        // simulating: trusted, pre-guard historical data.
+        $organizationId = \App\Support\Tenancy\TenantContext::current();
+
+        // Built (not created) outside withoutEvents() — factory definitions
+        // still touch the database for related records (e.g. the owning
+        // User), which must resolve organization_id normally; only the
+        // Prospect/Appointment rows themselves need to be persisted with
+        // events off, to genuinely simulate pre-existing data.
+        $prospect = Prospect::factory()->make();
+
+        $appointment = Appointment::withoutEvents(function () use ($admin, $organizationId, $prospect) {
+            $prospect->forceFill(['organization_id' => $organizationId])->save();
+
+            $appointment = new Appointment([
+                'prospect_id' => $prospect->id,
+                'assigned_to' => $admin->id,
+                'created_by' => $admin->id,
+                'appointment_at' => now(),
+                'stage' => AppointmentStage::Succeeded,
+            ]);
+            $appointment->forceFill(['organization_id' => $organizationId])->save();
+
+            return $appointment;
+        });
 
         $newOwner = User::factory()->create();
         $appointment->update(['assigned_to' => $newOwner->id]);

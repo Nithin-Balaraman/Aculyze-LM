@@ -3,16 +3,20 @@
 namespace App\Models;
 
 use App\Enums\AppointmentStage;
+use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\EnforcesSameOrganizationRelations;
+use App\Models\Scopes\OrganizationScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Date;
 
 class Appointment extends Model
 {
-    use HasFactory;
+    use BelongsToOrganization, EnforcesSameOrganizationRelations, HasFactory;
 
     protected $fillable = [
         'prospect_id',
@@ -39,6 +43,8 @@ class Appointment extends Model
 
     protected static function booted(): void
     {
+        static::addGlobalScope(new OrganizationScope);
+
         static::saving(function (self $appointment) {
             // stage_changed_at must only move when the stage itself
             // changes — never on unrelated edits like notes (AGENTS.md
@@ -145,9 +151,13 @@ class Appointment extends Model
         ])->save();
     }
 
+    /**
+     * Senior Managers see every Appointment in their organization; Managers
+     * see their own + their direct reports'; Employees see only their own.
+     */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        return $user->isAdmin() ? $query : $query->where('assigned_to', $user->id);
+        return \App\Support\Authorization\HierarchyVisibility::scopeFor($query, $user, 'assigned_to');
     }
 
     /**
@@ -156,5 +166,26 @@ class Appointment extends Model
     public function scopeLost(Builder $query): Builder
     {
         return $query->where('is_lost', true);
+    }
+
+    /** Inherits organization_id from the Prospect this Appointment is against. */
+    protected function inheritedOrganizationId(): ?int
+    {
+        if (! $this->prospect_id) {
+            return null;
+        }
+
+        return DB::table('prospects')->where('id', $this->prospect_id)->value('organization_id');
+    }
+
+    /** @return array<string, array{0: string, 1: string}> */
+    protected function organizationScopedRelations(): array
+    {
+        return [
+            'prospect_id' => ['prospects', 'Prospect'],
+            'call_record_id' => ['call_records', 'Call Record'],
+            'assigned_to' => ['users', 'assigned User'],
+            'created_by' => ['users', 'creating User'],
+        ];
     }
 }

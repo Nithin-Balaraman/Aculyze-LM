@@ -9,9 +9,11 @@ use App\Enums\ProposalStage;
 use App\Enums\UserRole;
 use App\Models\CallRecord;
 use App\Models\Lead;
+use App\Models\Organization;
 use App\Models\Proposal;
 use App\Models\Prospect;
 use App\Models\User;
+use App\Support\Tenancy\Tenancy;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Date;
 
@@ -23,10 +25,27 @@ use Illuminate\Support\Facades\Date;
  * App\Observers\CallRecordObserver / App\Services\CallRoutingService run
  * exactly as they would in the real app, exercising the same routing logic
  * that the automated tests check.
+ *
+ * Phase 1: the Aculyze Organization is created explicitly first, and the
+ * whole seed run happens inside Tenancy::runAs($aculyze->id, ...) so every
+ * User/Prospect/CallRecord/etc. created below resolves organization_id
+ * deterministically — never a guessed default, and never dependent on an
+ * authenticated request existing (there isn't one during seeding).
  */
 class DatabaseSeeder extends Seeder
 {
     public function run(): void
+    {
+        $aculyze = Organization::create([
+            'name' => 'Aculyze Solutions',
+            'slug' => 'aculyze',
+            'timezone' => 'Asia/Kolkata',
+        ]);
+
+        Tenancy::runAs($aculyze->id, fn () => $this->seedAculyzeData());
+    }
+
+    private function seedAculyzeData(): void
     {
         $saji = User::create([
             'name' => 'Saji',

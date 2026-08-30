@@ -4,10 +4,14 @@ namespace App\Models;
 
 use App\Enums\ExportableResource;
 use App\Enums\ExportRequestStatus;
+use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Concerns\EnforcesSameOrganizationRelations;
+use App\Models\Scopes\OrganizationScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Import Access + Export Approval batch, Section 2: a single, shared
@@ -21,7 +25,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class ExportRequest extends Model
 {
-    use HasFactory;
+    use BelongsToOrganization, EnforcesSameOrganizationRelations, HasFactory;
 
     protected $fillable = [
         'user_id',
@@ -45,6 +49,11 @@ class ExportRequest extends Model
             'expires_at' => 'datetime',
             'downloaded_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new OrganizationScope);
     }
 
     public function requester(): BelongsTo
@@ -186,9 +195,14 @@ class ExportRequest extends Model
         }
     }
 
+    /**
+     * Senior Managers see every export request in their organization;
+     * Managers see their own + their direct reports'; Employees see only
+     * their own.
+     */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        return $user->isAdmin() ? $query : $query->where('user_id', $user->id);
+        return \App\Support\Authorization\HierarchyVisibility::scopeFor($query, $user, 'user_id');
     }
 
     /**
@@ -218,5 +232,24 @@ class ExportRequest extends Model
             ->where('status', ExportRequestStatus::Pending)
             ->get()
             ->first(fn (self $request) => $request->filters === $filters);
+    }
+
+    /** Inherits organization_id from the requesting User, never a value later re-derived from whoever is currently logged in. */
+    protected function inheritedOrganizationId(): ?int
+    {
+        if (! $this->user_id) {
+            return null;
+        }
+
+        return DB::table('users')->where('id', $this->user_id)->value('organization_id');
+    }
+
+    /** @return array<string, array{0: string, 1: string}> */
+    protected function organizationScopedRelations(): array
+    {
+        return [
+            'user_id' => ['users', 'requesting User'],
+            'decided_by' => ['users', 'deciding User'],
+        ];
     }
 }

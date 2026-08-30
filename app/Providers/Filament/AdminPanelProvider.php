@@ -12,6 +12,7 @@ use App\Filament\Resources\LeadResource\Pages\ListLeads;
 use App\Filament\Resources\ProposalResource\Pages\ListProposals;
 use App\Filament\Resources\ProspectResource\Pages\ListProspects;
 use App\Filament\Resources\UserResource\Pages\ListUsers;
+use App\Http\Middleware\EstablishTenantContext;
 use Filament\FontProviders\LocalFontProvider;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -189,6 +190,7 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
+                EstablishTenantContext::class,
             ]);
     }
 }
