@@ -50,7 +50,7 @@ return new class extends Migration
     {
         foreach ($this->tables as $table) {
             Schema::table($table, function (Blueprint $blueprint) use ($table) {
-                $blueprint->dropForeign(["{$table}_organization_id_foreign"]);
+                $blueprint->dropForeign(['organization_id']);
                 $blueprint->unsignedBigInteger('organization_id')->nullable()->change();
             });
         }
