@@ -3,9 +3,11 @@
 namespace App\Filament\Resources;
 
 use App\Enums\AppointmentStage;
+use App\Enums\AppointmentStatus;
 use App\Filament\Resources\AppointmentResource\Pages;
 use App\Models\Appointment;
 use App\Models\User;
+use App\Services\RescheduleService;
 use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -71,7 +73,17 @@ class AppointmentResource extends Resource
                             ->dehydrated(),
                         Forms\Components\DateTimePicker::make('appointment_at')
                             ->required()
-                            ->seconds(false),
+                            ->seconds(false)
+                            // Phase 2: normal Edit must never silently
+                            // change an ALREADY-SET schedule — the
+                            // dedicated "Reschedule" row action is the
+                            // only way (see table()). A still-NULL
+                            // schedule (auto-routed from a call before the
+                            // exact time was known) stays editable here —
+                            // filling it in for the first time is not a
+                            // reschedule.
+                            ->disabled(fn (?Appointment $record) => $record?->appointment_at !== null)
+                            ->dehydrated(fn (?Appointment $record) => $record?->appointment_at === null),
                         // ->live() so outcome_notes' required()/rule()
                         // below react the moment Stage changes — same
                         // mechanism as LeadResource's stage-driven Notes
@@ -242,6 +254,30 @@ class AppointmentResource extends Resource
                                 ->helperText('Required — why this Appointment is being marked Lost.'),
                         ])
                         ->action(fn (Appointment $record, array $data) => $record->markLost($data['reason'])),
+                    // Phase 2: the ONLY way to change appointment_at on an
+                    // active Appointment — normal Edit shows it read-only
+                    // (see formSchema()). This Appointment becomes
+                    // Rescheduled/history; a brand new Appointment is
+                    // created as the active Scheduled record.
+                    Tables\Actions\Action::make('reschedule')
+                        ->label('Reschedule')
+                        ->icon('heroicon-o-calendar-days')
+                        ->color('warning')
+                        ->visible(fn (Appointment $record) => $record->status === AppointmentStatus::Scheduled && auth()->user()->can('update', $record))
+                        ->form([
+                            Forms\Components\DateTimePicker::make('appointment_at')
+                                ->label('New Appointment At')
+                                ->required()
+                                ->seconds(false),
+                            Forms\Components\Textarea::make('reason')
+                                ->label('Reason for Reschedule')
+                                ->rows(2),
+                        ])
+                        ->action(fn (Appointment $record, array $data) => app(RescheduleService::class)->reschedule(
+                            $record,
+                            ['appointment_at' => $data['appointment_at']],
+                            $data['reason'] ?? null,
+                        )),
                     Tables\Actions\DeleteAction::make()
                         ->visible(fn () => auth()->user()->isAdmin()),
                 ]),

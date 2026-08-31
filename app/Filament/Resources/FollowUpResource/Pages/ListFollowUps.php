@@ -46,7 +46,7 @@ class ListFollowUps extends ListRecords
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', FollowUpStatus::Pending))
                 ->badge(fn () => FollowUp::query()->visibleTo(auth()->user())->where('status', FollowUpStatus::Pending)->count()),
             'history' => Tab::make('History')
-                ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', [FollowUpStatus::Completed, FollowUpStatus::Cancelled])),
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', [FollowUpStatus::Completed, FollowUpStatus::Cancelled, FollowUpStatus::Rescheduled])),
             'lost' => Tab::make('Lost')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', FollowUpStatus::Cancelled)),
         ];

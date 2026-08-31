@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Enums\AppointmentStage;
+use App\Enums\AppointmentStatus;
 use App\Enums\LeadStage;
+use App\Enums\LeadStatus;
 use App\Enums\LeadTemperature;
 use App\Models\Appointment;
 use App\Models\CallRecord;
@@ -86,6 +88,7 @@ class CallRoutingService
                 'created_by' => $callRecord->user_id,
                 'appointment_at' => $callRecord->appointment_at,
                 'stage' => AppointmentStage::AppointmentMade->value,
+                'status' => AppointmentStatus::Scheduled->value,
             ]
         );
     }
@@ -99,6 +102,7 @@ class CallRoutingService
                 'assigned_to' => $callRecord->prospect->assigned_to,
                 'created_by' => $callRecord->user_id,
                 'stage' => LeadStage::RequirementCollection->value,
+                'status' => LeadStatus::RequirementCollection->value,
                 'temperature' => LeadTemperature::Warm->value,
                 'requirement_details' => $callRecord->notes,
             ]

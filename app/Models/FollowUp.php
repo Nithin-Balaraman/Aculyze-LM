@@ -6,6 +6,8 @@ use App\Enums\ContactMode;
 use App\Enums\FollowUpStatus;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\EnforcesSameOrganizationRelations;
+use App\Models\Concerns\GuardsScheduleAgainstDirectEdit;
+use App\Models\Concerns\ValidatesOriginLineage;
 use App\Models\Scopes\OrganizationScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -15,9 +17,20 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\DB;
 
-class FollowUp extends Model
+/**
+ * Phase 2: two distinct linkage concepts, deliberately never merged (see
+ * the Phase 2 plan's "repeat activity vs reschedule" correction):
+ * - `rescheduled_from_id` = this Follow-Up REPLACES the same not-yet-
+ *   completed Follow-Up because its schedule changed
+ *   (App\Services\RescheduleService).
+ * - `origin_type`/`origin_id` = this Follow-Up was created as the next
+ *   business action from a prior activity (e.g. a Demo whose outcome/
+ *   next_action was "More Time / Discussion" / "Create Follow-Up" — see
+ *   App\Services\WorkflowTransitionService).
+ */
+class FollowUp extends Model implements \App\Models\Concerns\Reschedulable
 {
-    use BelongsToOrganization, EnforcesSameOrganizationRelations, HasFactory;
+    use BelongsToOrganization, EnforcesSameOrganizationRelations, GuardsScheduleAgainstDirectEdit, HasFactory, ValidatesOriginLineage;
 
     protected $fillable = [
         'prospect_id',
@@ -94,6 +107,69 @@ class FollowUp extends Model
     public function callRecord(): BelongsTo
     {
         return $this->belongsTo(CallRecord::class);
+    }
+
+    /** The prior, not-yet-completed Follow-Up this one replaced via an explicit Reschedule — never a completed one. */
+    public function rescheduledFrom(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'rescheduled_from_id');
+    }
+
+    /** The Follow-Up that replaced this one via an explicit Reschedule, if any — computed, not a second physical column. */
+    public function replacedBy(): HasOne
+    {
+        return $this->hasOne(self::class, 'rescheduled_from_id');
+    }
+
+    /** Which prior workflow activity caused this Follow-Up to be created as the next business action — lineage, not reschedule linkage. */
+    public function origin(): \Illuminate\Database\Eloquent\Relations\MorphTo
+    {
+        return $this->morphTo();
+    }
+
+    public function scheduledAtColumn(): string
+    {
+        return 'follow_up_at';
+    }
+
+    public function statusEnumClass(): string
+    {
+        return FollowUpStatus::class;
+    }
+
+    public function activeStatusValue(): \BackedEnum
+    {
+        return FollowUpStatus::Pending;
+    }
+
+    public function rescheduledStatusValue(): \BackedEnum
+    {
+        return FollowUpStatus::Rescheduled;
+    }
+
+    public function replacementAttributesForReschedule(): array
+    {
+        return [
+            'prospect_id' => $this->prospect_id,
+            'user_id' => $this->user_id,
+            'contact_mode' => $this->contact_mode,
+            'reason' => $this->reason,
+        ];
+    }
+
+    public function isOverdue(): bool
+    {
+        return $this->status === FollowUpStatus::Pending
+            && $this->follow_up_at !== null
+            && $this->follow_up_at->isPast()
+            && ! $this->follow_up_at->isToday();
+    }
+
+    public function isDueToday(): bool
+    {
+        return $this->status === FollowUpStatus::Pending
+            && $this->follow_up_at !== null
+            && $this->follow_up_at->isToday();
     }
 
     /**
@@ -174,6 +250,7 @@ class FollowUp extends Model
             'prospect_id' => ['prospects', 'Prospect'],
             'call_record_id' => ['call_records', 'Call Record'],
             'user_id' => ['users', 'User'],
+            'rescheduled_from_id' => ['follow_ups', 'original Follow-Up'],
         ];
     }
 

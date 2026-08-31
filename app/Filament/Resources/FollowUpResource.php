@@ -7,6 +7,7 @@ use App\Enums\ContactMode;
 use App\Enums\FollowUpStatus;
 use App\Filament\Resources\FollowUpResource\Pages;
 use App\Models\FollowUp;
+use App\Services\RescheduleService;
 use App\Support\DeletionGuard;
 use App\Support\TableBulkActions;
 use Filament\Forms;
@@ -97,7 +98,20 @@ class FollowUpResource extends Resource
                                     ->label('Followed Up At')
                                     ->required()
                                     ->seconds(false)
-                                    ->default(fn () => now()),
+                                    ->default(fn () => now())
+                                    // Phase 2: normal Edit must never
+                                    // silently change an ALREADY-SET
+                                    // schedule — the dedicated
+                                    // "Reschedule" row action is the only
+                                    // way (see table()). A still-NULL
+                                    // schedule (e.g. a "No Answer" call's
+                                    // auto-routed Follow-Up with no
+                                    // callback time yet) is not a
+                                    // reschedule and stays editable here —
+                                    // this is filling it in for the first
+                                    // time, not replacing an existing one.
+                                    ->disabled(fn (?FollowUp $record) => $record?->follow_up_at !== null)
+                                    ->dehydrated(fn (?FollowUp $record) => $record?->follow_up_at === null),
                                 // Optional, always visible, always persists
                                 // on this same FollowUp record — unrelated to
                                 // `new_follow_up_at` below, which is
@@ -329,6 +343,32 @@ class FollowUpResource extends Resource
                             'appointment_at' => $data['appointment_at'] ?? null,
                             'follow_up_at' => $data['new_follow_up_at'] ?? null,
                         ])),
+                    // Phase 2: the ONLY way to change follow_up_at on an
+                    // active Follow-Up — normal Edit shows it read-only
+                    // (see formSchema()) so the history-preserving
+                    // reschedule behavior can never be silently bypassed.
+                    // This Follow-Up becomes Rescheduled/history; a brand
+                    // new Follow-Up is created as the active Pending
+                    // record — never the same row mutated in place.
+                    Tables\Actions\Action::make('reschedule')
+                        ->label('Reschedule')
+                        ->icon('heroicon-o-calendar-days')
+                        ->color('warning')
+                        ->visible(fn (FollowUp $record) => $record->status === FollowUpStatus::Pending && auth()->user()->can('update', $record))
+                        ->form([
+                            Forms\Components\DateTimePicker::make('follow_up_at')
+                                ->label('New Follow Up At')
+                                ->required()
+                                ->seconds(false),
+                            Forms\Components\Textarea::make('reason')
+                                ->label('Reason for Reschedule')
+                                ->rows(2),
+                        ])
+                        ->action(fn (FollowUp $record, array $data) => app(RescheduleService::class)->reschedule(
+                            $record,
+                            ['follow_up_at' => $data['follow_up_at']],
+                            $data['reason'] ?? null,
+                        )),
                     Tables\Actions\Action::make('close')
                         ->label('Close')
                         ->icon('heroicon-o-archive-box-x-mark')

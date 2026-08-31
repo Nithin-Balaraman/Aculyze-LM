@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\LeadStage;
+use App\Enums\LeadStatus;
 use App\Enums\LeadTemperature;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\EnforcesSameOrganizationRelations;
@@ -11,6 +12,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +28,7 @@ class Lead extends Model
         'assigned_to',
         'created_by',
         'stage',
+        'status',
         'temperature',
         'requirement_details',
         'notes',
@@ -35,8 +38,10 @@ class Lead extends Model
     {
         return [
             'stage' => LeadStage::class,
+            'status' => LeadStatus::class,
             'temperature' => LeadTemperature::class,
             'stage_changed_at' => 'datetime',
+            'status_changed_at' => 'datetime',
             'is_lost' => 'boolean',
             'lost_at_stage' => LeadStage::class,
             'lost_at' => 'datetime',
@@ -53,6 +58,14 @@ class Lead extends Model
         static::saving(function (self $lead) {
             if ($lead->isDirty('stage') || ! $lead->exists) {
                 $lead->stage_changed_at = Date::now();
+            }
+
+            // Phase 2: the normalized LeadStatus column gets its own
+            // independent changed-at clock — legacy `stage` and the new
+            // `status` are two separate, permanently distinct columns
+            // (see App\Enums\LeadStatus's docblock), never conflated.
+            if ($lead->isDirty('status') || ! $lead->exists) {
+                $lead->status_changed_at = Date::now();
             }
 
             // Validated Lead / Create Proposal batch: the Filament form
@@ -115,6 +128,19 @@ class Lead extends Model
     public function proposal(): HasOne
     {
         return $this->hasOne(Proposal::class);
+    }
+
+    /**
+     * Phase 2: one Lead hasMany Demos — no unique constraint, since both
+     * an explicit Reschedule and a completed Demo's "Another Demo
+     * Required"/"Schedule Another Demo" outcome legitimately create
+     * additional Demo rows against this same Lead (see App\Models\Demo's
+     * own docblock). The same Lead persists throughout; a new Demo never
+     * implies a new Lead.
+     */
+    public function demos(): HasMany
+    {
+        return $this->hasMany(Demo::class);
     }
 
     /**

@@ -2,21 +2,47 @@
 
 namespace App\Models;
 
+use App\Enums\AppointmentOutcome;
 use App\Enums\AppointmentStage;
+use App\Enums\AppointmentStatus;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\EnforcesSameOrganizationRelations;
+use App\Models\Concerns\GuardsScheduleAgainstDirectEdit;
+use App\Models\Concerns\ValidatesOriginLineage;
 use App\Models\Scopes\OrganizationScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Date;
 
-class Appointment extends Model
+/**
+ * Phase 2: `status` (App\Enums\AppointmentStatus, lifecycle) and `outcome`
+ * (App\Enums\AppointmentOutcome, business result) are additive alongside
+ * the legacy `stage` column (App\Enums\AppointmentStage) — kept
+ * permanently, untouched, read-only historical/compatibility data. New
+ * code reads/writes `status`/`outcome`; see
+ * App\Console\Commands\BackfillLeadAppointmentStatus for the exact
+ * conservative legacy-to-status mapping.
+ *
+ * Two distinct linkage concepts, deliberately never merged:
+ * - `rescheduled_from_id` = this Appointment REPLACES the same not-yet-
+ *   conducted Appointment because its schedule changed
+ *   (App\Services\RescheduleService).
+ * - `origin_type`/`origin_id` = this Appointment was created as the next
+ *   business action from a prior activity (e.g. a completed Appointment
+ *   whose outcome was "Another Appointment Required" — see
+ *   App\Services\WorkflowTransitionService). Only
+ *   AppointmentOutcome::RequirementIdentified ever creates/moves to a
+ *   Lead; no other outcome does.
+ */
+class Appointment extends Model implements \App\Models\Concerns\Reschedulable
 {
-    use BelongsToOrganization, EnforcesSameOrganizationRelations, HasFactory;
+    use BelongsToOrganization, EnforcesSameOrganizationRelations, GuardsScheduleAgainstDirectEdit, HasFactory, ValidatesOriginLineage;
 
     protected $fillable = [
         'prospect_id',
@@ -25,6 +51,8 @@ class Appointment extends Model
         'created_by',
         'appointment_at',
         'stage',
+        'status',
+        'outcome',
         'meeting_notes',
         'outcome_notes',
     ];
@@ -33,8 +61,11 @@ class Appointment extends Model
     {
         return [
             'stage' => AppointmentStage::class,
+            'status' => AppointmentStatus::class,
+            'outcome' => AppointmentOutcome::class,
             'appointment_at' => 'datetime',
             'stage_changed_at' => 'datetime',
+            'status_changed_at' => 'datetime',
             'is_lost' => 'boolean',
             'lost_at_stage' => AppointmentStage::class,
             'lost_at' => 'datetime',
@@ -51,6 +82,14 @@ class Appointment extends Model
             // section 19).
             if ($appointment->isDirty('stage') || ! $appointment->exists) {
                 $appointment->stage_changed_at = Date::now();
+            }
+
+            // Phase 2: the normalized AppointmentStatus column gets its
+            // own independent changed-at clock — legacy `stage` and the
+            // new `status` are two separate, permanently distinct
+            // columns, never conflated.
+            if ($appointment->isDirty('status') || ! $appointment->exists) {
+                $appointment->status_changed_at = Date::now();
             }
 
             // Appointment At is mandatory (Change Request: Mandatory
@@ -126,6 +165,69 @@ class Appointment extends Model
         return $this->belongsTo(CallRecord::class);
     }
 
+    /** The prior, not-yet-conducted Appointment this one replaced via an explicit Reschedule — never a completed one. */
+    public function rescheduledFrom(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'rescheduled_from_id');
+    }
+
+    /** The Appointment that replaced this one via an explicit Reschedule, if any — computed, not a second physical column. */
+    public function replacedBy(): HasOne
+    {
+        return $this->hasOne(self::class, 'rescheduled_from_id');
+    }
+
+    /** Which prior workflow activity caused this Appointment to be created as the next business action — lineage, not reschedule linkage. */
+    public function origin(): MorphTo
+    {
+        return $this->morphTo();
+    }
+
+    public function scheduledAtColumn(): string
+    {
+        return 'appointment_at';
+    }
+
+    public function statusEnumClass(): string
+    {
+        return AppointmentStatus::class;
+    }
+
+    public function activeStatusValue(): \BackedEnum
+    {
+        return AppointmentStatus::Scheduled;
+    }
+
+    public function rescheduledStatusValue(): \BackedEnum
+    {
+        return AppointmentStatus::Rescheduled;
+    }
+
+    public function replacementAttributesForReschedule(): array
+    {
+        return [
+            'prospect_id' => $this->prospect_id,
+            'assigned_to' => $this->assigned_to,
+            'created_by' => $this->created_by,
+            'stage' => AppointmentStage::AppointmentMade,
+        ];
+    }
+
+    public function isOverdue(): bool
+    {
+        return $this->status === AppointmentStatus::Scheduled
+            && $this->appointment_at !== null
+            && $this->appointment_at->isPast()
+            && ! $this->appointment_at->isToday();
+    }
+
+    public function isDueToday(): bool
+    {
+        return $this->status === AppointmentStatus::Scheduled
+            && $this->appointment_at !== null
+            && $this->appointment_at->isToday();
+    }
+
     public function assignedEmployee(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_to');
@@ -186,6 +288,7 @@ class Appointment extends Model
             'call_record_id' => ['call_records', 'Call Record'],
             'assigned_to' => ['users', 'assigned User'],
             'created_by' => ['users', 'creating User'],
+            'rescheduled_from_id' => ['appointments', 'original Appointment'],
         ];
     }
 }
