@@ -175,8 +175,16 @@ class AppointmentResource extends Resource
                 ->dateTime('d M Y, h:i A')
                 ->sortable()
                 ->placeholder('Not scheduled'),
+            // Phase 2: a Rescheduled Appointment's legacy `stage` is
+            // deliberately left unchanged (see RescheduleService), so the
+            // badge must consult the normalized `status` first — otherwise
+            // the History tab shows the stale stage label (e.g.
+            // "Appointment Made") for a record that's actually historical/
+            // Rescheduled, with no visual indication of that at all.
             Tables\Columns\TextColumn::make('stage')
                 ->badge()
+                ->formatStateUsing(fn (Appointment $record, AppointmentStage|string $state) => self::resolveStageBadgeLabel($record, $state))
+                ->color(fn (Appointment $record, AppointmentStage|string $state) => self::resolveStageBadgeColor($record, $state))
                 ->sortable(),
             Tables\Columns\TextColumn::make('is_lost')
                 ->label('Current Status')
@@ -195,6 +203,32 @@ class AppointmentResource extends Resource
                 ->sortable()
                 ->toggleable(isToggledHiddenByDefault: true),
         ];
+    }
+
+    /**
+     * A Rescheduled Appointment's `stage` badge must say so, not show the
+     * stale legacy stage label it happened to be sitting at — see the
+     * `stage` column's own comment in columns() above. Extracted as a
+     * named static method (mirrors FollowUpResource::resolveStatus()'s
+     * precedent) so it's directly unit-testable without needing to
+     * reverse-engineer Filament's column-rendering pipeline.
+     */
+    public static function resolveStageBadgeLabel(Appointment $record, AppointmentStage|string $state): string
+    {
+        if ($record->status === AppointmentStatus::Rescheduled) {
+            return AppointmentStatus::Rescheduled->getLabel();
+        }
+
+        return $state instanceof AppointmentStage ? $state->getLabel() : AppointmentStage::from($state)->getLabel();
+    }
+
+    public static function resolveStageBadgeColor(Appointment $record, AppointmentStage|string $state): string|array|null
+    {
+        if ($record->status === AppointmentStatus::Rescheduled) {
+            return AppointmentStatus::Rescheduled->getColor();
+        }
+
+        return $state instanceof AppointmentStage ? $state->getColor() : AppointmentStage::from($state)->getColor();
     }
 
     public static function table(Table $table): Table

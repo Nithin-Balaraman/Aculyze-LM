@@ -6,6 +6,7 @@ use App\Support\Audit\AuditLogger;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * The tenant boundary (Phase 1 foundation). Aculyze Solutions is the
@@ -41,6 +42,10 @@ class Organization extends Model
     protected static function booted(): void
     {
         static::created(function (self $organization): void {
+            if (! self::auditEventsTableExists()) {
+                return;
+            }
+
             AuditLogger::record(
                 self::AUDIT_ENTITY_TYPE,
                 $organization->id,
@@ -60,6 +65,10 @@ class Organization extends Model
                 return;
             }
 
+            if (! self::auditEventsTableExists()) {
+                return;
+            }
+
             AuditLogger::record(
                 self::AUDIT_ENTITY_TYPE,
                 $organization->id,
@@ -69,6 +78,25 @@ class Organization extends Model
                 after: ['settings' => $organization->settings],
             );
         });
+    }
+
+    /**
+     * `audit_events` is created by a later migration than `organizations`
+     * — the approved production runbook itself inserts the Aculyze
+     * organization (Step C) before that table exists (Step G), and
+     * locally, `php artisan aculyze:backfill-organizations` can likewise
+     * be invoked between those two migrations. Without this guard, the
+     * very first Organization created on a not-yet-fully-migrated database
+     * would fail entirely on a missing-table error from this audit hook —
+     * a chicken-and-egg failure that has nothing to do with whether the
+     * organization itself is valid. Skips the audit write (never the
+     * organization write) when the table isn't there yet; once
+     * `audit_events` exists, every subsequent create/settings-change is
+     * audited normally.
+     */
+    private static function auditEventsTableExists(): bool
+    {
+        return Schema::hasTable('audit_events');
     }
 
     public function users(): HasMany

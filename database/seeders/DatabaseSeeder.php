@@ -36,11 +36,15 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        $aculyze = Organization::create([
-            'name' => 'Aculyze Solutions',
-            'slug' => 'aculyze',
-            'timezone' => 'Asia/Kolkata',
-        ]);
+        // firstOrCreate (not create) — matches
+        // App\Console\Commands\BackfillOrganizations's own pattern, since
+        // the Aculyze organization may already exist (e.g. the backfill
+        // command was run separately before seeding); a plain create()
+        // would fail on the slug's unique constraint instead of reusing it.
+        $aculyze = Organization::firstOrCreate(
+            ['slug' => 'aculyze'],
+            ['name' => 'Aculyze Solutions', 'timezone' => 'Asia/Kolkata']
+        );
 
         Tenancy::runAs($aculyze->id, fn () => $this->seedAculyzeData());
     }
