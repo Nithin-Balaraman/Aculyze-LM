@@ -10,34 +10,16 @@ use RuntimeException;
 
 /**
  * Phase 2: backfills the normalized `leads.status`/`appointments.status`
- * from the legacy `stage` column, using the EXACT conservative mapping
- * approved for the Phase 2 plan — never a guess, never inferring more
- * than the legacy value actually recorded:
- *
- *   Lead.stage                          -> Lead.status
- *   requirement_collection               -> requirement_collection
- *   validated                            -> requirement_confirmed
- *   demo_scheduled_or_done                -> requirement_confirmed
- *     (DemoScheduledOrDone cannot safely map to DemoRequired — the legacy
- *     value means a Demo may already have been scheduled OR completed;
- *     RequirementConfirmed is the safe normalized interpretation. No Demo
- *     row is ever fabricated here, and ProposalRequired is never inferred
- *     merely because an old Proposal may already exist.)
- *
- *   Appointment.stage                    -> Appointment.status  (outcome always left NULL)
- *   appointment_made                     -> scheduled
- *   visit_conducted                      -> completed
- *   discussion_completed                 -> completed
- *   succeeded                            -> completed
- *   not_succeeded                        -> completed
- *     (Succeeded does NOT imply Requirement Identified/Proposal Required;
- *     NotSucceeded does NOT imply No Current Requirement — the legacy data
- *     never captured a structured outcome, so none is fabricated.)
+ * from the legacy `stage` column. The mapping itself lives in exactly one
+ * place — LeadStatus::fromLegacyStage()/AppointmentStatus::fromLegacyStage()
+ * — so this command and any other code path that needs to derive a status
+ * from a legacy stage (e.g. PipelineBoard's cross-drop destination
+ * creation) can never diverge onto two different tables.
  *
  * Idempotent (WHERE status IS NULL guarded) and non-destructive (`stage`
  * is never modified). Hard-fails — leaving every row untouched — if any
- * row's `stage` value falls outside the exact known set above, rather
- * than silently defaulting it; see report() for how to find such rows.
+ * row's `stage` value falls outside the enum's known set, rather than
+ * silently defaulting it.
  *
  * This is the local/development/future-environment equivalent of the
  * manual Hostinger production SQL runbook addition for Phase 2 (which has
@@ -49,26 +31,14 @@ class BackfillLeadAppointmentStatus extends Command
 
     protected $description = 'Backfill Lead.status/Appointment.status from the legacy stage column using the approved conservative mapping';
 
-    private const LEAD_MAP = [
-        'requirement_collection' => LeadStatus::RequirementCollection,
-        'validated' => LeadStatus::RequirementConfirmed,
-        'demo_scheduled_or_done' => LeadStatus::RequirementConfirmed,
-    ];
-
-    private const APPOINTMENT_MAP = [
-        'appointment_made' => AppointmentStatus::Scheduled,
-        'visit_conducted' => AppointmentStatus::Completed,
-        'discussion_completed' => AppointmentStatus::Completed,
-        'succeeded' => AppointmentStatus::Completed,
-        'not_succeeded' => AppointmentStatus::Completed,
-    ];
-
     public function handle(): int
     {
-        $this->assertNoUnknownLegacyValues('leads', self::LEAD_MAP);
-        $this->assertNoUnknownLegacyValues('appointments', self::APPOINTMENT_MAP);
+        $this->assertNoUnknownLegacyValues('leads', fn (string $stage) => LeadStatus::fromLegacyStage($stage));
+        $this->assertNoUnknownLegacyValues('appointments', fn (string $stage) => AppointmentStatus::fromLegacyStage($stage));
 
-        foreach (self::LEAD_MAP as $legacyStage => $status) {
+        foreach ($this->distinctStages('leads') as $legacyStage) {
+            $status = LeadStatus::fromLegacyStage($legacyStage);
+
             $updated = DB::table('leads')
                 ->where('stage', $legacyStage)
                 ->whereNull('status')
@@ -77,7 +47,9 @@ class BackfillLeadAppointmentStatus extends Command
             $this->info("leads: {$legacyStage} -> {$status->value} ({$updated} row(s)).");
         }
 
-        foreach (self::APPOINTMENT_MAP as $legacyStage => $status) {
+        foreach ($this->distinctStages('appointments') as $legacyStage) {
+            $status = AppointmentStatus::fromLegacyStage($legacyStage);
+
             $updated = DB::table('appointments')
                 ->where('stage', $legacyStage)
                 ->whereNull('status')
@@ -92,23 +64,29 @@ class BackfillLeadAppointmentStatus extends Command
     }
 
     /**
-     * @param  array<string, \BackedEnum>  $map
+     * @return array<int, string>
      */
-    private function assertNoUnknownLegacyValues(string $table, array $map): void
+    private function distinctStages(string $table): array
     {
-        $known = array_keys($map);
+        return DB::table($table)->whereNotNull('stage')->whereNull('status')->distinct()->pluck('stage')->all();
+    }
 
-        $unknown = DB::table($table)
-            ->whereNotNull('stage')
-            ->whereNotIn('stage', $known)
-            ->whereNull('status')
-            ->distinct()
-            ->pluck('stage');
+    private function assertNoUnknownLegacyValues(string $table, \Closure $mapper): void
+    {
+        $unknown = [];
 
-        if ($unknown->isNotEmpty()) {
+        foreach ($this->distinctStages($table) as $stage) {
+            try {
+                $mapper($stage);
+            } catch (\ValueError) {
+                $unknown[] = $stage;
+            }
+        }
+
+        if ($unknown !== []) {
             throw new RuntimeException(
                 "Refusing to backfill {$table}.status: found unrecognized legacy stage value(s) [".
-                $unknown->implode(', ')."] with no known mapping. No row in {$table} was changed. ".
+                implode(', ', $unknown)."] with no known mapping. No row in {$table} was changed. ".
                 'Resolve the mapping for these values explicitly before re-running this command.'
             );
         }

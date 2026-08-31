@@ -56,4 +56,29 @@ enum AppointmentStatus: string implements HasColor, HasLabel
     {
         return collect(self::cases())->mapWithKeys(fn (self $case) => [$case->value => $case->getLabel()])->all();
     }
+
+    /**
+     * The single source of truth for the approved conservative legacy
+     * `stage` -> `status` mapping — used by both
+     * App\Console\Commands\BackfillLeadAppointmentStatus (existing rows)
+     * and any code path that creates an Appointment directly at a given
+     * legacy stage (e.g. PipelineBoard's cross-drop destination creation)
+     * without an explicit status of its own, so the two can never
+     * diverge. Throws on any stage value outside the exact known set
+     * rather than guessing — mirrors the backfill command's own
+     * hard-fail-on-unknown-value behavior.
+     */
+    public static function fromLegacyStage(AppointmentStage|string $stage): self
+    {
+        $value = $stage instanceof AppointmentStage ? $stage->value : $stage;
+
+        return match ($value) {
+            AppointmentStage::AppointmentMade->value => self::Scheduled,
+            AppointmentStage::VisitConducted->value,
+            AppointmentStage::DiscussionCompleted->value,
+            AppointmentStage::Succeeded->value,
+            AppointmentStage::NotSucceeded->value => self::Completed,
+            default => throw new \ValueError("Unrecognized legacy Appointment stage '{$value}' — no known status mapping."),
+        };
+    }
 }

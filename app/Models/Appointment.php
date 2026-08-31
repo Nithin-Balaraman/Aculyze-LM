@@ -270,6 +270,46 @@ class Appointment extends Model implements \App\Models\Concerns\Reschedulable
         return $query->where('is_lost', true);
     }
 
+    /**
+     * Excludes records whose normalized `status` (Rescheduled/Completed/
+     * Cancelled) marks them historical under the Phase 2 model — the
+     * legacy `stage` alone (still the Pipeline Board's/List page's
+     * grouping key) does not reflect a Reschedule or a
+     * WorkflowTransitionService outcome, since neither ever changes it.
+     * Without this, a Rescheduled/repeat-activity-Completed Appointment
+     * would keep appearing as if still active under whatever stage it
+     * happened to be sitting in. NULL/not-yet-backfilled `status` and
+     * `Scheduled` both pass through unaffected — this only ever removes a
+     * record that the new model explicitly marks historical.
+     *
+     * @param  Builder<Appointment>  $query
+     */
+    public function scopeExcludingHistoricalStatus(Builder $query): Builder
+    {
+        return $query->where(function (Builder $query) {
+            $query->whereNull('status')->orWhereNotIn('status', [
+                AppointmentStatus::Rescheduled->value,
+                AppointmentStatus::Completed->value,
+                AppointmentStatus::Cancelled->value,
+            ]);
+        });
+    }
+
+    /**
+     * The inverse of scopeExcludingHistoricalStatus() — records the
+     * Phase 2 status model considers historical, for History-style views.
+     *
+     * @param  Builder<Appointment>  $query
+     */
+    public function scopeHistoricalStatus(Builder $query): Builder
+    {
+        return $query->whereIn('status', [
+            AppointmentStatus::Rescheduled->value,
+            AppointmentStatus::Completed->value,
+            AppointmentStatus::Cancelled->value,
+        ]);
+    }
+
     /** Inherits organization_id from the Prospect this Appointment is against. */
     protected function inheritedOrganizationId(): ?int
     {

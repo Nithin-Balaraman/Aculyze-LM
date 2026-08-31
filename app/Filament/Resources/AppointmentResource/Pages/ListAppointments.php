@@ -27,11 +27,11 @@ class ListAppointments extends ListRecords
     {
         return [
             'pending' => Tab::make('Pending')
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('is_lost', false)->whereNotIn('stage', self::terminalStages()))
-                ->badge(fn () => Appointment::query()->visibleTo(auth()->user())->where('is_lost', false)->whereNotIn('stage', self::terminalStages())->count()),
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('is_lost', false)->whereNotIn('stage', self::terminalStages())->excludingHistoricalStatus())
+                ->badge(fn () => Appointment::query()->visibleTo(auth()->user())->where('is_lost', false)->whereNotIn('stage', self::terminalStages())->excludingHistoricalStatus()->count()),
             'history' => Tab::make('History')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where(
-                    fn (Builder $query) => $query->where('is_lost', true)->orWhereIn('stage', self::terminalStages())
+                    fn (Builder $query) => $query->where('is_lost', true)->orWhereIn('stage', self::terminalStages())->orWhere->historicalStatus()
                 )),
             'lost' => Tab::make('Lost')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('is_lost', true)),

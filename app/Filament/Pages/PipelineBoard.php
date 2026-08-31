@@ -3,9 +3,11 @@
 namespace App\Filament\Pages;
 
 use App\Enums\AppointmentStage;
+use App\Enums\AppointmentStatus;
 use App\Enums\CallOutcome;
 use App\Enums\FollowUpStatus;
 use App\Enums\LeadStage;
+use App\Enums\LeadStatus;
 use App\Enums\LeadTemperature;
 use App\Enums\ProposalOutcome;
 use App\Enums\ProposalStage;
@@ -1652,12 +1654,20 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 // see the class docblock.
                 'status' => FollowUpStatus::Pending,
             ]),
+            // Phase 2: `status` is derived from the same destination stage
+            // via AppointmentStatus::fromLegacyStage() — the single source
+            // of truth also used by the legacy-backfill command — rather
+            // than left to the status column's DB default, which would be
+            // wrong whenever $destStage isn't the default stage (e.g.
+            // cross-dropping straight onto "Succeeded" must not leave a
+            // brand-new Appointment sitting at status=Scheduled).
             'appointment' => Appointment::create([
                 'prospect_id' => $prospect->id,
                 'assigned_to' => $assignedTo,
                 'created_by' => auth()->id(),
                 'appointment_at' => $data['destination_appointment_at'] ?? null,
                 'stage' => $destStage,
+                'status' => AppointmentStatus::fromLegacyStage($destStage),
                 'meeting_notes' => $data['destination_meeting_notes'] ?? null,
                 'outcome_notes' => $data['destination_outcome_notes'] ?? null,
             ]),
@@ -1666,6 +1676,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 'assigned_to' => $assignedTo,
                 'created_by' => auth()->id(),
                 'stage' => $destStage,
+                'status' => LeadStatus::fromLegacyStage($destStage),
                 'temperature' => $data['destination_temperature'] ?? LeadTemperature::Warm,
                 'notes' => $data['destination_notes'] ?? null,
             ]),
@@ -1961,7 +1972,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
         return $this->stageBasedLane(
             label: 'Appointment',
             records: $this->scopeToPeriod(
-                AppointmentResource::getEloquentQuery()->with('prospect'),
+                AppointmentResource::getEloquentQuery()->with('prospect')->excludingHistoricalStatus(),
                 'stage_changed_at',
             )->latest('appointment_at')->get(),
             cases: AppointmentStage::cases(),

@@ -67,4 +67,26 @@ enum LeadStatus: string implements HasColor, HasLabel
     {
         return collect(self::cases())->mapWithKeys(fn (self $case) => [$case->value => $case->getLabel()])->all();
     }
+
+    /**
+     * The single source of truth for the approved conservative legacy
+     * `stage` -> `status` mapping — used by both
+     * App\Console\Commands\BackfillLeadAppointmentStatus (existing rows)
+     * and any code path that creates a Lead directly at a given legacy
+     * stage (e.g. PipelineBoard's cross-drop destination creation)
+     * without an explicit status of its own, so the two can never
+     * diverge. Throws on any stage value outside the exact known set
+     * rather than guessing.
+     */
+    public static function fromLegacyStage(LeadStage|string $stage): self
+    {
+        $value = $stage instanceof LeadStage ? $stage->value : $stage;
+
+        return match ($value) {
+            LeadStage::RequirementCollection->value => self::RequirementCollection,
+            LeadStage::Validated->value,
+            LeadStage::DemoScheduledOrDone->value => self::RequirementConfirmed,
+            default => throw new \ValueError("Unrecognized legacy Lead stage '{$value}' — no known status mapping."),
+        };
+    }
 }
