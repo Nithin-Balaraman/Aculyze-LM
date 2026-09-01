@@ -78,7 +78,10 @@ class AppointmentListVisibilityTest extends TestCase
             $original = $this->newAppointment($user);
 
             app(WorkflowTransitionService::class)->transitionAppointmentOutcome(
-                $original, AppointmentOutcome::AnotherAppointmentRequired, ['appointment_at' => now()->addDays(3)]
+                $original, AppointmentOutcome::AnotherAppointmentRequired, [
+                    'appointment_at' => now()->addDays(3),
+                    'outcome_notes' => 'Needs a second visit to finalize.',
+                ]
             );
 
             $pendingIds = Appointment::query()->visibleTo($user)

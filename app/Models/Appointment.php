@@ -77,6 +77,28 @@ class Appointment extends Model implements \App\Models\Concerns\Reschedulable
         static::addGlobalScope(new OrganizationScope);
 
         static::saving(function (self $appointment) {
+            // Phase 3: legacy-creation compatibility fallback ONLY — if a
+            // caller CREATES a new Appointment supplying `stage` without an
+            // explicit `status` (older fixtures, legacy-compatible direct
+            // creation, forms not yet fully normalized), derive `status`
+            // from it via the single approved mapping
+            // (AppointmentStatus::fromLegacyStage()) so it is never left at
+            // a blind DB default. Insert-only (never on update) — an
+            // existing record's `status` is always already loaded from the
+            // DB by normal Eloquent usage, so a null in-memory value on an
+            // update means the caller is deliberately touching unrelated
+            // fields, not that status needs deriving. This never overwrites
+            // an explicitly-supplied `status` — ordinary Phase 3 business
+            // workflow (WorkflowTransitionService) always writes `status`
+            // itself and must never depend on this fallback. An explicit
+            // `status` may legitimately differ from what `stage` alone
+            // would imply (e.g. a workflow-completed Appointment whose
+            // `stage` is deliberately left frozen) — that is never rejected
+            // or "corrected" here.
+            if (! $appointment->exists && $appointment->status === null && $appointment->stage !== null) {
+                $appointment->status = AppointmentStatus::fromLegacyStage($appointment->stage);
+            }
+
             // stage_changed_at must only move when the stage itself
             // changes — never on unrelated edits like notes (AGENTS.md
             // section 19).
@@ -118,25 +140,34 @@ class Appointment extends Model implements \App\Models\Concerns\Reschedulable
                 throw new \LogicException('An Appointment cannot be saved without an Appointment At date/time.');
             }
 
-            // Notes/Remarks batch: reaching a terminal stage (Succeeded or
-            // Not Succeeded) must have Outcome Notes documenting it — the
-            // Filament form already blocks this interactively (see
-            // AppointmentResource::form()), but every write path must be
-            // unable to persist it without them. Gated the same way as the
-            // Appointment At guard above (insert, or Stage actually being
-            // dirtied) rather than unconditionally on every save, so
-            // unrelated row actions (Reassign, Mark Lost) that never touch
-            // Stage aren't blocked by a pre-existing gap they didn't create
-            // — CallRoutingService::createAppointment() also never inserts
-            // at a terminal stage (always AppointmentMade), so this never
-            // needs an auto-routed-insert exemption the way appointment_at
-            // does.
+            // Notes/Remarks batch: a real business outcome being recorded
+            // must have Outcome Notes documenting it. Phase 3: migrated
+            // from keying purely on legacy `stage`->isTerminal() to the
+            // normalized `status`, but `AppointmentStatus::Completed` is a
+            // many-to-one target of `fromLegacyStage()` (VisitConducted,
+            // DiscussionCompleted, Succeeded, AND NotSucceeded all collapse
+            // to it) — broader than the legacy "terminal" concept (only
+            // Succeeded/NotSucceeded), and AppointmentOutcome's own
+            // docblock already establishes the invariant that a legacy row
+            // reaching Completed with no real outcome captured is left with
+            // `outcome = NULL` (see BackfillLeadAppointmentStatus). So this
+            // guard fires only when EITHER a real outcome is actually being
+            // recorded (outcome not null — true for every
+            // WorkflowTransitionService completion, which always sets one),
+            // OR the underlying legacy stage is itself genuinely terminal
+            // (Succeeded/NotSucceeded) — reproducing the exact original
+            // legacy-stage behavior for stage-driven writes, without
+            // over-triggering for a merely Completed-via-fallback
+            // non-terminal legacy stage (e.g. VisitConducted).
+            $reachedCompletedWithRealOutcome = $appointment->status === AppointmentStatus::Completed
+                && ($appointment->outcome !== null || ($appointment->stage !== null && $appointment->stage->isTerminal()));
+
             if (
-                ($appointment->isDirty('stage') || ! $appointment->exists)
-                && $appointment->stage->isTerminal()
+                ($appointment->isDirty('status') || ! $appointment->exists)
+                && $reachedCompletedWithRealOutcome
                 && ! $appointment->hasMeaningfulOutcomeNotes()
             ) {
-                throw new \LogicException('An Appointment cannot be saved as Succeeded or Not Succeeded without Outcome Notes.');
+                throw new \LogicException('An Appointment cannot be saved as Completed without Outcome Notes.');
             }
         });
     }

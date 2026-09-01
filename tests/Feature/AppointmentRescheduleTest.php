@@ -88,7 +88,10 @@ class AppointmentRescheduleTest extends TestCase
             $original = $this->newAppointment($user);
 
             app(WorkflowTransitionService::class)->transitionAppointmentOutcome(
-                $original, AppointmentOutcome::AnotherAppointmentRequired, ['appointment_at' => now()->addDays(3)]
+                $original, AppointmentOutcome::AnotherAppointmentRequired, [
+                    'appointment_at' => now()->addDays(3),
+                    'outcome_notes' => 'Needs a second visit to finalize.',
+                ]
             );
 
             $original->refresh();
@@ -108,7 +111,10 @@ class AppointmentRescheduleTest extends TestCase
             $newAppointmentAt = now()->addDays(3)->startOfMinute();
 
             app(WorkflowTransitionService::class)->transitionAppointmentOutcome(
-                $original, AppointmentOutcome::AnotherAppointmentRequired, ['appointment_at' => $newAppointmentAt]
+                $original, AppointmentOutcome::AnotherAppointmentRequired, [
+                    'appointment_at' => $newAppointmentAt,
+                    'outcome_notes' => 'Needs a second visit to finalize.',
+                ]
             );
 
             $new = \App\Models\Appointment::query()
@@ -129,7 +135,15 @@ class AppointmentRescheduleTest extends TestCase
         $this->assertTrue(Schema::hasColumns('appointments', ['origin_type', 'origin_id', 'rescheduled_from_id']));
     }
 
-    public function test_transaction_rollback_leaves_the_original_scheduled_appointment_untouched(): void
+    /**
+     * Two independently meaningful failure modes, kept deliberately
+     * separate so neither can accidentally pass for the other's reason
+     * (both throw LogicException, so asserting on the message matters):
+     * missing outcome_notes is rejected before the outcome/downstream is
+     * ever resolved; a missing Lead for Demo/Proposal Required is a
+     * separate, later failure once outcome_notes is valid.
+     */
+    public function test_completed_appointment_without_outcome_notes_is_rejected_for_missing_documentation(): void
     {
         $org = Organization::factory()->create();
 
@@ -139,13 +153,43 @@ class AppointmentRescheduleTest extends TestCase
 
             try {
                 app(WorkflowTransitionService::class)->transitionAppointmentOutcome(
-                    $original, AppointmentOutcome::DemoRequired, [] // no lead_id supplied -> throws
+                    $original, AppointmentOutcome::NoCurrentRequirement, [] // no outcome_notes -> throws
+                );
+                $this->fail('Expected missing outcome_notes to throw.');
+            } catch (LogicException $e) {
+                $this->assertStringContainsString('Outcome Notes', $e->getMessage());
+            }
+
+            $original->refresh();
+            $this->assertSame(AppointmentStatus::Scheduled, $original->status);
+            $this->assertNull($original->outcome);
+        });
+    }
+
+    public function test_demo_required_with_valid_outcome_notes_but_missing_lead_is_rejected_for_missing_lead(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $original = $this->newAppointment($user);
+
+            try {
+                app(WorkflowTransitionService::class)->transitionAppointmentOutcome(
+                    $original, AppointmentOutcome::DemoRequired, [
+                        'outcome_notes' => 'Requirement is clear, wants to see the product.',
+                    ] // valid outcome_notes, no lead_id -> throws for a DIFFERENT reason
                 );
                 $this->fail('Expected a missing lead_id to throw.');
             } catch (LogicException $e) {
-                // expected
+                $this->assertStringContainsString(
+                    'A Demo/Proposal transition requires an existing Lead (a valid requirement) — none was supplied.',
+                    $e->getMessage()
+                );
             }
 
+            // The whole transaction rolls back on the Lead failure, so even
+            // though outcome_notes passed validation, nothing persists.
             $original->refresh();
             $this->assertSame(AppointmentStatus::Scheduled, $original->status);
             $this->assertNull($original->outcome);
@@ -178,7 +222,7 @@ class AppointmentRescheduleTest extends TestCase
             $original = $this->newAppointment($user);
 
             app(WorkflowTransitionService::class)->transitionAppointmentOutcome(
-                $original, AppointmentOutcome::NoCurrentRequirement, []
+                $original, AppointmentOutcome::NoCurrentRequirement, ['outcome_notes' => 'No requirement at this time.']
             );
 
             // A field other than the schedule must remain freely writable

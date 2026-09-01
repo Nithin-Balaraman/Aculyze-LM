@@ -100,12 +100,21 @@ class LeadAppointmentProposalTabsTest extends TestCase
     {
         $prospect = Prospect::factory()->create(['assigned_to' => $owner->id, 'created_by' => $owner->id]);
 
+        // Phase 3: AppointmentStatus::fromLegacyStage() maps VisitConducted/
+        // DiscussionCompleted to Completed too (same as Succeeded/
+        // NotSucceeded) — broader than AppointmentStage::isTerminal(),
+        // which only treats Succeeded/NotSucceeded as terminal. A "still
+        // pending" fixture (a non-terminal stage) must supply its own
+        // explicit Scheduled status so it isn't swept into Completed by
+        // the create-time compatibility fallback, which would misrepresent
+        // it as historical/completed in the Pending/History tabs below.
         $appointment = Appointment::create([
             'prospect_id' => $prospect->id,
             'assigned_to' => $owner->id,
             'created_by' => $owner->id,
             'appointment_at' => now(),
             'stage' => $stage,
+            'status' => $stage->isTerminal() ? \App\Enums\AppointmentStatus::Completed : \App\Enums\AppointmentStatus::Scheduled,
             'outcome_notes' => $stage->isTerminal() ? 'Test outcome notes.' : null,
         ]);
 

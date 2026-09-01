@@ -96,7 +96,10 @@ class PipelineBoardVisibilityTest extends TestCase
             ]);
 
             app(\App\Services\WorkflowTransitionService::class)->transitionAppointmentOutcome(
-                $original, \App\Enums\AppointmentOutcome::AnotherAppointmentRequired, ['appointment_at' => now()->addDays(3)]
+                $original, \App\Enums\AppointmentOutcome::AnotherAppointmentRequired, [
+                    'appointment_at' => now()->addDays(3),
+                    'outcome_notes' => 'Needs a second visit to finalize.',
+                ]
             );
 
             $cardIds = collect($this->boardLanes()['appointment']['stages']['appointment_made']['cards'])->pluck('id');

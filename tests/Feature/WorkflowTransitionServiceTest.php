@@ -50,7 +50,11 @@ class WorkflowTransitionServiceTest extends TestCase
             $appointment = $this->newAppointment($user);
 
             app(WorkflowTransitionService::class)->transitionAppointmentOutcome(
-                $appointment, AppointmentOutcome::FollowUpRequired, ['follow_up_at' => now()->addDays(3), 'reason' => 'Send more info']
+                $appointment, AppointmentOutcome::FollowUpRequired, [
+                    'follow_up_at' => now()->addDays(3),
+                    'reason' => 'Send more info',
+                    'outcome_notes' => 'Needs more information before deciding.',
+                ]
             );
 
             $followUp = \App\Models\FollowUp::query()->where('prospect_id', $appointment->prospect_id)->firstOrFail();
@@ -70,7 +74,7 @@ class WorkflowTransitionServiceTest extends TestCase
             $appointment = $this->newAppointment($user);
 
             app(WorkflowTransitionService::class)->transitionAppointmentOutcome(
-                $appointment, AppointmentOutcome::RequirementIdentified, []
+                $appointment, AppointmentOutcome::RequirementIdentified, ['outcome_notes' => 'Requirement identified during the visit.']
             );
 
             $lead = Lead::query()->where('prospect_id', $appointment->prospect_id)->first();
@@ -88,7 +92,7 @@ class WorkflowTransitionServiceTest extends TestCase
             $appointment = $this->newAppointment($user);
 
             app(WorkflowTransitionService::class)->transitionAppointmentOutcome(
-                $appointment, AppointmentOutcome::NoCurrentRequirement, []
+                $appointment, AppointmentOutcome::NoCurrentRequirement, ['outcome_notes' => 'No requirement at this time.']
             );
 
             $this->assertSame(0, Lead::query()->where('prospect_id', $appointment->prospect_id)->count());
@@ -107,7 +111,7 @@ class WorkflowTransitionServiceTest extends TestCase
             $appointment = $this->newAppointment($employee);
 
             app(WorkflowTransitionService::class)->transitionAppointmentOutcome(
-                $appointment, AppointmentOutcome::RequirementIdentified, []
+                $appointment, AppointmentOutcome::RequirementIdentified, ['outcome_notes' => 'Requirement identified during the visit.']
             );
 
             $lead = Lead::query()->where('prospect_id', $appointment->prospect_id)->firstOrFail();

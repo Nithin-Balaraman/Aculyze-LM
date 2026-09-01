@@ -51,7 +51,10 @@ class WorkflowTransitionService
 {
     /**
      * @param  array<string, mixed>  $data  destination-specific fields the chosen outcome requires
-     *     (e.g. 'follow_up_at'/'reason' for FollowUpRequired, 'lead_id' for DemoRequired/ProposalRequired)
+     *     (e.g. 'follow_up_at'/'reason' for FollowUpRequired, 'lead_id' for DemoRequired/ProposalRequired),
+     *     plus 'outcome_notes' — required by Appointment's own model guard whenever status reaches
+     *     Completed (mirrors the legacy stage-driven "Succeeded/Not Succeeded requires Outcome Notes" rule,
+     *     migrated in Phase 3 to key off normalized status instead).
      */
     public function transitionAppointmentOutcome(Appointment $appointment, AppointmentOutcome $outcome, array $data): void
     {
@@ -68,6 +71,7 @@ class WorkflowTransitionService
             $locked->forceFill([
                 'outcome' => $outcome->value,
                 'status' => AppointmentStatus::Completed->value,
+                'outcome_notes' => $data['outcome_notes'] ?? $locked->outcome_notes,
             ])->save();
 
             $downstream = match ($outcome) {
