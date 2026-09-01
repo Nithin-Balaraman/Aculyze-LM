@@ -56,6 +56,19 @@ class Lead extends Model
         // must not make a 25-day-old Lead look freshly moved (AGENTS.md
         // section 22).
         static::saving(function (self $lead) {
+            // Phase 3: legacy-creation compatibility fallback ONLY — same
+            // shape as Appointment::booted() — a caller CREATING a new Lead
+            // with `stage` but no explicit `status` gets one derived via
+            // the single approved mapping (LeadStatus::fromLegacyStage()).
+            // Create-only (never on update, where status is always already
+            // loaded from the DB by normal Eloquent usage). Never overwrites
+            // an explicit `status`, and an explicit `status` may legitimately
+            // differ from what `stage` alone implies — normalized status is
+            // authoritative, legacy stage is compatibility-only.
+            if (! $lead->exists && $lead->status === null && $lead->stage !== null) {
+                $lead->status = LeadStatus::fromLegacyStage($lead->stage);
+            }
+
             if ($lead->isDirty('stage') || ! $lead->exists) {
                 $lead->stage_changed_at = Date::now();
             }
@@ -71,10 +84,27 @@ class Lead extends Model
             // Validated Lead / Create Proposal batch: the Filament form
             // already blocks this interactively (see LeadResource::form()),
             // but every write path — including ones that bypass the visible
-            // form — must be unable to persist a Validated Lead without
-            // Notes/Remarks.
-            if ($lead->stage === LeadStage::Validated && ! $lead->hasMeaningfulNotes()) {
-                throw new \LogicException('A Lead cannot be saved as Validated without Notes/Remarks.');
+            // form — must be unable to persist a Lead ready for Proposal
+            // without Notes/Remarks. Phase 3: migrated to key primarily on
+            // normalized `status === ProposalRequired` — the exact
+            // normalized equivalent of legacy Validated (see LeadStatus's
+            // own label, and the same term WorkflowTransitionService already
+            // uses for AppointmentOutcome/DemoNextAction's identical "ready
+            // for Proposal" signal) — so this guard keeps applying to a Lead
+            // that reaches ProposalRequired via the new workflow, whose
+            // legacy `stage` is deliberately left frozen. Also still fires
+            // for the legacy `stage === Validated` case directly:
+            // LeadStatus::fromLegacyStage() deliberately does NOT map
+            // Validated to ProposalRequired (it maps to the broader
+            // RequirementConfirmed — ProposalRequired is only ever reached
+            // via an explicit business decision), so a legacy-style direct
+            // Validated creation must keep requiring notes on its own terms,
+            // exactly reproducing the original stage-driven behavior.
+            if (
+                ($lead->status === LeadStatus::ProposalRequired || $lead->stage === LeadStage::Validated)
+                && ! $lead->hasMeaningfulNotes()
+            ) {
+                throw new \LogicException('A Lead cannot be saved as ready for Proposal (status: Proposal Required) without Notes/Remarks.');
             }
 
             // Mandatory Fields batch: Temperature is required — checked
@@ -161,17 +191,21 @@ class Lead extends Model
     }
 
     /**
-     * A Lead is stale once it has sat in the same active (non-terminal)
-     * stage for 30+ days without moving. Lost Leads are a closed outcome
-     * and never count as stale. See AGENTS.md sections 22-23.
+     * A Lead is stale once it has sat in the same active status for 30+
+     * days without moving. Lost Leads are a closed outcome and never count
+     * as stale. Phase 3: migrated from legacy `stage`/`stage_changed_at` to
+     * normalized `status`/`status_changed_at` (LeadStatus::
+     * isTerminalForStaleness()) — a Lead progressing through the new
+     * workflow must not be falsely reported stale merely because its
+     * legacy `stage` never advances (see AGENTS.md sections 22-23).
      */
     public function isStale(): bool
     {
-        if ($this->is_lost || $this->stage->isTerminal() || $this->stage_changed_at === null) {
+        if ($this->is_lost || ($this->status?->isTerminalForStaleness() ?? true) || $this->status_changed_at === null) {
             return false;
         }
 
-        return $this->stage_changed_at->lte(
+        return $this->status_changed_at->lte(
             Date::now()->subDays((int) config('aculyze.lead_stale_after_days'))
         );
     }
@@ -186,6 +220,12 @@ class Lead extends Model
     }
 
     /**
+     * Phase 3: migrated from legacy `stage`/`stage_changed_at` to
+     * normalized `status`/`status_changed_at` (LeadStatus::
+     * isTerminalForStaleness() — only NoCurrentProgression is terminal;
+     * every other status keeps being monitored) — see isStale() above for
+     * the same reasoning.
+     *
      * @param  Builder<Lead>  $query
      */
     public function scopeStale(Builder $query): Builder
@@ -194,12 +234,12 @@ class Lead extends Model
 
         return $query
             ->where('is_lost', false)
-            ->whereNotIn('stage', array_map(
-                fn (LeadStage $stage) => $stage->value,
-                array_filter(LeadStage::cases(), fn (LeadStage $stage) => $stage->isTerminal())
+            ->whereNotIn('status', array_map(
+                fn (LeadStatus $status) => $status->value,
+                array_filter(LeadStatus::cases(), fn (LeadStatus $status) => $status->isTerminalForStaleness())
             ))
-            ->whereNotNull('stage_changed_at')
-            ->where('stage_changed_at', '<=', $threshold);
+            ->whereNotNull('status_changed_at')
+            ->where('status_changed_at', '<=', $threshold);
     }
 
     /**

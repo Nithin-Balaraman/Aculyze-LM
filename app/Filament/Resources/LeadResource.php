@@ -252,8 +252,19 @@ class LeadResource extends Resource
                         ->label('Create Proposal')
                         ->icon('heroicon-o-document-text')
                         ->color('success')
+                        // Phase 3: eligibility now ALSO recognizes normalized
+                        // LeadStatus::ProposalRequired — the exact normalized
+                        // equivalent of legacy stage=Validated (see
+                        // Lead::booted()'s notes guard for the same
+                        // reasoning) — so a Lead that reaches
+                        // ProposalRequired via the new WorkflowTransitionService-
+                        // driven workflow (whose legacy `stage` is
+                        // deliberately left frozen) can still start a
+                        // Proposal. The legacy stage-driven check is kept,
+                        // not replaced, so existing Validated Leads are
+                        // unaffected.
                         ->visible(fn (Lead $record) => ! $record->is_lost
-                            && $record->stage->isEligibleForProposal()
+                            && ($record->stage->isEligibleForProposal() || $record->status === \App\Enums\LeadStatus::ProposalRequired)
                             && $record->hasMeaningfulNotes()
                             && $record->proposal === null
                             && auth()->user()->can('update', $record))

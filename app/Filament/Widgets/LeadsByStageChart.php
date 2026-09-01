@@ -2,17 +2,23 @@
 
 namespace App\Filament\Widgets;
 
-use App\Enums\LeadStage;
+use App\Enums\LeadStatus;
 use App\Filament\Widgets\Concerns\HasClickableChartDetail;
 use App\Models\Lead;
 use Filament\Widgets\ChartWidget;
-use Illuminate\Database\Eloquent\Builder;
 
 /**
- * Section 3 metric: "leads by stage". Reused on both the admin Main
+ * Section 3 metric: "leads by status". Reused on both the admin Main
  * Dashboard (employeeId left null -> company-wide) and the per-employee
  * dashboards (employeeId set), same pattern as the other per-employee
  * widgets in this folder.
+ *
+ * Phase 3: migrated from legacy `stage` to normalized `status` — this is a
+ * current-facing, live dashboard chart, so it must reflect a Lead's real
+ * current workflow state rather than a legacy `stage` that Phase 3's
+ * outcome-driven transitions deliberately leave frozen. The class name and
+ * `getChartKey()` identifier are kept for compatibility (matching
+ * ChartDetailModal's routing); the user-facing heading is what changed.
  */
 class LeadsByStageChart extends ChartWidget
 {
@@ -20,7 +26,7 @@ class LeadsByStageChart extends ChartWidget
 
     protected static string $view = 'filament.widgets.clickable-chart-widget';
 
-    protected static ?string $heading = 'Leads by Stage';
+    protected static ?string $heading = 'Leads by Status';
 
     public ?int $employeeId = null;
 
@@ -42,17 +48,17 @@ class LeadsByStageChart extends ChartWidget
             $query->where('assigned_to', $this->employeeId);
         }
 
-        $counts = (clone $query)->selectRaw('stage, count(*) as aggregate')->groupBy('stage')->pluck('aggregate', 'stage');
+        $counts = (clone $query)->selectRaw('status, count(*) as aggregate')->groupBy('status')->pluck('aggregate', 'status');
 
         return [
             'datasets' => [
                 [
                     'label' => 'Leads',
-                    'data' => collect(LeadStage::cases())->map(fn (LeadStage $stage) => (int) ($counts[$stage->value] ?? 0))->all(),
+                    'data' => collect(LeadStatus::cases())->map(fn (LeadStatus $status) => (int) ($counts[$status->value] ?? 0))->all(),
                     'backgroundColor' => '#4174B9',
                 ],
             ],
-            'labels' => collect(LeadStage::cases())->map(fn (LeadStage $stage) => $stage->getLabel())->all(),
+            'labels' => collect(LeadStatus::cases())->map(fn (LeadStatus $status) => $status->getLabel())->all(),
         ];
     }
 
@@ -63,7 +69,7 @@ class LeadsByStageChart extends ChartWidget
 
     /**
      * Horizontal orientation (`indexAxis: 'y'` — same 'bar' type, just
-     * flipped) so the stage-name labels run down the side instead of
+     * flipped) so the status-name labels run down the side instead of
      * fighting for horizontal space, which is what was causing Chart.js
      * to auto-rotate them at an angle (confirmed live: reproduced at a
      * ~320px card width, roughly what a 3-column layout gives each

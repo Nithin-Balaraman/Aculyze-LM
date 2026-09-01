@@ -2,9 +2,10 @@
 
 namespace App\Filament\Widgets;
 
-use App\Enums\AppointmentStage;
+use App\Enums\AppointmentStatus;
 use App\Enums\FollowUpStatus;
 use App\Enums\LeadStage;
+use App\Enums\LeadStatus;
 use App\Enums\LeadTemperature;
 use App\Enums\ProposalOutcome;
 use App\Models\Appointment;
@@ -63,29 +64,50 @@ class PipelinePulse extends Widget
      */
     protected function getViewData(): array
     {
-        $activeAppointmentStages = array_map(
-            fn (AppointmentStage $stage) => $stage->value,
-            array_filter(AppointmentStage::cases(), fn (AppointmentStage $stage) => ! $stage->isTerminal()),
+        // Phase 3: migrated from legacy stage to normalized status —
+        // AppointmentStatus::isTerminal()/LeadStatus::isTerminalForStaleness()
+        // are now the authoritative "is this still active" signal, so a
+        // record that reached a real conclusion via the new
+        // WorkflowTransitionService-driven workflow (whose legacy `stage`
+        // is deliberately left frozen) is never miscounted as still Active.
+        $activeAppointmentStatuses = array_map(
+            fn (AppointmentStatus $status) => $status->value,
+            array_filter(AppointmentStatus::cases(), fn (AppointmentStatus $status) => ! $status->isTerminal()),
         );
 
-        $activeLeadStages = array_map(
-            fn (LeadStage $stage) => $stage->value,
-            array_filter(LeadStage::cases(), fn (LeadStage $stage) => ! $stage->isTerminal()),
+        $activeLeadStatuses = array_map(
+            fn (LeadStatus $status) => $status->value,
+            array_filter(LeadStatus::cases(), fn (LeadStatus $status) => ! $status->isTerminalForStaleness()),
         );
 
         $activeFollowUpsCount = FollowUp::query()->where('status', FollowUpStatus::Pending)->count();
 
         // Lead/Appointment split "is this closed?" across two fields: the
-        // normal stage progression, plus a separate is_lost flag that
-        // markLost() sets *without* touching stage (see Lead::markLost()/
+        // normal status progression, plus a separate is_lost flag that
+        // markLost() sets *without* touching status (see Lead::markLost()/
         // Appointment::markLost()) — so a Lost record sitting in a
-        // non-terminal stage must be excluded here too, matching exactly
+        // non-terminal status must be excluded here too, matching exactly
         // what ListLeads/ListAppointments' own "Pending" tab checks
         // (App\Filament\Resources\LeadResource\Pages\ListLeads::getTabs(),
         // AppointmentResource\Pages\ListAppointments::getTabs()).
-        $activeAppointmentsCount = Appointment::query()->where('is_lost', false)->whereIn('stage', $activeAppointmentStages)->count();
+        $activeAppointmentsCount = Appointment::query()->where('is_lost', false)->whereIn('status', $activeAppointmentStatuses)->count();
 
-        $activeLeadsQuery = Lead::query()->where('is_lost', false)->whereIn('stage', $activeLeadStages);
+        // Lead keeps BOTH exclusions (legacy stage AND normalized status),
+        // exactly mirroring ListLeads::getTabs()'s own Pending tab (still
+        // legacy-stage-only) plus the new normalized-status protection —
+        // LeadStatus::fromLegacyStage() collapses legacy Validated into
+        // RequirementConfirmed, which is NOT itself terminal-for-staleness,
+        // so a pure status-only filter would silently start counting a
+        // legacy-Validated Lead as Active that ListLeads' own Pending tab
+        // still correctly excludes. Adding the status exclusion on top
+        // (never replacing the stage one) closes the real gap this
+        // migration targets — a Lead reaching NoCurrentProgression via the
+        // new workflow with a frozen, non-Validated legacy stage — without
+        // disturbing any existing, already-correct legacy-stage behavior.
+        $activeLeadsQuery = Lead::query()
+            ->where('is_lost', false)
+            ->where('stage', '!=', LeadStage::Validated->value)
+            ->whereIn('status', $activeLeadStatuses);
 
         // Proposal doesn't have a separate is_lost flag — Hold is one of
         // its three `outcome` values (Won/Hold/Lost) — but Hold is

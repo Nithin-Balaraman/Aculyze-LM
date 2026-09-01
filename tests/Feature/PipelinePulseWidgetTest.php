@@ -244,4 +244,70 @@ class PipelinePulseWidgetTest extends TestCase
             'notes' => in_array($outcome, [ProposalOutcome::Won, ProposalOutcome::Lost], true) ? 'Test outcome notes.' : null,
         ]);
     }
+
+    /**
+     * Phase 3 regression: a Lead that reaches LeadStatus::NoCurrentProgression
+     * via the new normalized workflow — with its legacy `stage` deliberately
+     * left frozen at a non-terminal, active-looking value — must not be
+     * miscounted as Active merely because `stage` never advanced.
+     */
+    public function test_lead_active_count_excludes_a_normalized_status_completed_lead_even_with_a_frozen_active_looking_stage(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $lead = Lead::create([
+            'prospect_id' => Prospect::factory()->create()->id,
+            'assigned_to' => $admin->id,
+            'created_by' => $admin->id,
+            'stage' => LeadStage::RequirementCollection,
+            'status' => \App\Enums\LeadStatus::RequirementCollection,
+            'temperature' => 'warm',
+        ]);
+
+        // Simulates a workflow-driven transition to NoCurrentProgression —
+        // status advances, stage is deliberately left frozen.
+        $lead->update(['status' => \App\Enums\LeadStatus::NoCurrentProgression]);
+        $this->assertSame(LeadStage::RequirementCollection, $lead->fresh()->stage);
+
+        $pendingTabCount = Livewire::test(ListLeads::class)
+            ->set('activeTab', 'pending')
+            ->instance()
+            ->getAllTableRecordsCount();
+
+        $this->assertSame(0, $this->widgetNode('lead')['count']);
+        // ListLeads' own Pending tab is not itself migrated (legacy-stage-
+        // only) — it still shows this frozen-stage Lead, which is exactly
+        // why the widget needed its own additional status-based exclusion.
+        $this->assertSame(1, $pendingTabCount);
+    }
+
+    /**
+     * Phase 3 regression: an Appointment completed via
+     * WorkflowTransitionService::transitionAppointmentOutcome() (which
+     * never touches legacy `stage`) must not be miscounted as Active.
+     */
+    public function test_appointment_active_count_excludes_a_normalized_status_completed_appointment_even_with_a_frozen_active_looking_stage(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $appointment = Appointment::create([
+            'prospect_id' => Prospect::factory()->create()->id,
+            'assigned_to' => $admin->id,
+            'created_by' => $admin->id,
+            'appointment_at' => now()->addDay(),
+            'stage' => AppointmentStage::AppointmentMade,
+            'status' => \App\Enums\AppointmentStatus::Scheduled,
+        ]);
+
+        app(\App\Services\WorkflowTransitionService::class)->transitionAppointmentOutcome(
+            $appointment,
+            \App\Enums\AppointmentOutcome::NoCurrentRequirement,
+            ['outcome_notes' => 'No requirement at this time.']
+        );
+
+        $this->assertSame(AppointmentStage::AppointmentMade, $appointment->fresh()->stage);
+        $this->assertSame(0, $this->widgetNode('appointment')['count']);
+    }
 }

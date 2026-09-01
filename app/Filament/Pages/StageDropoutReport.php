@@ -19,12 +19,23 @@ use Illuminate\Database\Eloquent\Builder;
  * past it. A simple aggregate, not a new data model — "moved past" is
  * computed purely from each enum's existing declaration order, which is
  * also each stage's provisional progression order.
+ *
+ * Phase 3: deliberately kept as a LEGACY-stage-only report, not migrated to
+ * normalized status/outcome — Lead and Appointment now have a normalized
+ * status, but Proposal still doesn't (out of Phase 3 scope), and comparing
+ * Lead/Appointment on one axis while Proposal stays on another would make
+ * this one report mix unlike concepts across its three columns. A proper
+ * normalized reporting redesign is deferred to a later Management/Data Ops
+ * reporting phase, once Proposal's own state model is also addressed. Until
+ * then this page is explicitly labeled "Legacy" so it is never mistaken for
+ * the authoritative current-workflow view — see the dashboards/widgets that
+ * already read normalized status (PipelinePulse, Leads by Status) for that.
  */
 class StageDropoutReport extends Page
 {
     protected static ?string $navigationIcon = 'heroicon-o-funnel';
 
-    protected static ?string $navigationLabel = 'Stage Dropout Report';
+    protected static ?string $navigationLabel = 'Legacy Stage Dropout';
 
     protected static ?string $navigationGroup = 'Reports';
 

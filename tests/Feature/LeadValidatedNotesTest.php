@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\LeadStage;
+use App\Enums\LeadStatus;
 use App\Enums\LeadTemperature;
 use App\Enums\ProposalStage;
 use App\Filament\Resources\LeadResource\Pages\CreateLead;
@@ -215,6 +216,35 @@ class LeadValidatedNotesTest extends TestCase
     {
         $employee = User::factory()->create();
         $lead = $this->makeLead($employee, LeadStage::Validated, 'Ready to move forward.');
+
+        $this->actingAs($employee);
+
+        Livewire::test(ListLeads::class)
+            ->assertTableActionVisible('createProposal', $lead);
+    }
+
+    /**
+     * Phase 3: LeadStatus::ProposalRequired (reached via the new
+     * WorkflowTransitionService-driven workflow, legacy stage left frozen at
+     * a non-Validated value) also exposes Create Proposal — the eligibility
+     * check now recognizes normalized status alongside the legacy stage.
+     */
+    public function test_proposal_required_status_lead_with_frozen_non_validated_stage_exposes_create_proposal(): void
+    {
+        $employee = User::factory()->create();
+        $prospect = Prospect::factory()->create(['assigned_to' => $employee->id, 'created_by' => $employee->id]);
+
+        $lead = Lead::create([
+            'prospect_id' => $prospect->id,
+            'assigned_to' => $employee->id,
+            'created_by' => $employee->id,
+            'stage' => LeadStage::RequirementCollection,
+            'status' => LeadStatus::RequirementCollection,
+            'temperature' => LeadTemperature::Warm,
+        ]);
+
+        $lead->update(['status' => LeadStatus::ProposalRequired, 'notes' => 'Requirement confirmed, ready for Proposal.']);
+        $this->assertSame(LeadStage::RequirementCollection, $lead->fresh()->stage);
 
         $this->actingAs($employee);
 

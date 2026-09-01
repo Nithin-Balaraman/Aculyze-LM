@@ -1759,9 +1759,14 @@ class PipelineBoard extends Page implements HasActions, HasForms
         }
 
         if ($destResource === 'proposal') {
+            // Phase 3: also recognizes normalized LeadStatus::ProposalRequired
+            // — see LeadResource's "Create Proposal" row action for the same
+            // reasoning — so a Lead that reaches ProposalRequired via the new
+            // workflow (legacy stage deliberately frozen) remains draggable
+            // into Proposal here too.
             return $sourceResource === 'lead'
                 && $source instanceof Lead
-                && $source->stage->isEligibleForProposal()
+                && ($source->stage->isEligibleForProposal() || $source->status === LeadStatus::ProposalRequired)
                 && $source->proposal === null;
         }
 
@@ -1800,7 +1805,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 return 'A Proposal needs an existing, Validated Lead behind it — drag a Validated Lead card into this lane instead.';
             }
 
-            if (! $source->stage->isEligibleForProposal()) {
+            if (! $source->stage->isEligibleForProposal() && $source->status !== LeadStatus::ProposalRequired) {
                 return 'This Lead needs to reach Validated before it can have a Proposal.';
             }
 

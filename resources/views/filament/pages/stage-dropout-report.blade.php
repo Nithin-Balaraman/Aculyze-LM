@@ -2,6 +2,9 @@
     <p class="text-sm text-gray-500 dark:text-gray-400">
         Where prospects drop out of each pipeline. "Moved Past" counts records currently sitting at a later stage than this one. The chart beside each table plots the exact same numbers.
     </p>
+    <p class="text-sm text-gray-500 dark:text-gray-400">
+        <strong>Legacy report:</strong> this reflects each record's legacy stage progression, retained for historical/compatibility reporting. It is not the authoritative current-workflow view — see the Main Dashboard's Pipeline Pulse and Leads by Status for live, normalized workflow state.
+    </p>
 
     @foreach ($this->getFunnels() as $pipelineName => $stages)
         <x-filament::section :heading="$pipelineName.' Pipeline'">

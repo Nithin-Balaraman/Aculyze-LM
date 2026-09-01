@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\LeadStage;
+use App\Enums\LeadStatus;
 use App\Enums\LeadTemperature;
 use App\Enums\ProposalOutcome;
 use App\Filament\Resources\LeadResource;
@@ -224,6 +225,15 @@ class ChartDetailModal extends Widget
     /**
      * @return array<string, mixed>
      */
+    /**
+     * Phase 3: migrated from legacy `stage` to normalized `status` — this
+     * chart is current-facing (a live dashboard, not an archival report),
+     * so it must reflect a Lead's real current workflow state even when its
+     * legacy `stage` is deliberately left frozen by the new
+     * WorkflowTransitionService-driven workflow. Heading updated
+     * accordingly ("Leads by Status") so it never implies it still
+     * represents the retired legacy-stage progression.
+     */
     private function leadsByStageDetail(): array
     {
         $query = Lead::query();
@@ -232,16 +242,16 @@ class ChartDetailModal extends Widget
             $query->where('assigned_to', $this->employeeId);
         }
 
-        $counts = (clone $query)->selectRaw('stage, count(*) as aggregate')->groupBy('stage')->pluck('aggregate', 'stage');
+        $counts = (clone $query)->selectRaw('status, count(*) as aggregate')->groupBy('status')->pluck('aggregate', 'status');
         $total = (int) $counts->sum();
 
-        $stages = LeadStage::cases();
+        $statuses = LeadStatus::cases();
 
-        $breakdown = collect($stages)->map(function (LeadStage $stage) use ($counts, $total) {
-            $count = (int) ($counts[$stage->value] ?? 0);
+        $breakdown = collect($statuses)->map(function (LeadStatus $status) use ($counts, $total) {
+            $count = (int) ($counts[$status->value] ?? 0);
 
             return [
-                'label' => $stage->getLabel(),
+                'label' => $status->getLabel(),
                 'count' => $count,
                 'percentage' => $total > 0 ? round($count / $total * 100, 1) : 0.0,
                 'meta' => null,
@@ -249,22 +259,22 @@ class ChartDetailModal extends Widget
         })->all();
 
         return [
-            'heading' => 'Leads by Stage',
+            'heading' => 'Leads by Status',
             'type' => 'bar',
             'chartData' => [
                 'datasets' => [[
                     'label' => 'Leads',
-                    'data' => collect($stages)->map(fn (LeadStage $s) => (int) ($counts[$s->value] ?? 0))->all(),
+                    'data' => collect($statuses)->map(fn (LeadStatus $s) => (int) ($counts[$s->value] ?? 0))->all(),
                     'backgroundColor' => '#4174B9',
                 ]],
-                'labels' => collect($stages)->map(fn (LeadStage $s) => $s->getLabel())->all(),
+                'labels' => collect($statuses)->map(fn (LeadStatus $s) => $s->getLabel())->all(),
             ],
             'chartOptions' => [
                 'indexAxis' => 'y',
                 'scales' => ['x' => ['ticks' => ['stepSize' => 1]]],
             ],
             'breakdown' => $breakdown,
-            'trend' => $this->stageTrend($stages, 'stage', 'stage_changed_at', false),
+            'trend' => $this->stageTrend($statuses, 'status', 'status_changed_at', false),
         ];
     }
 
@@ -325,7 +335,9 @@ class ChartDetailModal extends Widget
      * historical stage-snapshot table, so this reads as "leads whose
      * stage-relevant date falls in this week," not a full audit trail.
      *
-     * @param  array<LeadStage>  $stages
+     * @param  array<LeadStage|LeadStatus>  $stages  a legacy LeadStage set (leadsLostByStageDetail,
+     *     untouched — lost_at_stage is a frozen snapshot) or a normalized LeadStatus set
+     *     (leadsByStageDetail, Phase 3) — both expose ->value/->getLabel(), so this stays generic.
      * @return array<string, mixed>
      */
     private function stageTrend(array $stages, string $stageColumn, string $dateColumn, bool $lostOnly): array
@@ -334,7 +346,7 @@ class ChartDetailModal extends Widget
 
         $colors = ['#4174B9', '#2DC4ED', '#F0653C', '#94a3b8', '#0E1131'];
 
-        $datasets = collect($stages)->values()->map(function (LeadStage $stage, int $index) use ($weeks, $stageColumn, $dateColumn, $lostOnly, $colors) {
+        $datasets = collect($stages)->values()->map(function (LeadStage|LeadStatus $stage, int $index) use ($weeks, $stageColumn, $dateColumn, $lostOnly, $colors) {
             $data = $weeks->map(function ($weekStart) use ($stage, $stageColumn, $dateColumn, $lostOnly) {
                 $query = Lead::query()->where($stageColumn, $stage->value);
 

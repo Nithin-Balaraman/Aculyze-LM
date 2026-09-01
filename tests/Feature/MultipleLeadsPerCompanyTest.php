@@ -68,7 +68,7 @@ class MultipleLeadsPerCompanyTest extends TestCase
 
             $this->assertNotSame($leadA->id, $leadB->id);
 
-            $leadA->update(['status' => \App\Enums\LeadStatus::ProposalRequired]);
+            $leadA->update(['status' => \App\Enums\LeadStatus::ProposalRequired, 'notes' => 'Requirement confirmed, ready for Proposal.']);
 
             $this->assertSame(\App\Enums\LeadStatus::RequirementCollection, $leadB->fresh()->status);
             $this->assertTrue(Lead::query()->visibleTo($user)->whereKey($leadA->id)->exists());

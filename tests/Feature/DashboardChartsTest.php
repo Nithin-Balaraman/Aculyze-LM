@@ -263,7 +263,12 @@ class DashboardChartsTest extends TestCase
         $this->assertSame('Hot Co', $detail['listItems'][0]['label']);
     }
 
-    public function test_leads_by_stage_detail_includes_a_per_stage_trend(): void
+    /**
+     * Phase 3: "Leads by Stage" (chart key kept for compatibility) is
+     * migrated to normalized LeadStatus — 8 statuses, not the 3 legacy
+     * LeadStage cases.
+     */
+    public function test_leads_by_status_detail_includes_a_per_status_trend(): void
     {
         $user = User::factory()->create();
         $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
@@ -276,10 +281,41 @@ class DashboardChartsTest extends TestCase
             ->instance()
             ->getDetail();
 
+        $this->assertSame('Leads by Status', $detail['heading']);
         $this->assertSame('bar', $detail['type']);
         $this->assertSame('y', $detail['chartOptions']['indexAxis']);
-        $this->assertCount(3, $detail['trend']['datasets']);
+        $this->assertCount(count(\App\Enums\LeadStatus::cases()), $detail['trend']['datasets']);
         $this->assertCount(12, $detail['trend']['labels']);
+    }
+
+    /**
+     * Phase 3 regression: a Lead's normalized status change must be
+     * reflected in this chart's distribution even when its legacy `stage`
+     * remains frozen (never advanced by the new workflow).
+     */
+    public function test_leads_by_status_chart_reflects_a_normalized_status_change_even_with_a_frozen_legacy_stage(): void
+    {
+        $user = User::factory()->create();
+        $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+        $lead = Lead::create([
+            'prospect_id' => $prospect->id,
+            'assigned_to' => $user->id,
+            'created_by' => $user->id,
+            'stage' => LeadStage::RequirementCollection,
+            'status' => \App\Enums\LeadStatus::RequirementCollection,
+            'temperature' => LeadTemperature::Warm,
+        ]);
+
+        $lead->update(['status' => \App\Enums\LeadStatus::NoCurrentProgression]);
+        $this->assertSame(LeadStage::RequirementCollection, $lead->fresh()->stage);
+
+        $widget = new LeadsByStageChart;
+        $data = (fn () => $this->getData())->call($widget);
+
+        $labels = $data['labels'];
+        $noCurrentProgressionIndex = array_search(\App\Enums\LeadStatus::NoCurrentProgression->getLabel(), $labels, true);
+
+        $this->assertSame(1, $data['datasets'][0]['data'][$noCurrentProgressionIndex]);
     }
 
     public function test_growth_trend_detail_has_a_per_period_table(): void
