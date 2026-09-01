@@ -43,7 +43,7 @@ class DemoResource extends Resource
 
     protected static ?string $navigationGroup = 'Sales';
 
-    protected static ?int $navigationSort = 5;
+    protected static ?int $navigationSort = 6;
 
     /**
      * Descriptive fields only — demo_at is read-only here (Reschedule is
