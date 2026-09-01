@@ -165,21 +165,15 @@ class LeadValidatedNotesTest extends TestCase
 
     // --- Section 1.12 items 7-8: editing into Validated ---
 
-    public function test_editing_a_lead_into_validated_without_notes_fails_validation(): void
-    {
-        $admin = User::factory()->admin()->create();
-        $lead = $this->makeLead($admin, LeadStage::DemoScheduledOrDone, null);
-        $this->actingAs($admin);
-
-        Livewire::test(EditLead::class, ['record' => $lead->id])
-            ->fillForm(['stage' => LeadStage::Validated->value, 'notes' => null])
-            ->call('save')
-            ->assertHasFormErrors(['notes']);
-
-        $this->assertSame(LeadStage::DemoScheduledOrDone, $lead->fresh()->stage);
-    }
-
-    public function test_editing_a_lead_into_validated_with_notes_succeeds(): void
+    /**
+     * Phase 3 correction round 2: legacy `stage` is now read-only on the
+     * generic Edit form for an EXISTING record (see LeadResource::
+     * formSchema()) — normalized status is authoritative, and a real
+     * business conclusion must go through the Update Status action, never
+     * a hand-edited legacy value here. Even when the form is submitted
+     * with a different stage, it must not take effect on save.
+     */
+    public function test_editing_an_existing_lead_cannot_mutate_legacy_stage_via_the_generic_edit_form(): void
     {
         $admin = User::factory()->admin()->create();
         $lead = $this->makeLead($admin, LeadStage::DemoScheduledOrDone, null);
@@ -191,8 +185,27 @@ class LeadValidatedNotesTest extends TestCase
             ->assertHasNoFormErrors();
 
         $lead->refresh();
+        $this->assertSame(LeadStage::DemoScheduledOrDone, $lead->stage, 'Legacy stage must be read-only on the generic Edit form once the record exists.');
+        $this->assertSame('Confirmed requirements with the client.', $lead->notes, 'A plain descriptive field must still save normally.');
+    }
+
+    /**
+     * The creation-time counterpart: `stage` remains editable at create,
+     * since it drives the create-only stage->status fallback and there is
+     * no established normalized workflow state yet to diverge from.
+     */
+    public function test_creating_a_lead_can_still_set_the_initial_legacy_stage(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        Livewire::test(CreateLead::class)
+            ->fillForm($this->baseFormData(['stage' => LeadStage::Validated->value, 'notes' => 'Confirmed at creation.']))
+            ->call('create')
+            ->assertHasNoFormErrors();
+
+        $lead = Lead::sole();
         $this->assertSame(LeadStage::Validated, $lead->stage);
-        $this->assertSame('Confirmed requirements with the client.', $lead->notes);
     }
 
     // --- Section 1.12 items 9-11: Create Proposal visibility ---

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\AppointmentOutcome;
+use App\Enums\AppointmentStage;
 use App\Enums\AppointmentStatus;
 use App\Enums\DemoMode;
 use App\Enums\DemoNextAction;
@@ -419,6 +420,106 @@ class WorkflowTransitionService
                 organizationId: $locked->organization_id,
                 before: ['status' => $before?->value],
                 after: ['status' => $status->value],
+            );
+        });
+    }
+
+    /**
+     * Phase 3 correction: PipelineBoard's cross-drop drags a source card
+     * (Appointment/Lead) onto a DIFFERENT lane, which creates a real
+     * destination record there (a Follow-Up/Lead/Proposal/Demo) through its
+     * own approved path — but the dragged SOURCE card also needs to be
+     * finalized as a real business conclusion of its own (e.g. the
+     * Appointment that led to that Lead/Proposal really did succeed). That
+     * finalization is itself an ordinary business transition and must be
+     * owned here, not left to PipelineBoard as a raw mutation — this is the
+     * single centralized place deciding and persisting the Appointment's
+     * normalized status/outcome, its legacy-stage compatibility echo (kept
+     * only for PipelineBoard's own stage-grouped display and
+     * StageDropoutReport's historical view — never read by any
+     * business-rule/service logic), and its audit trail.
+     *
+     * Deliberately NOT transitionAppointmentOutcome(): that method's own
+     * downstream creation (createFollowUpFromOrigin()/createLeadFromAppointment()/etc.)
+     * would create a SECOND destination record on top of the one the
+     * cross-drop's own destination-creation step already created — this
+     * method only finalizes the source, it never creates anything.
+     *
+     * @param  array<string, mixed>  $data  optional 'outcome_notes' to persist
+     */
+    public function finalizeCrossDroppedAppointment(Appointment $appointment, array $data = []): void
+    {
+        DB::transaction(function () use ($appointment, $data) {
+            $locked = Appointment::query()->whereKey($appointment->getKey())->lockForUpdate()->firstOrFail();
+
+            if ($locked->stage->isTerminal()) {
+                throw new LogicException("Appointment #{$locked->getKey()} has already been resolved.");
+            }
+
+            $before = ['stage' => $locked->stage->value, 'status' => $locked->status?->value];
+
+            $locked->forceFill([
+                'stage' => AppointmentStage::Succeeded,
+                'status' => AppointmentStatus::Completed,
+                'outcome_notes' => $data['outcome_notes'] ?? $locked->outcome_notes,
+            ])->save();
+
+            AuditLogger::record(
+                entityType: 'Appointment',
+                entityId: $locked->getKey(),
+                action: 'appointment_resolved_via_cross_drop',
+                organizationId: $locked->organization_id,
+                before: $before,
+                after: ['stage' => AppointmentStage::Succeeded->value, 'status' => AppointmentStatus::Completed->value],
+            );
+        });
+    }
+
+    /**
+     * Phase 3 correction: the Lead counterpart to
+     * finalizeCrossDroppedAppointment() — see that method's docblock for
+     * why this is a centralized, single-purpose finalization rather than a
+     * call into transitionLeadStatus()'s sibling machinery (there is no
+     * downstream-creation conflict here since transitionLeadStatus() never
+     * creates anything, but this is still kept as its own explicit method
+     * so cross-drop finalization has one obvious, auditable owner distinct
+     * from an ordinary Update Status change, and so it can also write the
+     * legacy-stage compatibility echo transitionLeadStatus() deliberately
+     * never touches).
+     *
+     * ProposalRequired — not LeadStatus::fromLegacyStage(Validated), which
+     * would resolve to RequirementConfirmed — is the correct normalized
+     * status: this Lead is, right now, actually getting a real Proposal out
+     * of this exact cross-drop, so its status must reflect that, not the
+     * conservative historical-backfill mapping meant for rows with no
+     * other signal.
+     *
+     * @param  array<string, mixed>  $data  optional 'notes' to persist
+     */
+    public function finalizeCrossDroppedLead(Lead $lead, array $data = []): void
+    {
+        DB::transaction(function () use ($lead, $data) {
+            $locked = Lead::query()->whereKey($lead->getKey())->lockForUpdate()->firstOrFail();
+
+            if ($locked->stage->isTerminal()) {
+                throw new LogicException("Lead #{$locked->getKey()} has already been resolved.");
+            }
+
+            $before = ['stage' => $locked->stage->value, 'status' => $locked->status?->value];
+
+            $locked->forceFill([
+                'stage' => LeadStage::Validated,
+                'status' => LeadStatus::ProposalRequired,
+                'notes' => $data['notes'] ?? $locked->notes,
+            ])->save();
+
+            AuditLogger::record(
+                entityType: 'Lead',
+                entityId: $locked->getKey(),
+                action: 'lead_resolved_via_cross_drop',
+                organizationId: $locked->organization_id,
+                before: $before,
+                after: ['stage' => LeadStage::Validated->value, 'status' => LeadStatus::ProposalRequired->value],
             );
         });
     }

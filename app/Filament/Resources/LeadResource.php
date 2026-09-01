@@ -80,11 +80,25 @@ class LeadResource extends Resource
                             ->searchable()
                             ->disabled(fn () => ! auth()->user()->isAdmin())
                             ->dehydrated(),
+                        // Phase 3 correction round 2: legacy `stage` is
+                        // editable only at creation, when it drives the
+                        // create-only stage->status fallback (see
+                        // Lead::booted()) — there is no established
+                        // normalized workflow state yet to diverge from. On
+                        // an EXISTING record it is read-only: normalized
+                        // status is authoritative, and every real business
+                        // conclusion must go through the Update Status
+                        // action, never a hand-edited legacy value here.
                         Forms\Components\Select::make('stage')
                             ->options(LeadStage::class)
                             ->required()
                             ->default(LeadStage::RequirementCollection)
-                            ->live(),
+                            ->live()
+                            ->disabled(fn (?Lead $record) => $record !== null)
+                            ->dehydrated(fn (?Lead $record) => $record === null)
+                            ->helperText(fn (?Lead $record) => $record !== null
+                                ? 'Read-only — use Update Status to change this Lead\'s business state.'
+                                : null),
                         Forms\Components\Select::make('temperature')
                             ->options(LeadTemperature::class)
                             ->required()

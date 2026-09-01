@@ -27,7 +27,6 @@ use App\Models\Lead;
 use App\Models\Prospect;
 use App\Models\Proposal;
 use App\Services\WorkflowTransitionService;
-use App\Support\Audit\AuditLogger;
 use Filament\Actions;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
@@ -1860,56 +1859,35 @@ class PipelineBoard extends Page implements HasActions, HasForms
     }
 
     /**
-     * Phase 3 fix: this method resolves the DRAGGED SOURCE card forward
-     * when a cross-drop happens — the exact stage each case resolves to is
-     * already explicit, known business knowledge (not a generic derivation
-     * from some other value), so the corresponding normalized status is
-     * written alongside it explicitly too, using the same
-     * AppointmentStatus::fromLegacyStage()/LeadStatus::fromLegacyStage()
-     * single-source-of-truth mapping createCrossDropDestination() already
-     * uses. Before this fix, only legacy `stage` was written here, leaving
-     * the source's normalized `status` silently stale/blind-defaulted — the
-     * one confirmed stage/status divergence gap from the Phase 3 audit.
-     */
-    /**
-     * Phase 3 correction: this method resolves the DRAGGED SOURCE card
-     * forward AFTER createCrossDropDestination() has already created the
-     * real destination record (Follow-Up/Lead/Proposal) through its own
-     * path above — so this is explicitly classification D (an audited
-     * administrative/historical correction), never classification A. It
-     * genuinely cannot be classification A: WorkflowTransitionService::
-     * transitionAppointmentOutcome()/transitionLeadStatus() each CREATE
-     * their own downstream record as part of the transition itself, and
-     * calling either here — on top of the destination
-     * createCrossDropDestination() already created — would create a
-     * duplicate Follow-Up/Lead/Demo/Proposal for the same cross-drop. Both
-     * 'appointment' and 'lead' therefore still write normalized
-     * status/outcome directly (never leaving it to silently diverge from
-     * legacy `stage`, which is the one confirmed Phase 3 audit gap this
-     * fixed originally) but now do so explicitly and audibly, matching the
-     * same audit-required bar CallRoutingService::correctOutcome() holds
-     * every administrative correction to.
+     * Phase 3 correction round 2: this method resolves the DRAGGED SOURCE
+     * card forward AFTER createCrossDropDestination() has already created
+     * the real destination record (Follow-Up/Lead/Proposal) through its own
+     * path above. Finalizing an Appointment/Lead source is itself an
+     * ordinary business transition (not administrative data correction —
+     * it happens automatically as part of a normal user cross-drop), so
+     * PipelineBoard no longer decides or persists that authoritative state
+     * itself: it delegates to WorkflowTransitionService::
+     * finalizeCrossDroppedAppointment()/finalizeCrossDroppedLead(), which
+     * own the normalized status/outcome mutation, the legacy-stage
+     * compatibility echo, the audit event, and the "already resolved"
+     * invariant. PipelineBoard's only remaining job here is orchestration —
+     * deciding WHEN to call it (once, after the destination exists) — never
+     * the business-state rules themselves.
      *
-     * The 'lead' case previously used LeadStatus::fromLegacyStage(Validated)
-     * — RequirementConfirmed — which is flatly wrong here: that mapping
-     * exists for the conservative *historical backfill* case (an old Lead
-     * with no other signal), not for a Lead that is, right now, actually
-     * getting a real Proposal out of this exact cross-drop. ProposalRequired
-     * is the correct, meaningful status — the same one LeadResource's own
-     * "Create Proposal" eligibility and Lead's own Notes guard already
-     * treat as equivalent to legacy stage=Validated.
+     * Deliberately NOT transitionAppointmentOutcome()/transitionLeadStatus():
+     * those would each create their OWN downstream record on top of the one
+     * createCrossDropDestination() already created for this same cross-drop.
      *
-     * Legacy `stage` is still written here too, purely for
-     * PipelineBoard's own stage-grouped display (leadLane()/
-     * appointmentLane()) and StageDropoutReport's historical view — it is
-     * not read by any business-rule/service logic, which is entirely
-     * normalized-status-driven.
+     * Proposal has no normalized status this phase (see
+     * StageDropoutReport's own docblock), so its stage+outcome write
+     * remains directly on the model here — there is no competing
+     * normalized-status authority for it to diverge from.
      */
     private function resolveCrossDropSource(string $sourceResource, Model $source, array $data): void
     {
         match ($sourceResource) {
-            'appointment' => $this->resolveAppointmentCrossDropSource($source, $data),
-            'lead' => $this->resolveLeadCrossDropSource($source, $data),
+            'appointment' => app(WorkflowTransitionService::class)->finalizeCrossDroppedAppointment($source, ['outcome_notes' => $data['source_outcome_notes'] ?? null]),
+            'lead' => app(WorkflowTransitionService::class)->finalizeCrossDroppedLead($source, ['notes' => $data['source_notes'] ?? null]),
             'proposal' => $source->update([
                 'stage' => ProposalStage::CustomerAccepted,
                 'outcome' => ProposalOutcome::Won,
@@ -1918,46 +1896,6 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'follow_up' => $this->completeFollowUp($source, $data, 'source_'),
             default => null,
         };
-    }
-
-    private function resolveAppointmentCrossDropSource(Appointment $appointment, array $data): void
-    {
-        $before = ['stage' => $appointment->stage->value, 'status' => $appointment->status?->value];
-
-        $appointment->update([
-            'stage' => AppointmentStage::Succeeded,
-            'status' => AppointmentStatus::Completed,
-            'outcome_notes' => $data['source_outcome_notes'] ?? null,
-        ]);
-
-        AuditLogger::record(
-            entityType: 'Appointment',
-            entityId: $appointment->getKey(),
-            action: 'appointment_resolved_via_cross_drop',
-            organizationId: $appointment->organization_id,
-            before: $before,
-            after: ['stage' => AppointmentStage::Succeeded->value, 'status' => AppointmentStatus::Completed->value],
-        );
-    }
-
-    private function resolveLeadCrossDropSource(Lead $lead, array $data): void
-    {
-        $before = ['stage' => $lead->stage->value, 'status' => $lead->status?->value];
-
-        $lead->update([
-            'stage' => LeadStage::Validated,
-            'status' => LeadStatus::ProposalRequired,
-            'notes' => $data['source_notes'] ?? null,
-        ]);
-
-        AuditLogger::record(
-            entityType: 'Lead',
-            entityId: $lead->getKey(),
-            action: 'lead_resolved_via_cross_drop',
-            organizationId: $lead->organization_id,
-            before: $before,
-            after: ['stage' => LeadStage::Validated->value, 'status' => LeadStatus::ProposalRequired->value],
-        );
     }
 
     /**

@@ -150,7 +150,17 @@ class AppointmentOutcomeNotesTest extends TestCase
         $this->assertSame(AppointmentStage::AppointmentMade, $appointment->fresh()->stage);
     }
 
-    public function test_editing_an_appointment_into_not_succeeded_with_outcome_notes_succeeds(): void
+    /**
+     * Phase 3 correction round 2: legacy `stage` is now read-only on the
+     * generic Edit form for an EXISTING record (see AppointmentResource::
+     * formSchema()) — normalized status is authoritative, and a real
+     * business conclusion (Succeeded/Not Succeeded/any other outcome) must
+     * go through the Record Outcome action, never a hand-edited legacy
+     * value here. Even though the form is submitted with a different
+     * stage, it must not take effect; a plain descriptive field
+     * (outcome_notes) submitted alongside it still saves normally.
+     */
+    public function test_editing_an_existing_appointment_cannot_mutate_legacy_stage_via_the_generic_edit_form(): void
     {
         $employee = User::factory()->create();
         $appointment = $this->appointment($employee, AppointmentStage::AppointmentMade);
@@ -162,8 +172,27 @@ class AppointmentOutcomeNotesTest extends TestCase
             ->assertHasNoFormErrors();
 
         $appointment->refresh();
-        $this->assertSame(AppointmentStage::NotSucceeded, $appointment->stage);
-        $this->assertSame('Budget frozen this quarter.', $appointment->outcome_notes);
+        $this->assertSame(AppointmentStage::AppointmentMade, $appointment->stage, 'Legacy stage must be read-only on the generic Edit form once the record exists.');
+        $this->assertSame('Budget frozen this quarter.', $appointment->outcome_notes, 'A plain descriptive field must still save normally.');
+    }
+
+    /**
+     * The creation-time counterpart: `stage` remains editable at create,
+     * since it drives the create-only stage->status fallback and there is
+     * no established normalized workflow state yet to diverge from.
+     */
+    public function test_creating_an_appointment_can_still_set_the_initial_legacy_stage(): void
+    {
+        $employee = User::factory()->create();
+        $this->actingAs($employee);
+
+        Livewire::test(CreateAppointment::class)
+            ->fillForm($this->baseFormData(['stage' => AppointmentStage::VisitConducted->value, 'meeting_notes' => 'Initial site visit.']))
+            ->call('create')
+            ->assertHasNoFormErrors();
+
+        $appointment = Appointment::sole();
+        $this->assertSame(AppointmentStage::VisitConducted, $appointment->stage);
     }
 
     /**

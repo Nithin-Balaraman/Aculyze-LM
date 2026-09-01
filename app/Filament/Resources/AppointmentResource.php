@@ -95,11 +95,28 @@ class AppointmentResource extends Resource
                         // below react the moment Stage changes — same
                         // mechanism as LeadResource's stage-driven Notes
                         // requirement.
+                        // Phase 3 correction round 2: legacy `stage` is
+                        // editable only at creation, when it drives the
+                        // create-only stage->status fallback (see
+                        // Appointment::booted()) — there is no established
+                        // normalized workflow state yet to diverge from. On
+                        // an EXISTING record it is read-only: normalized
+                        // status is authoritative, and every real business
+                        // conclusion (Succeeded/Not Succeeded/any other
+                        // outcome) must go through the Record Outcome
+                        // action, never a hand-edited legacy value here.
+                        // Mirrors appointment_at's own disabled-on-existing/
+                        // editable-on-create pattern below.
                         Forms\Components\Select::make('stage')
                             ->options(AppointmentStage::class)
                             ->required()
                             ->default(AppointmentStage::AppointmentMade)
-                            ->live(),
+                            ->live()
+                            ->disabled(fn (?Appointment $record) => $record !== null)
+                            ->dehydrated(fn (?Appointment $record) => $record === null)
+                            ->helperText(fn (?Appointment $record) => $record !== null
+                                ? 'Read-only — use Record Outcome to change this Appointment\'s business state.'
+                                : null),
                         Forms\Components\Textarea::make('meeting_notes')
                             ->rows(3)
                             ->columnSpanFull(),

@@ -330,4 +330,55 @@ class PipelineBoardCrossDropStatusTest extends TestCase
             $this->assertSame(LeadStage::RequirementCollection, $lead->fresh()->stage);
         });
     }
+
+    /**
+     * Phase 3 correction round 2, end-to-end proof (via the real mounted
+     * cross-drop entry point, not a direct call into
+     * resolveCrossDropSource()): a single cross-drop creates exactly one
+     * destination AND finalizes the source exactly once. The two
+     * responsibilities createCrossDropDestination() and
+     * WorkflowTransitionService::finalizeCrossDroppedAppointment() now
+     * split between them can never run more than once for the same
+     * cross-drop, and never leave a duplicate downstream record behind.
+     */
+    public function test_a_single_appointment_to_follow_up_cross_drop_creates_exactly_one_follow_up_and_finalizes_the_source_exactly_once(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $this->actingAs($user);
+            $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+            $appointment = Appointment::create([
+                'prospect_id' => $prospect->id,
+                'assigned_to' => $user->id,
+                'created_by' => $user->id,
+                'appointment_at' => now()->addDay(),
+                'stage' => AppointmentStage::AppointmentMade,
+                'status' => AppointmentStatus::Scheduled,
+            ]);
+
+            $this->invokePerformCrossDrop(
+                app(PipelineBoard::class),
+                ['sourceResource' => 'appointment', 'sourceId' => $appointment->id, 'destResource' => 'follow_up', 'destStage' => 'pending'],
+                [
+                    'destination_reason' => 'Needs internal approval first.',
+                    'destination_follow_up_at' => now()->addDays(3)->format('Y-m-d H:i:s'),
+                    'source_outcome_notes' => 'Went well, needs a follow-up.',
+                ]
+            );
+
+            $this->assertSame(1, \App\Models\FollowUp::where('prospect_id', $prospect->id)->count(), 'Exactly one destination Follow-Up, never a duplicate.');
+
+            $appointment->refresh();
+            $this->assertSame(AppointmentStage::Succeeded, $appointment->stage);
+            $this->assertSame(AppointmentStatus::Completed, $appointment->status);
+
+            $this->assertSame(1, \App\Models\AuditEvent::query()
+                ->where('entity_type', 'Appointment')
+                ->where('entity_id', $appointment->id)
+                ->where('action', 'appointment_resolved_via_cross_drop')
+                ->count(), 'Source finalization must occur exactly once per cross-drop.');
+        });
+    }
 }
