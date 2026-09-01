@@ -9,6 +9,7 @@ use App\Enums\ProfileSentStatus;
 use App\Filament\Resources\CallRecordResource\Pages;
 use App\Models\CallRecord;
 use App\Models\Prospect;
+use App\Services\CallRoutingService;
 use App\Support\DeletionGuard;
 use App\Support\TableBulkActions;
 use Filament\Forms;
@@ -476,6 +477,7 @@ class CallRecordResource extends Resource
                 Tables\Actions\ActionGroup::make([
                     Tables\Actions\ViewAction::make(),
                     Tables\Actions\EditAction::make(),
+                    self::correctOutcomeAction(),
                     Tables\Actions\DeleteAction::make()
                         ->visible(fn () => auth()->user()->isAdmin())
                         ->before(fn (CallRecord $record) => DeletionGuard::guardRecord($record, 'call record')),
@@ -497,6 +499,113 @@ class CallRecordResource extends Resource
             ->emptyStateHeading('No calls logged yet.')
             ->emptyStateDescription('Every call you make against a prospect shows up here — successful or not.')
             ->emptyStateIcon('heroicon-o-phone');
+    }
+
+    /**
+     * Phase 3: the explicit, intentional "Correct Outcome" action —
+     * deliberately NOT the generic Edit action, which never reconciles
+     * routing. Shows the existing outcome, captures the corrected outcome
+     * plus a mandatory correction reason, collects whatever destination-
+     * specific data the corrected outcome requires (reusing the exact same
+     * conditional fields/visibility as logging a call), and delegates to
+     * CallRoutingService::correctOutcome() — which enforces the safety
+     * boundary (existing downstream history blocks the correction) and
+     * executes routing exactly once. Authorization mirrors ordinary Call
+     * edit (auth()->user()->can('update', $record)) — no stricter tier,
+     * consistent with how Appointment/Demo outcome recording is gated.
+     */
+    private static function correctOutcomeAction(): Tables\Actions\Action
+    {
+        return Tables\Actions\Action::make('correctOutcome')
+            ->label('Correct Outcome')
+            ->icon('heroicon-o-arrow-path')
+            ->color('warning')
+            ->visible(fn (CallRecord $record) => auth()->user()->can('update', $record))
+            ->form(fn (CallRecord $record) => [
+                Forms\Components\Placeholder::make('current_outcome')
+                    ->label('Current Outcome')
+                    ->content(fn () => $record->outcome->getLabel()),
+                Forms\Components\Select::make('outcome')
+                    ->label('Corrected Outcome')
+                    ->options(CallOutcome::class)
+                    ->required()
+                    ->live(),
+                Forms\Components\Textarea::make('correction_reason')
+                    ->label('Correction Reason')
+                    ->required()
+                    ->rows(2)
+                    ->helperText('Why is the previously recorded outcome being changed?'),
+                Forms\Components\DateTimePicker::make('follow_up_at')
+                    ->label('Follow Up At')
+                    ->seconds(false)
+                    ->visible(fn (Forms\Get $get) => self::followUpAtVisible($get('outcome'), $get('next_action')))
+                    ->required(fn (Forms\Get $get) => self::followUpAtRequired($get('outcome'), $get('next_action'))),
+                Forms\Components\DateTimePicker::make('appointment_at')
+                    ->label('Appointment At')
+                    ->seconds(false)
+                    ->visible(fn (Forms\Get $get) => self::appointmentAtVisible($get('outcome'), $get('next_action')))
+                    ->required(fn (Forms\Get $get) => self::appointmentAtVisible($get('outcome'), $get('next_action'))),
+                Forms\Components\Select::make('next_action')
+                    ->label('Next Action')
+                    ->options(CallNextAction::class)
+                    ->live()
+                    ->visible(fn (Forms\Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::Others)
+                    ->required(fn (Forms\Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::Others),
+                Forms\Components\Select::make('profile_sent_status')
+                    ->label('Profile Sent Status')
+                    ->options(ProfileSentStatus::class)
+                    ->live()
+                    ->visible(fn (Forms\Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::ProfileRequested)
+                    ->required(fn (Forms\Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::ProfileRequested),
+                Forms\Components\Select::make('profile_sent_mode')
+                    ->label('Profile Sent Mode')
+                    ->options(ProfileSentMode::class)
+                    ->live()
+                    ->visible(fn (Forms\Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::ProfileRequested)
+                    ->required(fn (Forms\Get $get) => self::resolveProfileSentStatus($get('profile_sent_status')) === ProfileSentStatus::Sent),
+                Forms\Components\DateTimePicker::make('profile_sent_at')
+                    ->label('Profile Sent At')
+                    ->seconds(false)
+                    ->visible(fn (Forms\Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::ProfileRequested)
+                    ->required(fn (Forms\Get $get) => self::resolveProfileSentStatus($get('profile_sent_status')) === ProfileSentStatus::Sent),
+                Forms\Components\Textarea::make('profile_sent_notes')
+                    ->label('Profile Sent Notes')
+                    ->rows(2)
+                    ->visible(fn (Forms\Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::ProfileRequested)
+                    ->required(fn (Forms\Get $get) => self::resolveProfileSentMode($get('profile_sent_mode')) === ProfileSentMode::Other),
+                Forms\Components\Textarea::make('notes')
+                    ->label('Notes')
+                    ->rows(2)
+                    ->helperText('Optional — updates the Call\'s own Notes alongside the correction.'),
+            ])
+            ->action(function (CallRecord $record, array $data) {
+                try {
+                    app(CallRoutingService::class)->correctOutcome(
+                        $record,
+                        CallOutcome::from($data['outcome']),
+                        $data['correction_reason'],
+                        array_filter([
+                            'follow_up_at' => $data['follow_up_at'] ?? null,
+                            'appointment_at' => $data['appointment_at'] ?? null,
+                            'next_action' => filled($data['next_action'] ?? null) ? CallNextAction::from($data['next_action']) : null,
+                            'profile_sent_status' => filled($data['profile_sent_status'] ?? null) ? ProfileSentStatus::from($data['profile_sent_status']) : null,
+                            'profile_sent_mode' => filled($data['profile_sent_mode'] ?? null) ? ProfileSentMode::from($data['profile_sent_mode']) : null,
+                            'profile_sent_at' => $data['profile_sent_at'] ?? null,
+                            'profile_sent_notes' => $data['profile_sent_notes'] ?? null,
+                            'notes' => $data['notes'] ?? null,
+                        ], fn ($value) => $value !== null),
+                    );
+                } catch (\LogicException $e) {
+                    \Filament\Notifications\Notification::make()
+                        ->title("Couldn't correct this Call's outcome")
+                        ->body($e->getMessage())
+                        ->danger()
+                        ->send();
+                    throw new \Filament\Support\Exceptions\Halt;
+                }
+
+                \Filament\Notifications\Notification::make()->title('Outcome corrected')->success()->send();
+            });
     }
 
     public static function getPages(): array
