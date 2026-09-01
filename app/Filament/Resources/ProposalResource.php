@@ -2,23 +2,29 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\DemoMode;
+use App\Enums\ProposalContinuation;
 use App\Enums\ProposalOutcome;
 use App\Enums\ProposalStage;
 use App\Filament\Resources\ProposalResource\Pages;
 use App\Models\Lead;
 use App\Models\Proposal;
 use App\Models\User;
+use App\Services\WorkflowTransitionService;
 use App\Support\TableBulkActions;
 use Filament\Actions;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Support\Exceptions\Halt;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use LogicException;
 
 /**
  * Proposal processing (AGENTS.md sections 24-27, 44). Stage names/order are
@@ -431,6 +437,7 @@ class ProposalResource extends Resource
                                 ->searchable(),
                         ])
                         ->action(fn (Proposal $record, array $data) => $record->update(['assigned_to' => $data['assigned_to']])),
+                    self::continueAction(),
                     Tables\Actions\DeleteAction::make()
                         ->visible(fn () => auth()->user()->isAdmin()),
                 ]),
@@ -446,6 +453,98 @@ class ProposalResource extends Resource
             ->emptyStateHeading('No proposals in motion.')
             ->emptyStateDescription('Once a Lead is validated, send it to Proposal from its "Create Proposal" action.')
             ->emptyStateIcon('heroicon-o-document-text');
+    }
+
+    /**
+     * Phase 3: the approved, narrow Proposal continuation set — pure
+     * navigation/next-step creation via WorkflowTransitionService::
+     * transitionProposalContinuation(), never a Proposal lifecycle change
+     * (no approval/versioning/Outlook/PDF workflow — Phase 4, out of
+     * scope). Won/Lost hide this action entirely; Hold shows only Follow-Up
+     * Required as a selectable option — both enforced here in the UI AND
+     * server-side by the service itself, so a direct call bypassing this
+     * form is rejected identically.
+     */
+    private static function continueAction(): Tables\Actions\Action
+    {
+        return Tables\Actions\Action::make('continueProposal')
+            ->label('Continue')
+            ->icon('heroicon-o-arrow-right-circle')
+            ->color('info')
+            ->visible(fn (Proposal $record) => ! in_array($record->outcome, [ProposalOutcome::Won, ProposalOutcome::Lost], true)
+                && auth()->user()->can('update', $record))
+            ->form(fn (Proposal $record) => [
+                Forms\Components\Select::make('continuation')
+                    ->label('Continue As')
+                    ->options(collect(ProposalContinuation::cases())
+                        ->filter(fn (ProposalContinuation $c) => $record->outcome !== ProposalOutcome::Hold || $c === ProposalContinuation::FollowUpRequired)
+                        ->mapWithKeys(fn (ProposalContinuation $c) => [$c->value => $c->getLabel()]))
+                    ->required()
+                    ->live(),
+                Forms\Components\DateTimePicker::make('follow_up_at')
+                    ->label('Follow Up At')
+                    ->seconds(false)
+                    ->visible(fn (Get $get) => $get('continuation') === ProposalContinuation::FollowUpRequired->value)
+                    ->required(fn (Get $get) => $get('continuation') === ProposalContinuation::FollowUpRequired->value),
+                Forms\Components\Textarea::make('reason')
+                    ->rows(2)
+                    ->visible(fn (Get $get) => $get('continuation') === ProposalContinuation::FollowUpRequired->value),
+                Forms\Components\DateTimePicker::make('demo_at')
+                    ->label('Demo At')
+                    ->seconds(false)
+                    ->visible(fn (Get $get) => $get('continuation') === ProposalContinuation::DemoRequired->value)
+                    ->required(fn (Get $get) => $get('continuation') === ProposalContinuation::DemoRequired->value),
+                Forms\Components\Select::make('mode')
+                    ->label('Mode')
+                    ->options(DemoMode::class)
+                    ->live()
+                    ->visible(fn (Get $get) => $get('continuation') === ProposalContinuation::DemoRequired->value)
+                    ->required(fn (Get $get) => $get('continuation') === ProposalContinuation::DemoRequired->value),
+                Forms\Components\TextInput::make('location')
+                    ->visible(fn (Get $get) => $get('continuation') === ProposalContinuation::DemoRequired->value
+                        && self::resolveDemoMode($get('mode')) === DemoMode::OnSite)
+                    ->required(fn (Get $get) => $get('continuation') === ProposalContinuation::DemoRequired->value
+                        && self::resolveDemoMode($get('mode')) === DemoMode::OnSite),
+                Forms\Components\TextInput::make('meeting_link')
+                    ->label('Meeting Link')
+                    ->url()
+                    ->visible(fn (Get $get) => $get('continuation') === ProposalContinuation::DemoRequired->value
+                        && self::resolveDemoMode($get('mode')) === DemoMode::Online)
+                    ->required(fn (Get $get) => $get('continuation') === ProposalContinuation::DemoRequired->value
+                        && self::resolveDemoMode($get('mode')) === DemoMode::Online),
+                Forms\Components\Textarea::make('clarification_notes')
+                    ->label('Clarification Notes')
+                    ->rows(2)
+                    ->visible(fn (Get $get) => $get('continuation') === ProposalContinuation::RequirementClarificationRequired->value)
+                    ->required(fn (Get $get) => $get('continuation') === ProposalContinuation::RequirementClarificationRequired->value),
+            ])
+            ->action(function (Proposal $record, array $data) {
+                try {
+                    app(WorkflowTransitionService::class)->transitionProposalContinuation(
+                        $record,
+                        ProposalContinuation::from($data['continuation']),
+                        array_filter([
+                            'follow_up_at' => $data['follow_up_at'] ?? null,
+                            'reason' => $data['reason'] ?? null,
+                            'demo_at' => $data['demo_at'] ?? null,
+                            'mode' => $data['mode'] ?? null,
+                            'location' => $data['location'] ?? null,
+                            'meeting_link' => $data['meeting_link'] ?? null,
+                            'clarification_notes' => $data['clarification_notes'] ?? null,
+                        ], fn ($value) => $value !== null),
+                    );
+                } catch (LogicException $e) {
+                    Notification::make()->title("Couldn't continue this Proposal")->body($e->getMessage())->danger()->send();
+                    throw new Halt;
+                }
+
+                Notification::make()->title('Proposal continued')->success()->send();
+            });
+    }
+
+    private static function resolveDemoMode(mixed $mode): ?DemoMode
+    {
+        return $mode instanceof DemoMode ? $mode : DemoMode::tryFrom((string) $mode);
     }
 
     public static function getPages(): array
