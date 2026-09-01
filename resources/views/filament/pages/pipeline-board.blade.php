@@ -8,8 +8,15 @@
     // auto-route to — but never accepts a drop itself: a Call Record is
     // only ever created by logging a real call, never by dragging one onto
     // it. Hence two separate lists rather than one.
+    // Phase 3: Demo is a valid cross-drop DESTINATION only (a Lead dragged
+    // onto it schedules a Demo via the centralized transitionToDemo() path)
+    // — never a drag SOURCE. Its own outcome-driven forward moves
+    // (-> Proposal/Follow-Up/Lead) only ever happen through DemoResource's
+    // dedicated Record Outcome action, which enforces the full outcome ->
+    // next-action determinism table a raw drag can't reproduce safely, so
+    // 'demo' is deliberately absent from $draggableLanes.
     $draggableLanes = ['follow_up', 'appointment', 'lead', 'proposal', 'call'];
-    $dropTargetLanes = ['follow_up', 'appointment', 'lead', 'proposal'];
+    $dropTargetLanes = ['follow_up', 'appointment', 'lead', 'proposal', 'demo'];
 
     // Purely presentational provenance line under each lane header —
     // mirrors the reference mockup's "from: ..." subtitle. Not derived from
@@ -19,6 +26,7 @@
         'follow_up' => 'from: Call outcome',
         'appointment' => 'from: Call outcome',
         'lead' => 'from: Call outcome',
+        'demo' => 'from: Lead (optional)',
         'proposal' => 'from: Lead validated (manual)',
     ];
 

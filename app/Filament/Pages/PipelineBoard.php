@@ -5,6 +5,8 @@ namespace App\Filament\Pages;
 use App\Enums\AppointmentStage;
 use App\Enums\AppointmentStatus;
 use App\Enums\CallOutcome;
+use App\Enums\DemoMode;
+use App\Enums\DemoStatus;
 use App\Enums\FollowUpStatus;
 use App\Enums\LeadStage;
 use App\Enums\LeadStatus;
@@ -13,15 +15,18 @@ use App\Enums\ProposalOutcome;
 use App\Enums\ProposalStage;
 use App\Filament\Resources\AppointmentResource;
 use App\Filament\Resources\CallRecordResource;
+use App\Filament\Resources\DemoResource;
 use App\Filament\Resources\FollowUpResource;
 use App\Filament\Resources\LeadResource;
 use App\Filament\Resources\ProposalResource;
 use App\Models\Appointment;
 use App\Models\CallRecord;
+use App\Models\Demo;
 use App\Models\FollowUp;
 use App\Models\Lead;
 use App\Models\Prospect;
 use App\Models\Proposal;
+use App\Services\WorkflowTransitionService;
 use Filament\Actions;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
@@ -220,6 +225,10 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'follow_up' => $this->followUpLane(),
             'appointment' => $this->appointmentLane(),
             'lead' => $this->leadLane(),
+            // Phase 3: Demo — the sixth Pipeline lane, between Lead and
+            // Proposal per the approved final pipeline. Optional: Lead ->
+            // Proposal remains valid directly, without a Demo in between.
+            'demo' => $this->demoLane(),
             'proposal' => $this->proposalLane(),
         ];
     }
@@ -915,8 +924,16 @@ class PipelineBoard extends Page implements HasActions, HasForms
         }
 
         // A destination Follow-up is always created Pending — see the class
-        // docblock for why "Completed" can't be a valid initial state.
-        $destinationStageForCreate = $destResource === 'follow_up' ? FollowUpStatus::Pending->value : $destStage;
+        // docblock for why "Completed" can't be a valid initial state. A
+        // destination Demo is likewise always created Scheduled (Demo has no
+        // "create it already Completed" concept at all — see DemoResource's
+        // own docblock), regardless of which Demo-lane box it was dropped
+        // onto.
+        $destinationStageForCreate = match ($destResource) {
+            'follow_up' => FollowUpStatus::Pending->value,
+            'demo' => DemoStatus::Scheduled->value,
+            default => $destStage,
+        };
 
         $schema = [
             Forms\Components\Section::make('New '.$this->resourceLabel($destResource))
@@ -926,7 +943,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 )),
         ];
 
-        if ($source && ! $this->isAlreadyResolved($sourceResource, $source)) {
+        if ($destResource !== 'demo' && $source && ! $this->isAlreadyResolved($sourceResource, $source)) {
             $sourceFields = $this->stageFields($sourceResource, $this->forwardStageFor($sourceResource), 'source_', $source);
 
             if ($sourceFields !== []) {
@@ -1262,6 +1279,33 @@ class PipelineBoard extends Page implements HasActions, HasForms
                     ->required()
                     ->default(LeadTemperature::Warm),
             ],
+            // Phase 3: mirrors LeadResource's own "Schedule Demo" row action
+            // form exactly (minus attendees/product_service/purpose, which
+            // aren't required there either) — createCrossDropDestination()
+            // passes these straight through
+            // WorkflowTransitionService::transitionToDemo(), the same
+            // centralized path that action uses, so this dialog can never
+            // create a Demo the rest of the app wouldn't allow.
+            'demo' => [
+                Forms\Components\DateTimePicker::make("{$prefix}demo_at")
+                    ->label('Demo At')
+                    ->seconds(false)
+                    ->required()
+                    ->default(now()->addDay()),
+                Forms\Components\Select::make("{$prefix}mode")
+                    ->label('Mode')
+                    ->options(DemoMode::class)
+                    ->required()
+                    ->live(),
+                Forms\Components\TextInput::make("{$prefix}location")
+                    ->visible(fn (Forms\Get $get) => DemoMode::tryFrom((string) $get("{$prefix}mode")) === DemoMode::OnSite)
+                    ->required(fn (Forms\Get $get) => DemoMode::tryFrom((string) $get("{$prefix}mode")) === DemoMode::OnSite),
+                Forms\Components\TextInput::make("{$prefix}meeting_link")
+                    ->label('Meeting Link')
+                    ->url()
+                    ->visible(fn (Forms\Get $get) => DemoMode::tryFrom((string) $get("{$prefix}mode")) === DemoMode::Online)
+                    ->required(fn (Forms\Get $get) => DemoMode::tryFrom((string) $get("{$prefix}mode")) === DemoMode::Online),
+            ],
             default => [],
         };
     }
@@ -1591,7 +1635,13 @@ class PipelineBoard extends Page implements HasActions, HasForms
             DB::transaction(function () use ($sourceResource, $source, $destResource, $destStage, $data) {
                 $this->createCrossDropDestination($destResource, $destStage, $source, $data);
 
-                if (! $this->isAlreadyResolved($sourceResource, $source)) {
+                // Demo is optional and parallel, never a sign the Lead itself
+                // is "resolved" — see LeadResource's own "Schedule Demo" row
+                // action, which likewise never touches the Lead's stage/
+                // status. Every other cross-drop destination (Appointment,
+                // Proposal) really does mean the Lead has progressed, so
+                // only Demo is excluded here.
+                if ($destResource !== 'demo' && ! $this->isAlreadyResolved($sourceResource, $source)) {
                     $this->resolveCrossDropSource($sourceResource, $source, $data);
                 }
             });
@@ -1697,19 +1747,45 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 },
                 'notes' => $data['destination_notes'] ?? null,
             ]),
+            // Phase 3: routed through the same centralized
+            // WorkflowTransitionService::transitionToDemo() every other
+            // Demo-creating path uses (LeadResource's own "Schedule Demo"
+            // row action included) — crossDropSupported() above already
+            // guarantees $source is a Lead by the time this case runs, so
+            // this is never reached for any other source type.
+            'demo' => $source instanceof Lead ? app(WorkflowTransitionService::class)->transitionToDemo($source, $source, 'lead', [
+                'demo_at' => $data['destination_demo_at'] ?? null,
+                'mode' => $data['destination_mode'] ?? null,
+                'location' => $data['destination_location'] ?? null,
+                'meeting_link' => $data['destination_meeting_link'] ?? null,
+            ]) : null,
             default => null,
         };
     }
 
+    /**
+     * Phase 3 fix: this method resolves the DRAGGED SOURCE card forward
+     * when a cross-drop happens — the exact stage each case resolves to is
+     * already explicit, known business knowledge (not a generic derivation
+     * from some other value), so the corresponding normalized status is
+     * written alongside it explicitly too, using the same
+     * AppointmentStatus::fromLegacyStage()/LeadStatus::fromLegacyStage()
+     * single-source-of-truth mapping createCrossDropDestination() already
+     * uses. Before this fix, only legacy `stage` was written here, leaving
+     * the source's normalized `status` silently stale/blind-defaulted — the
+     * one confirmed stage/status divergence gap from the Phase 3 audit.
+     */
     private function resolveCrossDropSource(string $sourceResource, Model $source, array $data): void
     {
         match ($sourceResource) {
             'appointment' => $source->update([
                 'stage' => AppointmentStage::Succeeded,
+                'status' => AppointmentStatus::fromLegacyStage(AppointmentStage::Succeeded),
                 'outcome_notes' => $data['source_outcome_notes'] ?? null,
             ]),
             'lead' => $source->update([
                 'stage' => LeadStage::Validated,
+                'status' => LeadStatus::fromLegacyStage(LeadStage::Validated),
                 'notes' => $data['source_notes'] ?? null,
             ]),
             'proposal' => $source->update([
@@ -1739,7 +1815,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
     private function crossDropSupported(?string $sourceResource, ?string $destResource, ?Model $source, string $destStage = ''): bool
     {
         $validSourceResources = ['follow_up', 'appointment', 'lead', 'proposal', 'call'];
-        $validDestResources = ['follow_up', 'appointment', 'lead', 'proposal'];
+        $validDestResources = ['follow_up', 'appointment', 'lead', 'proposal', 'demo'];
 
         if (! in_array($sourceResource, $validSourceResources, true) || ! in_array($destResource, $validDestResources, true)) {
             return false;
@@ -1768,6 +1844,22 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 && $source instanceof Lead
                 && ($source->stage->isEligibleForProposal() || $source->status === LeadStatus::ProposalRequired)
                 && $source->proposal === null;
+        }
+
+        // Phase 3: Demo has no legacy stage of its own, so its only valid
+        // cross-drop source is an existing Lead with no Scheduled Demo
+        // already open — mirrors LeadResource's own "Schedule Demo" row
+        // action's visibility exactly. Unlike Follow-up/Appointment/Lead/
+        // Proposal, Demo is deliberately never a cross-drop SOURCE itself
+        // (see $validSourceResources above) — Demo -> Proposal/Follow-Up/
+        // Lead only ever happens through DemoResource's own Record Outcome
+        // action, which enforces the full outcome -> next-action determinism
+        // table that a raw drag has no way to reproduce safely.
+        if ($destResource === 'demo') {
+            return $sourceResource === 'lead'
+                && $source instanceof Lead
+                && ! $source->is_lost
+                && ! $source->demos()->where('status', DemoStatus::Scheduled)->exists();
         }
 
         // Dragging a Call card never creates a Follow-up/Appointment/Lead
@@ -1816,6 +1908,22 @@ class PipelineBoard extends Page implements HasActions, HasForms
             return 'This combination is not supported yet.';
         }
 
+        if ($destResource === 'demo') {
+            if ($sourceResource !== 'lead' || ! $source instanceof Lead) {
+                return 'A Demo needs an existing Lead behind it — drag a Lead card into this lane instead.';
+            }
+
+            if ($source->is_lost) {
+                return 'This Lead is marked Lost — a Demo can\'t be scheduled from it.';
+            }
+
+            if ($source->demos()->where('status', DemoStatus::Scheduled)->exists()) {
+                return 'This Lead already has a Scheduled Demo — open it directly instead of creating a new one.';
+            }
+
+            return 'This combination is not supported yet.';
+        }
+
         return 'This combination is not supported yet.';
     }
 
@@ -1846,6 +1954,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'appointment' => 'Appointment',
             'lead' => 'Lead',
             'proposal' => 'Proposal',
+            'demo' => 'Demo',
             'call' => 'Call',
             default => ucfirst($resource),
         };
@@ -1874,6 +1983,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'lead' => LeadResource::getEloquentQuery()->with('prospect')->find($id),
             'proposal' => ProposalResource::getEloquentQuery()->with('prospect')->find($id),
             'follow_up' => FollowUpResource::getEloquentQuery()->with('prospect')->find($id),
+            'demo' => DemoResource::getEloquentQuery()->with('prospect')->find($id),
             'call' => CallRecordResource::getEloquentQuery()->with('prospect')->find($id),
             default => null,
         };
@@ -1890,6 +2000,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'lead' => LeadStage::tryFrom($stage)?->getLabel() ?? $stage,
             'proposal' => ProposalStage::tryFrom($stage)?->getLabel() ?? $stage,
             'follow_up' => FollowUpStatus::tryFrom($stage)?->getLabel() ?? $stage,
+            'demo' => DemoStatus::tryFrom($stage)?->getLabel() ?? $stage,
             default => $stage,
         };
     }
@@ -1961,6 +2072,52 @@ class PipelineBoard extends Page implements HasActions, HasForms
                     prospect: $followUp->prospect,
                     meta: $followUp->reason.($followUp->follow_up_at ? ' · '.$followUp->follow_up_at->format('d M, h:i A') : ''),
                     url: FollowUpResource::getUrl('view', ['record' => $followUp]),
+                ));
+
+                return [
+                    'label' => $meta['label'],
+                    'terminal' => $meta['terminal'],
+                    'cards' => $cards->all(),
+                ];
+            })->all(),
+        ];
+    }
+
+    /**
+     * Phase 3: Demo has no legacy stage at all (it's Phase 2-native) and no
+     * is_lost concept — its lane groups purely by normalized DemoStatus,
+     * mirroring followUpLane()'s shape exactly (a plain status enum, not a
+     * stageBasedLane()-style progression) rather than being built around
+     * legacy-style stage sub-boxes merely because stageBasedLane() already
+     * exists for the three resources that actually have one.
+     */
+    private function demoLane(): array
+    {
+        $demos = $this->scopeToPeriod(
+            Demo::query()->visibleTo(auth()->user())->with('prospect'),
+            'status_changed_at',
+        )
+            ->latest('demo_at')
+            ->get()
+            ->groupBy(fn (Demo $demo) => $demo->status->value);
+
+        $stageMeta = [
+            DemoStatus::Scheduled->value => ['label' => 'Scheduled', 'terminal' => false],
+            DemoStatus::Completed->value => ['label' => 'Completed', 'terminal' => true],
+            DemoStatus::Rescheduled->value => ['label' => 'Rescheduled', 'terminal' => true],
+            DemoStatus::Cancelled->value => ['label' => 'Cancelled', 'terminal' => true],
+        ];
+
+        return [
+            'label' => 'Demo',
+            'stages' => collect($stageMeta)->map(function (array $meta, string $status) use ($demos) {
+                $cards = ($demos[$status] ?? collect())->map(fn (Demo $demo) => $this->card(
+                    resource: 'demo',
+                    id: $demo->id,
+                    prospect: $demo->prospect,
+                    meta: $demo->demo_at?->format('d M, h:i A').' · '.$demo->mode->getLabel(),
+                    url: DemoResource::getUrl('view', ['record' => $demo]),
+                    outcome: $demo->outcome?->value,
                 ));
 
                 return [

@@ -7,7 +7,9 @@ use App\Enums\AppointmentStatus;
 use App\Enums\FollowUpStatus;
 use App\Filament\Pages\PipelineBoard;
 use App\Models\Appointment;
+use App\Models\Demo;
 use App\Models\FollowUp;
+use App\Models\Lead;
 use App\Models\Organization;
 use App\Models\Prospect;
 use App\Models\User;
@@ -146,7 +148,7 @@ class PipelineBoardVisibilityTest extends TestCase
         });
     }
 
-    public function test_pipeline_board_still_renders_the_five_lanes_with_no_error(): void
+    public function test_pipeline_board_still_renders_the_six_lanes_with_no_error(): void
     {
         $org = Organization::factory()->create();
 
@@ -156,7 +158,54 @@ class PipelineBoardVisibilityTest extends TestCase
 
             $lanes = $this->boardLanes();
 
-            $this->assertSame(['call', 'follow_up', 'appointment', 'lead', 'proposal'], array_keys($lanes));
+            $this->assertSame(['call', 'follow_up', 'appointment', 'lead', 'demo', 'proposal'], array_keys($lanes));
+        });
+    }
+
+    /**
+     * Phase 3: Demo has no legacy stage — its lane groups purely by
+     * normalized DemoStatus (mirroring the Follow-up lane's shape, not the
+     * legacy stage-based lanes), so a Rescheduled Demo must be excluded from
+     * the active Scheduled box exactly like a Rescheduled Appointment/
+     * Follow-Up already is.
+     */
+    public function test_demo_lane_groups_by_normalized_status_and_excludes_rescheduled_from_the_active_box(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $this->actingAs($user);
+            $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+            $lead = Lead::create([
+                'prospect_id' => $prospect->id,
+                'assigned_to' => $user->id,
+                'created_by' => $user->id,
+                'stage' => 'requirement_collection',
+                'status' => \App\Enums\LeadStatus::RequirementCollection,
+                'temperature' => 'warm',
+            ]);
+
+            $active = Demo::create([
+                'prospect_id' => $prospect->id,
+                'lead_id' => $lead->id,
+                'assigned_to' => $user->id,
+                'created_by' => $user->id,
+                'demo_at' => now()->addDays(2),
+                'mode' => \App\Enums\DemoMode::Online,
+                'meeting_link' => 'https://meet.example.com/a',
+                'status' => \App\Enums\DemoStatus::Scheduled,
+            ]);
+
+            $rescheduledFrom = app(RescheduleService::class)->reschedule($active, ['demo_at' => now()->addDays(5)]);
+
+            $lanes = $this->boardLanes();
+            $scheduledCardIds = collect($lanes['demo']['stages']['scheduled']['cards'])->pluck('id');
+            $rescheduledCardIds = collect($lanes['demo']['stages']['rescheduled']['cards'])->pluck('id');
+
+            $this->assertNotContains($active->id, $scheduledCardIds, 'Rescheduled Demo must not appear as an active Scheduled card.');
+            $this->assertContains($rescheduledFrom->id, $scheduledCardIds, 'The replacement Demo must appear as the active Scheduled card.');
+            $this->assertContains($active->id, $rescheduledCardIds);
         });
     }
 }
