@@ -221,7 +221,7 @@ class DatabaseSeeder extends Seeder
             'city' => 'Coimbatore',
             'source' => 'Cold Outreach',
         ]);
-        $this->logCall($millenniumSteel, $kural, CallOutcome::FutureOpportunity, Date::now()->subDays(1), [
+        $this->logCall($millenniumSteel, $kural, CallOutcome::NoCurrentRequirement, Date::now()->subDays(1), [
             'notes' => 'No budget this year, revisit after their next financial year starts.',
         ]);
 

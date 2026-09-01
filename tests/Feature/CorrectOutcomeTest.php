@@ -97,7 +97,7 @@ class CorrectOutcomeTest extends TestCase
         $call = $this->makeCall($employee, CallOutcome::SwitchedOff);
 
         app(CallRoutingService::class)->correctOutcome(
-            $call, CallOutcome::FutureOpportunity, 'No requirement after all.', ['notes' => 'No budget this year.']
+            $call, CallOutcome::NoCurrentRequirement, 'No requirement after all.', ['notes' => 'No budget this year.']
         );
 
         $this->assertSame(0, FollowUp::count());
@@ -111,9 +111,9 @@ class CorrectOutcomeTest extends TestCase
         $call = $this->makeCall($employee, CallOutcome::NoAnswer);
 
         app(CallRoutingService::class)->correctOutcome($call, CallOutcome::SwitchedOff, 'Actually switched off.');
-        app(CallRoutingService::class)->correctOutcome($call->fresh(), CallOutcome::FutureOpportunity, 'No budget after all.', ['notes' => 'No budget this year.']);
+        app(CallRoutingService::class)->correctOutcome($call->fresh(), CallOutcome::NoCurrentRequirement, 'No budget after all.', ['notes' => 'No budget this year.']);
 
-        $this->assertSame(CallOutcome::FutureOpportunity, $call->fresh()->outcome);
+        $this->assertSame(CallOutcome::NoCurrentRequirement, $call->fresh()->outcome);
 
         $events = AuditLogger::class;
         $this->assertSame(
@@ -138,7 +138,7 @@ class CorrectOutcomeTest extends TestCase
         $this->expectException(LogicException::class);
 
         app(CallRoutingService::class)->correctOutcome(
-            $call->fresh(), CallOutcome::FutureOpportunity, 'Changed my mind.'
+            $call->fresh(), CallOutcome::NoCurrentRequirement, 'Changed my mind.'
         );
     }
 
@@ -150,7 +150,7 @@ class CorrectOutcomeTest extends TestCase
         $appointmentId = Appointment::sole()->id;
 
         try {
-            app(CallRoutingService::class)->correctOutcome($call->fresh(), CallOutcome::FutureOpportunity, 'Changed my mind.');
+            app(CallRoutingService::class)->correctOutcome($call->fresh(), CallOutcome::NoCurrentRequirement, 'Changed my mind.');
             $this->fail('Expected the correction to be rejected.');
         } catch (LogicException $e) {
             $this->assertStringContainsString('downstream business history', $e->getMessage());

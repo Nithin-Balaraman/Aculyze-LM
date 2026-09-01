@@ -78,9 +78,9 @@ class FollowUpDeletionCascadeTest extends TestCase
         $admin = User::factory()->admin()->create();
         $followUp = $this->makeFollowUp($admin);
 
-        // FutureOpportunity routes nowhere — no Follow-Up/Appointment/Lead
+        // NoCurrentRequirement routes nowhere — no Follow-Up/Appointment/Lead
         // is spawned, so the generated Call Record is a pure byproduct.
-        $generated = $this->completeFollowUp($followUp, CallOutcome::FutureOpportunity, 'No current requirement.');
+        $generated = $this->completeFollowUp($followUp, CallOutcome::NoCurrentRequirement, 'No current requirement.');
         $originatingCall = $followUp->callRecord;
 
         $this->actingAs($admin);
@@ -145,7 +145,7 @@ class FollowUpDeletionCascadeTest extends TestCase
     {
         $admin = User::factory()->admin()->create();
         $followUp = $this->makeFollowUp($admin);
-        $generated = $this->completeFollowUp($followUp, CallOutcome::FutureOpportunity, 'No current requirement.');
+        $generated = $this->completeFollowUp($followUp, CallOutcome::NoCurrentRequirement, 'No current requirement.');
 
         $this->actingAs($admin);
 

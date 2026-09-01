@@ -96,7 +96,7 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
         $this->actingAs($admin);
 
         Livewire::test(CreateCallRecord::class)
-            ->fillForm($this->baseFormData(['outcome' => CallOutcome::FutureOpportunity->value]))
+            ->fillForm($this->baseFormData(['outcome' => CallOutcome::NoCurrentRequirement->value]))
             ->assertDontSee('Follow Up At')
             ->assertDontSee('Appointment At');
     }

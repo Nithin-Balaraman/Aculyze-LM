@@ -31,7 +31,7 @@ class CleanupFutureOpportunityAppointmentsTest extends TestCase
             'prospect_id' => $prospect->id,
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
-            'outcome' => CallOutcome::FutureOpportunity,
+            'outcome' => CallOutcome::NoCurrentRequirement,
             'notes' => 'No budget this year.',
             'processed_at' => now(),
         ]);
@@ -101,7 +101,7 @@ class CleanupFutureOpportunityAppointmentsTest extends TestCase
         $this->assertDatabaseMissing('appointments', ['id' => $appointment->id]);
         $this->assertDatabaseHas('appointments', ['id' => $legitimate->id]);
         // The Call Record itself must never be touched by this cleanup.
-        $this->assertDatabaseHas('call_records', ['id' => $call->id, 'outcome' => CallOutcome::FutureOpportunity->value]);
+        $this->assertDatabaseHas('call_records', ['id' => $call->id, 'outcome' => CallOutcome::NoCurrentRequirement->value]);
     }
 
     public function test_warns_when_a_bad_appointment_has_moved_past_its_initial_stage(): void

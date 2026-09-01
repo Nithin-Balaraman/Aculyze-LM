@@ -27,7 +27,7 @@ class CleanupFutureOpportunityAppointments extends Command
     public function handle(): int
     {
         $appointments = Appointment::query()
-            ->whereHas('callRecord', fn ($query) => $query->where('outcome', CallOutcome::FutureOpportunity))
+            ->whereHas('callRecord', fn ($query) => $query->where('outcome', CallOutcome::NoCurrentRequirement))
             ->with(['callRecord.prospect', 'assignedEmployee'])
             ->get();
 

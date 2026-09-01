@@ -152,7 +152,7 @@ class CallRoutingTest extends TestCase
 
     public function test_no_current_requirement_creates_no_automatic_downstream_activity(): void
     {
-        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::FutureOpportunity, ['notes' => 'No budget this year, revisit later.']);
+        $call = $this->makeCall(Prospect::factory()->create(), CallOutcome::NoCurrentRequirement, ['notes' => 'No budget this year, revisit later.']);
 
         $this->assertNull($call->fresh()->appointment);
         $this->assertNull($call->fresh()->followUp);

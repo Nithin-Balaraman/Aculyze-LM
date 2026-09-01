@@ -25,7 +25,11 @@ enum CallOutcome: string implements HasColor, HasLabel
     case ConcernedPersonNotAvailable = 'concerned_person_not_available';
     case ProfileRequested = 'profile_requested';
     case AppointmentSet = 'appointment_set';
-    case FutureOpportunity = 'future_opportunity';
+    // Phase 3: case renamed from FutureOpportunity for clarity — the
+    // persisted value is deliberately UNCHANGED ('future_opportunity'), so
+    // no migration/backfill is needed; every existing row still resolves to
+    // this same case via CallOutcome::from().
+    case NoCurrentRequirement = 'future_opportunity';
     case RequirementIdentified = 'requirement_identified';
     case Others = 'others';
 
@@ -39,7 +43,7 @@ enum CallOutcome: string implements HasColor, HasLabel
             self::ConcernedPersonNotAvailable => 'Concerned Person Not Available',
             self::ProfileRequested => 'Profile Requested',
             self::AppointmentSet => 'Appointment Set',
-            self::FutureOpportunity => 'No Current Requirement / Future Opportunity',
+            self::NoCurrentRequirement => 'No Current Requirement',
             self::RequirementIdentified => 'Requirement Identified',
             self::Others => 'Others',
         };
@@ -50,7 +54,7 @@ enum CallOutcome: string implements HasColor, HasLabel
         return match ($this) {
             self::NoAnswer, self::SwitchedOff, self::NotReachable, self::Others => 'gray',
             self::CallbackRequested, self::ConcernedPersonNotAvailable, self::ProfileRequested => 'warning',
-            self::AppointmentSet, self::FutureOpportunity => 'info',
+            self::AppointmentSet, self::NoCurrentRequirement => 'info',
             self::RequirementIdentified => 'success',
         };
     }
@@ -109,7 +113,7 @@ enum CallOutcome: string implements HasColor, HasLabel
     public function routesNowhere(): bool
     {
         return in_array($this, [
-            self::FutureOpportunity,
+            self::NoCurrentRequirement,
             self::Others,
         ], true);
     }
