@@ -2,21 +2,27 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\DemoMode;
 use App\Enums\LeadStage;
+use App\Enums\LeadStatus;
 use App\Enums\LeadTemperature;
 use App\Filament\Resources\LeadResource\Pages;
 use App\Models\Lead;
 use App\Models\User;
+use App\Services\WorkflowTransitionService;
 use App\Support\DeletionGuard;
 use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Support\Exceptions\Halt;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use LogicException;
 
 /**
  * Lead Sheet (AGENTS.md sections 20-23, 43). Stage names/order are
@@ -152,6 +158,11 @@ class LeadResource extends Resource
         return ($stage instanceof LeadStage ? $stage : LeadStage::tryFrom((string) $stage)) === LeadStage::Validated;
     }
 
+    private static function resolveDemoMode(mixed $mode): ?DemoMode
+    {
+        return $mode instanceof DemoMode ? $mode : DemoMode::tryFrom((string) $mode);
+    }
+
     /**
      * Extracted from table() so the Prospect View page's Leads mini-table
      * (see App\Filament\Widgets\ProspectLeadsTable) can reuse the exact
@@ -264,11 +275,58 @@ class LeadResource extends Resource
                         // not replaced, so existing Validated Leads are
                         // unaffected.
                         ->visible(fn (Lead $record) => ! $record->is_lost
-                            && ($record->stage->isEligibleForProposal() || $record->status === \App\Enums\LeadStatus::ProposalRequired)
+                            && ($record->stage->isEligibleForProposal() || $record->status === LeadStatus::ProposalRequired)
                             && $record->hasMeaningfulNotes()
                             && $record->proposal === null
                             && auth()->user()->can('update', $record))
                         ->url(fn (Lead $record) => ProposalResource::getUrl('create', ['lead_id' => $record->id])),
+                    // Phase 3: Demo is optional and reached ONLY through a
+                    // valid workflow transition — never a generic standalone
+                    // create flow (see DemoResource's own docblock). This is
+                    // the primary entry point: a Lead with no currently
+                    // open (Scheduled) Demo may have one scheduled directly,
+                    // via the same centralized
+                    // WorkflowTransitionService::transitionToDemo() every
+                    // other Demo-creating path uses.
+                    Tables\Actions\Action::make('scheduleDemo')
+                        ->label('Schedule Demo')
+                        ->icon('heroicon-o-presentation-chart-bar')
+                        ->color('info')
+                        ->visible(fn (Lead $record) => ! $record->is_lost
+                            && ! $record->demos()->where('status', \App\Enums\DemoStatus::Scheduled)->exists()
+                            && auth()->user()->can('update', $record))
+                        ->form([
+                            Forms\Components\DateTimePicker::make('demo_at')
+                                ->label('Demo At')
+                                ->required()
+                                ->seconds(false),
+                            Forms\Components\Select::make('mode')
+                                ->options(DemoMode::class)
+                                ->required()
+                                ->live(),
+                            Forms\Components\TextInput::make('location')
+                                ->visible(fn (Get $get) => self::resolveDemoMode($get('mode')) === DemoMode::OnSite)
+                                ->required(fn (Get $get) => self::resolveDemoMode($get('mode')) === DemoMode::OnSite),
+                            Forms\Components\TextInput::make('meeting_link')
+                                ->label('Meeting Link')
+                                ->url()
+                                ->visible(fn (Get $get) => self::resolveDemoMode($get('mode')) === DemoMode::Online)
+                                ->required(fn (Get $get) => self::resolveDemoMode($get('mode')) === DemoMode::Online),
+                            Forms\Components\TextInput::make('attendees'),
+                            Forms\Components\TextInput::make('product_service')
+                                ->label('Product / Service'),
+                            Forms\Components\TextInput::make('purpose'),
+                        ])
+                        ->action(function (Lead $record, array $data) {
+                            try {
+                                app(WorkflowTransitionService::class)->transitionToDemo($record, $record, 'lead', $data);
+                            } catch (LogicException $e) {
+                                Notification::make()->title("Couldn't schedule the Demo")->body($e->getMessage())->danger()->send();
+                                throw new Halt;
+                            }
+
+                            Notification::make()->title('Demo scheduled')->success()->send();
+                        }),
                     Tables\Actions\Action::make('markLost')
                         ->label('Mark Lost')
                         ->icon('heroicon-o-x-circle')
