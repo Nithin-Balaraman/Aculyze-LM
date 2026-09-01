@@ -81,6 +81,27 @@ enum LeadStatus: string implements HasColor, HasLabel
     }
 
     /**
+     * Phase 3 correction: the single normalized-status source of truth for
+     * "has this Lead reached the end of its own progression" — used by
+     * ListLeads::getTabs() (Pending vs. History) and PipelinePulse's Active
+     * Lead count, replacing the legacy `stage != Validated` condition both
+     * previously relied on either partly or entirely. ProposalRequired is
+     * the normalized equivalent of legacy stage=Validated (the same status
+     * LeadResource's "Create Proposal" eligibility and Lead's own Notes
+     * guard already treat that way); NoCurrentProgression is the other
+     * genuine stop state (mirrors isTerminalForStaleness() — no further
+     * work is expected either way). Deliberately a distinct concept from
+     * isTerminalForStaleness(): that one gates the staleness ALERT only
+     * (a Lead already at ProposalRequired is still actively monitored for
+     * staleness until its Proposal exists), this one gates which
+     * TAB/COUNT a Lead belongs to.
+     */
+    public function isTerminalForProgression(): bool
+    {
+        return in_array($this, [self::ProposalRequired, self::NoCurrentProgression], true);
+    }
+
+    /**
      * The single source of truth for the approved conservative legacy
      * `stage` -> `status` mapping — used by both
      * App\Console\Commands\BackfillLeadAppointmentStatus (existing rows)

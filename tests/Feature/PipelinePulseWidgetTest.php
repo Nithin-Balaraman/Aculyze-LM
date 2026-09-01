@@ -108,12 +108,13 @@ class PipelinePulseWidgetTest extends TestCase
         ]);
         $lostLead->markLost('Went with a competitor.');
 
-        // Terminal stage — must NOT count.
+        // Terminal-for-progression status — must NOT count.
         Lead::create([
             'prospect_id' => Prospect::factory()->create()->id,
             'assigned_to' => $admin->id,
             'created_by' => $admin->id,
             'stage' => LeadStage::Validated,
+            'status' => \App\Enums\LeadStatus::ProposalRequired,
             'temperature' => 'warm',
             'notes' => 'Validated in test fixture.',
         ]);
@@ -276,10 +277,12 @@ class PipelinePulseWidgetTest extends TestCase
             ->getAllTableRecordsCount();
 
         $this->assertSame(0, $this->widgetNode('lead')['count']);
-        // ListLeads' own Pending tab is not itself migrated (legacy-stage-
-        // only) — it still shows this frozen-stage Lead, which is exactly
-        // why the widget needed its own additional status-based exclusion.
-        $this->assertSame(1, $pendingTabCount);
+        // Phase 3 correction: ListLeads' own Pending tab is now ALSO
+        // migrated to the same normalized-status concept
+        // (LeadStatus::isTerminalForProgression()), so the frozen,
+        // active-looking legacy stage no longer matters to either
+        // consumer — both correctly exclude this Lead now.
+        $this->assertSame(0, $pendingTabCount);
     }
 
     /**

@@ -5,17 +5,24 @@ namespace App\Filament\Resources;
 use App\Enums\CallNextAction;
 use App\Enums\CallOutcome;
 use App\Enums\ContactMode;
+use App\Enums\DemoMode;
+use App\Enums\DemoStatus;
 use App\Enums\FollowUpStatus;
 use App\Enums\ProfileSentMode;
 use App\Enums\ProfileSentStatus;
 use App\Filament\Resources\FollowUpResource\Pages;
 use App\Models\FollowUp;
+use App\Models\Lead;
 use App\Services\RescheduleService;
+use App\Services\WorkflowTransitionService;
 use App\Support\DeletionGuard;
 use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Support\Exceptions\Halt;
 use Filament\Tables;
 use Filament\Tables\Grouping\Group;
 use Filament\Tables\Table;
@@ -23,6 +30,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\HtmlString;
+use LogicException;
 
 /**
  * Follow-Ups panel (AGENTS.md section 17). Mostly populated automatically
@@ -282,6 +290,84 @@ class FollowUpResource extends Resource
         return $mode instanceof ProfileSentMode ? $mode : ProfileSentMode::tryFrom((string) $mode);
     }
 
+    private static function resolveDemoMode(mixed $mode): ?DemoMode
+    {
+        return $mode instanceof DemoMode ? $mode : DemoMode::tryFrom((string) $mode);
+    }
+
+    /**
+     * Phase 3 correction: Follow-Up -> Demo was one of the four approved
+     * routes into Demo (WorkflowTransitionService::transitionToDemo()'s own
+     * docblock: "Follow-Up/Appointment/Lead/Proposal -> Demo per the Master
+     * BA") that had no user-facing entry point at all — Lead/Proposal/
+     * Appointment each already had one. Mirrors LeadResource's own
+     * "Schedule Demo" action, except a Follow-Up has no lead_id of its own
+     * (unlike Demo), so the rep picks the existing Lead (matched by the
+     * same Prospect) this Demo belongs to — transitionToDemo() itself
+     * rejects a mismatched Lead/Prospect pair.
+     */
+    private static function scheduleDemoAction(): Tables\Actions\Action
+    {
+        return Tables\Actions\Action::make('scheduleDemo')
+            ->label('Schedule Demo')
+            ->icon('heroicon-o-presentation-chart-bar')
+            ->color('info')
+            ->visible(fn (FollowUp $record) => $record->status === FollowUpStatus::Pending && auth()->user()->can('update', $record))
+            ->form([
+                Forms\Components\Select::make('lead_id')
+                    ->label('Lead')
+                    ->helperText('The existing Lead (requirement) this Demo belongs to.')
+                    ->options(fn (FollowUp $record) => Lead::query()
+                        ->where('prospect_id', $record->prospect_id)
+                        ->get()
+                        ->mapWithKeys(fn (Lead $lead) => [$lead->id => $lead->stage->getLabel().' — '.$lead->created_at->format('d M Y')]))
+                    ->searchable()
+                    ->required(),
+                Forms\Components\DateTimePicker::make('demo_at')
+                    ->label('Demo At')
+                    ->required()
+                    ->seconds(false),
+                Forms\Components\Select::make('mode')
+                    ->options(DemoMode::class)
+                    ->required()
+                    ->live(),
+                Forms\Components\TextInput::make('location')
+                    ->visible(fn (Get $get) => self::resolveDemoMode($get('mode')) === DemoMode::OnSite)
+                    ->required(fn (Get $get) => self::resolveDemoMode($get('mode')) === DemoMode::OnSite),
+                Forms\Components\TextInput::make('meeting_link')
+                    ->label('Meeting Link')
+                    ->url()
+                    ->visible(fn (Get $get) => self::resolveDemoMode($get('mode')) === DemoMode::Online)
+                    ->required(fn (Get $get) => self::resolveDemoMode($get('mode')) === DemoMode::Online),
+                Forms\Components\TextInput::make('attendees'),
+                Forms\Components\TextInput::make('product_service')
+                    ->label('Product / Service'),
+                Forms\Components\TextInput::make('purpose'),
+            ])
+            ->action(function (FollowUp $record, array $data) {
+                $lead = Lead::query()->find($data['lead_id']);
+
+                if ($lead === null || $lead->prospect_id !== $record->prospect_id) {
+                    Notification::make()->title("Couldn't schedule the Demo")->body('The selected Lead is not valid for this Follow-Up\'s Company.')->danger()->send();
+                    throw new Halt;
+                }
+
+                if ($lead->demos()->where('status', DemoStatus::Scheduled)->exists()) {
+                    Notification::make()->title("Couldn't schedule the Demo")->body('This Lead already has a Scheduled Demo.')->danger()->send();
+                    throw new Halt;
+                }
+
+                try {
+                    app(WorkflowTransitionService::class)->transitionToDemo($lead, $record, 'follow_up', $data);
+                } catch (LogicException $e) {
+                    Notification::make()->title("Couldn't schedule the Demo")->body($e->getMessage())->danger()->send();
+                    throw new Halt;
+                }
+
+                Notification::make()->title('Demo scheduled')->success()->send();
+            });
+    }
+
     /**
      * The shared Other/Profile Sent field set appended after the outcome-
      * dependent appointment/follow-up date pair — reused by both the Edit
@@ -455,6 +541,7 @@ class FollowUpResource extends Resource
                             'profile_sent_mode' => $data['profile_sent_mode'] ?? null,
                             'profile_sent_notes' => $data['profile_sent_notes'] ?? null,
                         ])),
+                    self::scheduleDemoAction(),
                     // Phase 2: the ONLY way to change follow_up_at on an
                     // active Follow-Up — normal Edit shows it read-only
                     // (see formSchema()) so the history-preserving

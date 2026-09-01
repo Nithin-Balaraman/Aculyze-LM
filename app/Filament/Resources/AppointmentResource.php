@@ -2,20 +2,27 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\AppointmentOutcome;
 use App\Enums\AppointmentStage;
 use App\Enums\AppointmentStatus;
+use App\Enums\DemoMode;
 use App\Filament\Resources\AppointmentResource\Pages;
 use App\Models\Appointment;
+use App\Models\Lead;
 use App\Models\User;
 use App\Services\RescheduleService;
+use App\Services\WorkflowTransitionService;
 use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Support\Exceptions\Halt;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use LogicException;
 
 /**
  * Appointment Call Sheet (AGENTS.md sections 18-19, 42). Stage names/order
@@ -155,6 +162,105 @@ class AppointmentResource extends Resource
         return $resolved?->isTerminal() ?? false;
     }
 
+    private static function resolveOutcome(mixed $outcome): ?AppointmentOutcome
+    {
+        return $outcome instanceof AppointmentOutcome ? $outcome : AppointmentOutcome::tryFrom((string) $outcome);
+    }
+
+    private static function resolveDemoMode(mixed $mode): ?DemoMode
+    {
+        return $mode instanceof DemoMode ? $mode : DemoMode::tryFrom((string) $mode);
+    }
+
+    private static function outcomeRequiresLead(mixed $outcome): bool
+    {
+        return in_array(self::resolveOutcome($outcome), [AppointmentOutcome::DemoRequired, AppointmentOutcome::ProposalRequired], true);
+    }
+
+    /**
+     * Phase 3 correction: the Master BA-approved Record Outcome action —
+     * the ONLY user-facing way to move a Scheduled Appointment to a real
+     * business conclusion. Routes exclusively through
+     * WorkflowTransitionService::transitionAppointmentOutcome(), which
+     * enforces the approved outcome vocabulary and creates whichever
+     * downstream record (Follow-Up/Lead/Appointment/Demo/Proposal) the
+     * outcome implies — this action never mutates `stage`/`status` itself.
+     */
+    private static function recordOutcomeAction(): Tables\Actions\Action
+    {
+        return Tables\Actions\Action::make('recordOutcome')
+            ->label('Record Outcome')
+            ->icon('heroicon-o-check-badge')
+            ->color('success')
+            ->visible(fn (Appointment $record) => $record->status === AppointmentStatus::Scheduled && auth()->user()->can('update', $record))
+            ->form([
+                Forms\Components\Select::make('outcome')
+                    ->options(AppointmentOutcome::class)
+                    ->required()
+                    ->live(),
+                Forms\Components\Textarea::make('outcome_notes')
+                    ->label('Outcome Notes')
+                    ->rows(3)
+                    ->required()
+                    ->helperText('Required — what happened on this Appointment.'),
+                Forms\Components\DateTimePicker::make('follow_up_at')
+                    ->label('Follow Up At')
+                    ->seconds(false)
+                    ->visible(fn (Get $get) => self::resolveOutcome($get('outcome')) === AppointmentOutcome::FollowUpRequired)
+                    ->required(fn (Get $get) => self::resolveOutcome($get('outcome')) === AppointmentOutcome::FollowUpRequired),
+                Forms\Components\TextInput::make('reason')
+                    ->label('Follow-Up Reason')
+                    ->visible(fn (Get $get) => self::resolveOutcome($get('outcome')) === AppointmentOutcome::FollowUpRequired),
+                Forms\Components\DateTimePicker::make('appointment_at')
+                    ->label('Next Appointment At')
+                    ->seconds(false)
+                    ->visible(fn (Get $get) => self::resolveOutcome($get('outcome')) === AppointmentOutcome::AnotherAppointmentRequired)
+                    ->required(fn (Get $get) => self::resolveOutcome($get('outcome')) === AppointmentOutcome::AnotherAppointmentRequired),
+                Forms\Components\Select::make('lead_id')
+                    ->label('Lead')
+                    ->helperText('The existing Lead (requirement) this Appointment belongs to.')
+                    ->options(fn (Appointment $record) => Lead::query()
+                        ->where('prospect_id', $record->prospect_id)
+                        ->get()
+                        ->mapWithKeys(fn (Lead $lead) => [$lead->id => $lead->stage->getLabel().' — '.$lead->created_at->format('d M Y')]))
+                    ->searchable()
+                    ->visible(fn (Get $get) => self::outcomeRequiresLead($get('outcome')))
+                    ->required(fn (Get $get) => self::outcomeRequiresLead($get('outcome'))),
+                Forms\Components\DateTimePicker::make('demo_at')
+                    ->label('Demo At')
+                    ->seconds(false)
+                    ->visible(fn (Get $get) => self::resolveOutcome($get('outcome')) === AppointmentOutcome::DemoRequired)
+                    ->required(fn (Get $get) => self::resolveOutcome($get('outcome')) === AppointmentOutcome::DemoRequired),
+                Forms\Components\Select::make('mode')
+                    ->options(DemoMode::class)
+                    ->live()
+                    ->visible(fn (Get $get) => self::resolveOutcome($get('outcome')) === AppointmentOutcome::DemoRequired)
+                    ->required(fn (Get $get) => self::resolveOutcome($get('outcome')) === AppointmentOutcome::DemoRequired),
+                Forms\Components\TextInput::make('location')
+                    ->visible(fn (Get $get) => self::resolveOutcome($get('outcome')) === AppointmentOutcome::DemoRequired && self::resolveDemoMode($get('mode')) === DemoMode::OnSite)
+                    ->required(fn (Get $get) => self::resolveOutcome($get('outcome')) === AppointmentOutcome::DemoRequired && self::resolveDemoMode($get('mode')) === DemoMode::OnSite),
+                Forms\Components\TextInput::make('meeting_link')
+                    ->label('Meeting Link')
+                    ->url()
+                    ->visible(fn (Get $get) => self::resolveOutcome($get('outcome')) === AppointmentOutcome::DemoRequired && self::resolveDemoMode($get('mode')) === DemoMode::Online)
+                    ->required(fn (Get $get) => self::resolveOutcome($get('outcome')) === AppointmentOutcome::DemoRequired && self::resolveDemoMode($get('mode')) === DemoMode::Online),
+            ])
+            ->action(function (Appointment $record, array $data) {
+                try {
+                    app(WorkflowTransitionService::class)->transitionAppointmentOutcome(
+                        $record,
+                        self::resolveOutcome($data['outcome']),
+                        $data,
+                    );
+                } catch (LogicException $e) {
+                    Notification::make()->title("Couldn't record the outcome")->body($e->getMessage())->danger()->send();
+                    throw new Halt;
+                }
+
+                Notification::make()->title('Outcome recorded')->success()->send();
+            });
+    }
+
     /**
      * Extracted from table() so the Prospect View page's Appointments
      * mini-table (see App\Filament\Widgets\ProspectAppointmentsTable) can
@@ -274,6 +380,7 @@ class AppointmentResource extends Resource
                                 ->searchable(),
                         ])
                         ->action(fn (Appointment $record, array $data) => $record->update(['assigned_to' => $data['assigned_to']])),
+                    self::recordOutcomeAction(),
                     Tables\Actions\Action::make('markLost')
                         ->label('Mark Lost')
                         ->icon('heroicon-o-x-circle')

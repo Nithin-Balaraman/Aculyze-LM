@@ -163,6 +163,55 @@ class LeadResource extends Resource
         return $mode instanceof DemoMode ? $mode : DemoMode::tryFrom((string) $mode);
     }
 
+    private static function resolveStatus(mixed $status): ?LeadStatus
+    {
+        return $status instanceof LeadStatus ? $status : LeadStatus::tryFrom((string) $status);
+    }
+
+    /**
+     * Phase 3 correction: the Master BA-approved Update Status action — the
+     * explicit, user-facing way to move a Lead's normalized status through
+     * the approved LeadStatus vocabulary. Routes exclusively through
+     * WorkflowTransitionService::transitionLeadStatus(), which leaves
+     * legacy `stage` untouched — this is deliberately NOT the same thing as
+     * editing legacy `stage` on the normal Edit form, Create Proposal's
+     * visibility, or Schedule Demo, none of which change `status` itself.
+     */
+    private static function updateStatusAction(): Tables\Actions\Action
+    {
+        return Tables\Actions\Action::make('updateStatus')
+            ->label('Update Status')
+            ->icon('heroicon-o-arrow-path')
+            ->color('info')
+            ->visible(fn (Lead $record) => ! $record->is_lost && auth()->user()->can('update', $record))
+            ->form([
+                Forms\Components\Select::make('status')
+                    ->label('Status')
+                    ->options(LeadStatus::class)
+                    ->required()
+                    ->default(fn (Lead $record) => $record->status)
+                    ->live(),
+                Forms\Components\Textarea::make('notes')
+                    ->label('Notes / Remarks')
+                    ->rows(3)
+                    ->default(fn (Lead $record) => $record->notes)
+                    ->required(fn (Get $get) => self::resolveStatus($get('status')) === LeadStatus::ProposalRequired)
+                    ->validationMessages([
+                        'required' => 'Notes are required when the Status is Proposal Required.',
+                    ]),
+            ])
+            ->action(function (Lead $record, array $data) {
+                try {
+                    app(WorkflowTransitionService::class)->transitionLeadStatus($record, self::resolveStatus($data['status']), $data);
+                } catch (LogicException $e) {
+                    Notification::make()->title("Couldn't update the status")->body($e->getMessage())->danger()->send();
+                    throw new Halt;
+                }
+
+                Notification::make()->title('Status updated')->success()->send();
+            });
+    }
+
     /**
      * Extracted from table() so the Prospect View page's Leads mini-table
      * (see App\Filament\Widgets\ProspectLeadsTable) can reuse the exact
@@ -327,6 +376,7 @@ class LeadResource extends Resource
 
                             Notification::make()->title('Demo scheduled')->success()->send();
                         }),
+                    self::updateStatusAction(),
                     Tables\Actions\Action::make('markLost')
                         ->label('Mark Lost')
                         ->icon('heroicon-o-x-circle')

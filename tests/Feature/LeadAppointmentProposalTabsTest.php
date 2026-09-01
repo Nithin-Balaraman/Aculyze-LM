@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\AppointmentStage;
 use App\Enums\LeadStage;
+use App\Enums\LeadStatus;
 use App\Enums\ProposalOutcome;
 use App\Enums\ProposalStage;
 use App\Filament\Resources\AppointmentResource\Pages\ListAppointments;
@@ -28,17 +29,27 @@ class LeadAppointmentProposalTabsTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function makeLead(User $owner, LeadStage $stage, bool $lost = false): Lead
+    /**
+     * Phase 3 correction: ListLeads' own Pending/History split is now
+     * driven entirely by normalized LeadStatus::isTerminalForProgression()
+     * (ProposalRequired/NoCurrentProgression), not legacy `stage` — so this
+     * fixture takes an explicit $status (defaulting to the create-only
+     * fallback derivation, matching real create behavior when none is
+     * given) rather than relying on stage alone to reach a "History" row.
+     */
+    private function makeLead(User $owner, LeadStage $stage, bool $lost = false, ?LeadStatus $status = null): Lead
     {
         $prospect = Prospect::factory()->create(['assigned_to' => $owner->id, 'created_by' => $owner->id]);
+        $resolvedStatus = $status ?? LeadStatus::fromLegacyStage($stage);
 
         $lead = Lead::create([
             'prospect_id' => $prospect->id,
             'assigned_to' => $owner->id,
             'created_by' => $owner->id,
             'stage' => $stage,
+            'status' => $resolvedStatus,
             'temperature' => 'warm',
-            'notes' => $stage === LeadStage::Validated ? 'Validated in test fixture.' : null,
+            'notes' => $resolvedStatus->isTerminalForProgression() || $stage === LeadStage::Validated ? 'Validated in test fixture.' : null,
         ]);
 
         if ($lost) {
@@ -52,7 +63,7 @@ class LeadAppointmentProposalTabsTest extends TestCase
     {
         $employee = User::factory()->create();
         $pending = $this->makeLead($employee, LeadStage::RequirementCollection);
-        $validated = $this->makeLead($employee, LeadStage::Validated);
+        $validated = $this->makeLead($employee, LeadStage::Validated, status: LeadStatus::ProposalRequired);
         $lost = $this->makeLead($employee, LeadStage::DemoScheduledOrDone, lost: true);
 
         $this->actingAs($employee);
@@ -67,7 +78,7 @@ class LeadAppointmentProposalTabsTest extends TestCase
     {
         $employee = User::factory()->create();
         $pending = $this->makeLead($employee, LeadStage::RequirementCollection);
-        $validated = $this->makeLead($employee, LeadStage::Validated);
+        $validated = $this->makeLead($employee, LeadStage::Validated, status: LeadStatus::ProposalRequired);
         $lost = $this->makeLead($employee, LeadStage::DemoScheduledOrDone, lost: true);
 
         $this->actingAs($employee);
@@ -81,7 +92,7 @@ class LeadAppointmentProposalTabsTest extends TestCase
     public function test_lead_lost_tab_shows_only_lost_leads_and_still_appears_in_history(): void
     {
         $employee = User::factory()->create();
-        $validated = $this->makeLead($employee, LeadStage::Validated);
+        $validated = $this->makeLead($employee, LeadStage::Validated, status: LeadStatus::ProposalRequired);
         $lost = $this->makeLead($employee, LeadStage::DemoScheduledOrDone, lost: true);
 
         $this->actingAs($employee);

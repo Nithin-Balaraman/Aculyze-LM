@@ -4,7 +4,6 @@ namespace App\Filament\Widgets;
 
 use App\Enums\AppointmentStatus;
 use App\Enums\FollowUpStatus;
-use App\Enums\LeadStage;
 use App\Enums\LeadStatus;
 use App\Enums\LeadTemperature;
 use App\Enums\ProposalOutcome;
@@ -75,9 +74,15 @@ class PipelinePulse extends Widget
             array_filter(AppointmentStatus::cases(), fn (AppointmentStatus $status) => ! $status->isTerminal()),
         );
 
+        // Phase 3 correction: isTerminalForProgression() (ProposalRequired/
+        // NoCurrentProgression), not isTerminalForStaleness() (which only
+        // excludes NoCurrentProgression — that one gates the staleness
+        // ALERT, not the Active/Pending count) — this is the same
+        // normalized concept ListLeads::getTabs()'s own Pending tab now
+        // uses, so the two can never diverge again.
         $activeLeadStatuses = array_map(
             fn (LeadStatus $status) => $status->value,
-            array_filter(LeadStatus::cases(), fn (LeadStatus $status) => ! $status->isTerminalForStaleness()),
+            array_filter(LeadStatus::cases(), fn (LeadStatus $status) => ! $status->isTerminalForProgression()),
         );
 
         $activeFollowUpsCount = FollowUp::query()->where('status', FollowUpStatus::Pending)->count();
@@ -92,21 +97,16 @@ class PipelinePulse extends Widget
         // AppointmentResource\Pages\ListAppointments::getTabs()).
         $activeAppointmentsCount = Appointment::query()->where('is_lost', false)->whereIn('status', $activeAppointmentStatuses)->count();
 
-        // Lead keeps BOTH exclusions (legacy stage AND normalized status),
-        // exactly mirroring ListLeads::getTabs()'s own Pending tab (still
-        // legacy-stage-only) plus the new normalized-status protection —
-        // LeadStatus::fromLegacyStage() collapses legacy Validated into
-        // RequirementConfirmed, which is NOT itself terminal-for-staleness,
-        // so a pure status-only filter would silently start counting a
-        // legacy-Validated Lead as Active that ListLeads' own Pending tab
-        // still correctly excludes. Adding the status exclusion on top
-        // (never replacing the stage one) closes the real gap this
-        // migration targets — a Lead reaching NoCurrentProgression via the
-        // new workflow with a frozen, non-Validated legacy stage — without
-        // disturbing any existing, already-correct legacy-stage behavior.
+        // Phase 3 correction: normalized status is now the SOLE authority
+        // here — the legacy `stage != Validated` exclusion this used to
+        // keep alongside the status one is gone. It was there only because
+        // ListLeads::getTabs()'s own Pending tab was still legacy-stage-only
+        // at the time; now that ListLeads has migrated its Pending/History
+        // tabs to the same LeadStatus::isTerminalForProgression() concept
+        // (see that class), the two stay in lockstep on normalized status
+        // alone — legacy `stage` no longer controls either live view.
         $activeLeadsQuery = Lead::query()
             ->where('is_lost', false)
-            ->where('stage', '!=', LeadStage::Validated->value)
             ->whereIn('status', $activeLeadStatuses);
 
         // Proposal doesn't have a separate is_lost flag — Hold is one of

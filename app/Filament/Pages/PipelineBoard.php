@@ -27,6 +27,7 @@ use App\Models\Lead;
 use App\Models\Prospect;
 use App\Models\Proposal;
 use App\Services\WorkflowTransitionService;
+use App\Support\Audit\AuditLogger;
 use Filament\Actions;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
@@ -873,11 +874,50 @@ class PipelineBoard extends Page implements HasActions, HasForms
             return false;
         }
 
+        // Phase 3 correction: "Succeeded" doesn't correspond to one single
+        // unambiguous AppointmentOutcome (it could mean Follow-Up Required,
+        // Requirement Identified, Demo Required, Proposal Required, or
+        // simply No Current Requirement having gone well) — recording it
+        // here would either invent an outcome nobody chose or silently
+        // leave normalized `status`/`outcome` diverging from what the
+        // approved workflow considers a real business conclusion. The
+        // Record Outcome action (AppointmentResource) is the one approved
+        // path into a real Appointment outcome, so this specific drag
+        // target is disabled rather than faked.
+        if ($resource === 'appointment' && $stage === AppointmentStage::Succeeded->value) {
+            return false;
+        }
+
+        // Phase 3 correction: Demo Scheduled/Done now has its own
+        // dedicated Pipeline lane and DemoResource — dragging a Lead card
+        // onto this legacy stage box would be a second, competing way to
+        // represent the same real-world event (a Demo being scheduled),
+        // bypassing WorkflowTransitionService::transitionToDemo() and its
+        // duplicate-Demo guard entirely. The Demo lane's own Lead cross-
+        // drop (and LeadResource's "Schedule Demo" action) are the one
+        // approved path now. Existing historical Leads already sitting at
+        // this legacy stage remain visible in this box — only the DRAG
+        // destination is disabled, not the display.
+        if ($resource === 'lead' && $stage === LeadStage::DemoScheduledOrDone->value) {
+            return false;
+        }
+
         return true;
     }
 
     private function unsupportedDropReason(array $arguments): string
     {
+        $resource = $arguments['resource'] ?? null;
+        $stage = (string) ($arguments['stage'] ?? '');
+
+        if ($resource === 'appointment' && $stage === AppointmentStage::Succeeded->value) {
+            return 'Recording a real Appointment outcome needs a specific outcome choice — use the "Record Outcome" action on the Appointment instead.';
+        }
+
+        if ($resource === 'lead' && $stage === LeadStage::DemoScheduledOrDone->value) {
+            return 'Scheduling a Demo now goes through the Demo lane or the "Schedule Demo" action on the Lead instead — drag this card onto the Demo lane, or open the Lead directly.';
+        }
+
         return 'This Lead is marked Lost — open it directly if you need to revisit that.';
     }
 
@@ -1380,6 +1420,22 @@ class PipelineBoard extends Page implements HasActions, HasForms
         };
     }
 
+    /**
+     * Phase 3 correction: every case here now falls into one of two
+     * buckets — (1) AppointmentMade/VisitConducted/DiscussionCompleted are
+     * NOT normalized business outcomes at all (AppointmentStatus has no
+     * corresponding intermediate state — the Appointment legitimately stays
+     * Scheduled through all three), so a raw legacy-stage note-taking
+     * mutation here never creates a stage/status divergence and is left
+     * as-is; (2) Succeeded/Not Succeeded ARE real business conclusions, so
+     * neither is handled with a raw stage mutation any more. Succeeded is
+     * disabled as a drag target entirely (see isDropEligible() — it maps to
+     * no single approved AppointmentOutcome, so recording it must go
+     * through AppointmentResource's Record Outcome action instead). Not
+     * Succeeded reuses Appointment::markLost() — the same approved,
+     * existing mechanism AppointmentResource's own "Mark Lost" row action
+     * already calls — rather than a bespoke duplicate.
+     */
     private function dropAppointment(array $arguments, array $data): void
     {
         $resolved = AppointmentStage::tryFrom((string) ($arguments['stage'] ?? ''));
@@ -1398,11 +1454,18 @@ class PipelineBoard extends Page implements HasActions, HasForms
             return;
         }
 
+        // Succeeded is blocked by isDropEligible()/unsupportedDropReason()
+        // before the dialog ever opens — re-verified here too, since
+        // arguments travel from client-side JS.
+        if ($resolved === AppointmentStage::Succeeded) {
+            return;
+        }
+
         $update = ['stage' => $resolved];
 
         if ($resolved === AppointmentStage::VisitConducted) {
             $update['meeting_notes'] = $data['meeting_notes'] ?? null;
-        } elseif ($resolved === AppointmentStage::DiscussionCompleted || $resolved->isTerminal()) {
+        } elseif ($resolved === AppointmentStage::DiscussionCompleted) {
             $update['outcome_notes'] = $data['outcome_notes'] ?? null;
         }
 
@@ -1410,39 +1473,48 @@ class PipelineBoard extends Page implements HasActions, HasForms
     }
 
     /**
-     * Not Succeeded always means Lost now — there is no separate Mark Lost
-     * button any more (see the class docblock). is_lost/lost_at_stage/
-     * lost_reason/lost_at are deliberately absent from Appointment's own
-     * $fillable (see Appointment::markLost(), which forceFill()s them for
-     * the same reason), so this can't go through applyDrop()'s plain
-     * ->update() the way every other same-lane drop does — those keys
-     * would silently be dropped. lost_at_stage captures the PRE-drop stage
-     * (not NotSucceeded itself, which would just duplicate `stage` and
-     * lose the "what stage was this really sitting in" signal the field
-     * exists for), and lost_reason reuses the same Outcome Notes text
-     * rather than asking twice for near-duplicate content.
+     * Not Succeeded reuses Appointment::markLost() directly — the exact
+     * same approved mechanism AppointmentResource's own "Mark Lost" row
+     * action calls — rather than a bespoke duplicate that also mutated
+     * `stage`/`is_lost` by hand. markLost() deliberately does not touch
+     * `stage` (mirrors Lead::markLost()'s own docblock: an outcome applied
+     * on top of wherever the record currently is), so the card stays
+     * visually where it already was, now carrying the "LOST" badge — the
+     * exact same behavior as marking it Lost from the Appointment's own
+     * Edit page, just reachable by drag too.
      */
     private function applyAppointmentNotSucceeded(Appointment $appointment, array $data): void
     {
-        $lostAtStage = $appointment->stage;
-
         try {
-            $appointment->forceFill([
-                'stage' => AppointmentStage::NotSucceeded,
-                'outcome_notes' => $data['outcome_notes'] ?? null,
-                'is_lost' => true,
-                'lost_at_stage' => $lostAtStage,
-                'lost_reason' => $data['outcome_notes'] ?? null,
-                'lost_at' => now(),
-            ])->save();
+            $appointment->markLost($data['outcome_notes'] ?? '');
         } catch (\LogicException $e) {
-            Notification::make()->title("Couldn't move to Not Succeeded")->body($e->getMessage())->danger()->send();
+            Notification::make()->title("Couldn't mark this Appointment Lost")->body($e->getMessage())->danger()->send();
             throw new Halt;
         }
 
-        Notification::make()->title('Moved to Not Succeeded')->success()->send();
+        Notification::make()->title('Marked Lost')->success()->send();
     }
 
+    /**
+     * Phase 3 correction: RequirementCollection and Validated are real,
+     * unambiguous normalized business meanings — LeadStatus::
+     * RequirementCollection and LeadStatus::ProposalRequired respectively
+     * (the latter matches exactly what LeadResource's own "Create Proposal"
+     * eligibility and Lead's own Notes guard already treat as equivalent to
+     * legacy stage=Validated) — so both now route through the centralized
+     * WorkflowTransitionService::transitionLeadStatus() rather than a raw
+     * ->update(['stage' => ...]). Legacy `stage` is still written
+     * afterwards, purely so this board's own stage-grouped display
+     * (leadLane()/stageBasedLane()) and StageDropoutReport's historical
+     * view stay in sync — that write is NOT the authority: it never
+     * enforces anything and is never read by any business-rule/service
+     * logic, which is entirely status-driven above it.
+     *
+     * DemoScheduledOrDone is no longer a valid drag target at all — see
+     * isDropEligible() — since Demo now has its own dedicated lane/
+     * Resource and dragging a Lead there would be a second, competing way
+     * to represent a Demo being scheduled.
+     */
     private function dropLead(array $arguments, array $data): void
     {
         $stage = (string) ($arguments['stage'] ?? '');
@@ -1457,8 +1529,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
         // dragging onto it calls the exact same markLost() LeadResource's
         // own row action does; `stage` deliberately stays untouched (see
         // Lead::markLost()'s own docblock: "Lost is an outcome applied on
-        // top of wherever the Lead currently is"), unlike Not Succeeded on
-        // the Appointment lane above.
+        // top of wherever the Lead currently is"), unlike RequirementCollection/
+        // Validated below.
         if ($stage === 'lost') {
             if ($lead->is_lost) {
                 return;
@@ -1485,15 +1557,39 @@ class PipelineBoard extends Page implements HasActions, HasForms
             return;
         }
 
-        $this->authorizeUpdate($lead);
-
-        $update = ['stage' => $resolved];
-
-        if ($resolved === LeadStage::Validated) {
-            $update['notes'] = $data['notes'] ?? null;
+        // Re-verified here too — DemoScheduledOrDone is blocked at
+        // isDropEligible() before the dialog opens, but arguments travel
+        // from client-side JS.
+        if ($resolved === LeadStage::DemoScheduledOrDone) {
+            return;
         }
 
-        $this->applyDrop($lead, $update, $resolved->getLabel());
+        $this->authorizeUpdate($lead);
+
+        $targetStatus = match ($resolved) {
+            LeadStage::RequirementCollection => LeadStatus::RequirementCollection,
+            LeadStage::Validated => LeadStatus::ProposalRequired,
+            default => null,
+        };
+
+        try {
+            app(WorkflowTransitionService::class)->transitionLeadStatus($lead, $targetStatus, ['notes' => $data['notes'] ?? null]);
+        } catch (\LogicException $e) {
+            Notification::make()->title("Couldn't move to {$resolved->getLabel()}")->body($e->getMessage())->danger()->send();
+            throw new Halt;
+        }
+
+        // The service transitions its own freshly-locked copy of this Lead,
+        // not this $lead instance — refresh before the display-compatibility
+        // stage sync below so the model guard re-evaluates against the
+        // Notes the service just persisted, not this instance's stale
+        // pre-transition in-memory value.
+        $lead = $lead->fresh();
+
+        // Display-compatibility sync only — see this method's docblock.
+        $lead->forceFill(['stage' => $resolved])->save();
+
+        Notification::make()->title('Moved to '.$resolved->getLabel())->success()->send();
     }
 
     private function dropProposal(array $arguments, array $data): void
@@ -1775,19 +1871,45 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * the source's normalized `status` silently stale/blind-defaulted — the
      * one confirmed stage/status divergence gap from the Phase 3 audit.
      */
+    /**
+     * Phase 3 correction: this method resolves the DRAGGED SOURCE card
+     * forward AFTER createCrossDropDestination() has already created the
+     * real destination record (Follow-Up/Lead/Proposal) through its own
+     * path above — so this is explicitly classification D (an audited
+     * administrative/historical correction), never classification A. It
+     * genuinely cannot be classification A: WorkflowTransitionService::
+     * transitionAppointmentOutcome()/transitionLeadStatus() each CREATE
+     * their own downstream record as part of the transition itself, and
+     * calling either here — on top of the destination
+     * createCrossDropDestination() already created — would create a
+     * duplicate Follow-Up/Lead/Demo/Proposal for the same cross-drop. Both
+     * 'appointment' and 'lead' therefore still write normalized
+     * status/outcome directly (never leaving it to silently diverge from
+     * legacy `stage`, which is the one confirmed Phase 3 audit gap this
+     * fixed originally) but now do so explicitly and audibly, matching the
+     * same audit-required bar CallRoutingService::correctOutcome() holds
+     * every administrative correction to.
+     *
+     * The 'lead' case previously used LeadStatus::fromLegacyStage(Validated)
+     * — RequirementConfirmed — which is flatly wrong here: that mapping
+     * exists for the conservative *historical backfill* case (an old Lead
+     * with no other signal), not for a Lead that is, right now, actually
+     * getting a real Proposal out of this exact cross-drop. ProposalRequired
+     * is the correct, meaningful status — the same one LeadResource's own
+     * "Create Proposal" eligibility and Lead's own Notes guard already
+     * treat as equivalent to legacy stage=Validated.
+     *
+     * Legacy `stage` is still written here too, purely for
+     * PipelineBoard's own stage-grouped display (leadLane()/
+     * appointmentLane()) and StageDropoutReport's historical view — it is
+     * not read by any business-rule/service logic, which is entirely
+     * normalized-status-driven.
+     */
     private function resolveCrossDropSource(string $sourceResource, Model $source, array $data): void
     {
         match ($sourceResource) {
-            'appointment' => $source->update([
-                'stage' => AppointmentStage::Succeeded,
-                'status' => AppointmentStatus::fromLegacyStage(AppointmentStage::Succeeded),
-                'outcome_notes' => $data['source_outcome_notes'] ?? null,
-            ]),
-            'lead' => $source->update([
-                'stage' => LeadStage::Validated,
-                'status' => LeadStatus::fromLegacyStage(LeadStage::Validated),
-                'notes' => $data['source_notes'] ?? null,
-            ]),
+            'appointment' => $this->resolveAppointmentCrossDropSource($source, $data),
+            'lead' => $this->resolveLeadCrossDropSource($source, $data),
             'proposal' => $source->update([
                 'stage' => ProposalStage::CustomerAccepted,
                 'outcome' => ProposalOutcome::Won,
@@ -1796,6 +1918,46 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'follow_up' => $this->completeFollowUp($source, $data, 'source_'),
             default => null,
         };
+    }
+
+    private function resolveAppointmentCrossDropSource(Appointment $appointment, array $data): void
+    {
+        $before = ['stage' => $appointment->stage->value, 'status' => $appointment->status?->value];
+
+        $appointment->update([
+            'stage' => AppointmentStage::Succeeded,
+            'status' => AppointmentStatus::Completed,
+            'outcome_notes' => $data['source_outcome_notes'] ?? null,
+        ]);
+
+        AuditLogger::record(
+            entityType: 'Appointment',
+            entityId: $appointment->getKey(),
+            action: 'appointment_resolved_via_cross_drop',
+            organizationId: $appointment->organization_id,
+            before: $before,
+            after: ['stage' => AppointmentStage::Succeeded->value, 'status' => AppointmentStatus::Completed->value],
+        );
+    }
+
+    private function resolveLeadCrossDropSource(Lead $lead, array $data): void
+    {
+        $before = ['stage' => $lead->stage->value, 'status' => $lead->status?->value];
+
+        $lead->update([
+            'stage' => LeadStage::Validated,
+            'status' => LeadStatus::ProposalRequired,
+            'notes' => $data['source_notes'] ?? null,
+        ]);
+
+        AuditLogger::record(
+            entityType: 'Lead',
+            entityId: $lead->getKey(),
+            action: 'lead_resolved_via_cross_drop',
+            organizationId: $lead->organization_id,
+            before: $before,
+            after: ['stage' => LeadStage::Validated->value, 'status' => LeadStatus::ProposalRequired->value],
+        );
     }
 
     /**

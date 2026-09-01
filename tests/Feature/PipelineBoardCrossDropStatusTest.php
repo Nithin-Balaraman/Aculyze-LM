@@ -143,6 +143,14 @@ class PipelineBoardCrossDropStatusTest extends TestCase
      * its Lead reaches Proposal) — before this fix it wrote only legacy
      * `stage`, leaving `status` silently stale. This is the one confirmed
      * stage/status divergence gap identified during the Phase 3 audit.
+     *
+     * Correction round: this is classification D (an explicit,
+     * administrative, audited correction), not classification A — calling
+     * WorkflowTransitionService here would create a SECOND downstream
+     * Follow-Up/Lead on top of the one createCrossDropDestination() already
+     * created for the same cross-drop. It must still be audited like any
+     * other administrative correction (see CallRoutingService::
+     * correctOutcome()'s own audit requirement) — this proves that too.
      */
     public function test_resolving_an_appointment_cross_drop_source_sets_status_alongside_stage(): void
     {
@@ -168,9 +176,23 @@ class PipelineBoardCrossDropStatusTest extends TestCase
             $appointment->refresh();
             $this->assertSame(AppointmentStage::Succeeded, $appointment->stage);
             $this->assertSame(AppointmentStatus::Completed, $appointment->status, 'Resolving the source forward must not leave status stale.');
+            $this->assertDatabaseHas('audit_events', [
+                'entity_type' => 'Appointment',
+                'entity_id' => $appointment->id,
+                'action' => 'appointment_resolved_via_cross_drop',
+            ]);
         });
     }
 
+    /**
+     * Correction round: this previously used
+     * LeadStatus::fromLegacyStage(Validated) = RequirementConfirmed — the
+     * conservative mapping meant for historical backfill, not for a Lead
+     * that is, right now, actually getting a real Proposal out of this
+     * exact cross-drop. ProposalRequired is the correct, meaningful status
+     * here — the same one LeadResource's "Create Proposal" eligibility and
+     * Lead's own Notes guard already treat as equivalent to stage=Validated.
+     */
     public function test_resolving_a_lead_cross_drop_source_sets_status_alongside_stage(): void
     {
         $org = Organization::factory()->create();
@@ -194,7 +216,12 @@ class PipelineBoardCrossDropStatusTest extends TestCase
 
             $lead->refresh();
             $this->assertSame(LeadStage::Validated, $lead->stage);
-            $this->assertSame(LeadStatus::RequirementConfirmed, $lead->status, 'Resolving the source forward must not leave status stale.');
+            $this->assertSame(LeadStatus::ProposalRequired, $lead->status, 'A Lead resolved forward into a real Proposal must reflect that in its normalized status, not the conservative historical-backfill mapping.');
+            $this->assertDatabaseHas('audit_events', [
+                'entity_type' => 'Lead',
+                'entity_id' => $lead->id,
+                'action' => 'lead_resolved_via_cross_drop',
+            ]);
         });
     }
 
