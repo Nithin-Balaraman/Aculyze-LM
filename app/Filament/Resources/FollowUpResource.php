@@ -296,6 +296,26 @@ class FollowUpResource extends Resource
     }
 
     /**
+     * The Company column's small type indicator (see columns()) — driven
+     * solely by the existing `origin_type` morph-map value, the only field
+     * that records why this Follow-Up exists. `null` (never set by the
+     * ordinary call-routed path — see CallRoutingService::createFollowUp())
+     * means General; any value outside the three real origins this app
+     * ever writes (WorkflowTransitionService::createFollowUpFromOrigin())
+     * omits the badge instead of guessing at a label.
+     */
+    private static function resolveOriginTypeLabel(?string $originType): ?string
+    {
+        return match ($originType) {
+            null => 'General',
+            'appointment' => 'Appointment',
+            'demo' => 'Demo',
+            'proposal' => 'Proposal',
+            default => null,
+        };
+    }
+
+    /**
      * Phase 3 correction: Follow-Up -> Demo was one of the four approved
      * routes into Demo (WorkflowTransitionService::transitionToDemo()'s own
      * docblock: "Follow-Up/Appointment/Lead/Proposal -> Demo per the Master
@@ -426,10 +446,19 @@ class FollowUpResource extends Resource
     public static function columns(): array
     {
         return [
+            // UI-only: a small type indicator under the Company name so
+            // multiple Follow-Ups for the same Company (a common case) are
+            // distinguishable at a glance. Driven entirely by the existing
+            // `origin_type` column (never a new field, never inferred from
+            // legacy stage) via the same description-below-the-value
+            // pattern Filament renders smaller/muted by default — not a
+            // second table column. An unrecognized origin_type (shouldn't
+            // occur) omits the line rather than fabricating a label.
             Tables\Columns\TextColumn::make('prospect.company_name')
                 ->label('Company')
                 ->searchable()
-                ->sortable(),
+                ->sortable()
+                ->description(fn (FollowUp $record) => self::resolveOriginTypeLabel($record->origin_type)),
             Tables\Columns\TextColumn::make('reason')
                 ->searchable()
                 ->toggleable(isToggledHiddenByDefault: true),
