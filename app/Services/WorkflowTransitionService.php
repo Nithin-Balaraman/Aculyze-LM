@@ -11,6 +11,8 @@ use App\Enums\DemoStatus;
 use App\Enums\LeadStage;
 use App\Enums\LeadStatus;
 use App\Enums\LeadTemperature;
+use App\Enums\ProposalContinuation;
+use App\Enums\ProposalOutcome;
 use App\Enums\ProposalStage;
 use App\Models\Appointment;
 use App\Models\Demo;
@@ -99,7 +101,7 @@ class WorkflowTransitionService
         });
     }
 
-    private function createFollowUpFromOrigin(Appointment|Demo $origin, string $originAlias, array $data): FollowUp
+    private function createFollowUpFromOrigin(Appointment|Demo|Proposal $origin, string $originAlias, array $data): FollowUp
     {
         $followUp = new FollowUp([
             'prospect_id' => $origin->prospect_id,
@@ -385,5 +387,116 @@ class WorkflowTransitionService
                 'stage' => ProposalStage::BeingPrepared->value,
             ]
         );
+    }
+
+    /**
+     * Phase 3: a standalone, direct Lead status change — not a side-effect
+     * of an Appointment/Demo outcome (those already set Lead status
+     * themselves where relevant, e.g. returnLeadToRequirementCollection()).
+     * This is the entry point for LeadResource's own "Update Status" action
+     * and PipelineBoard's Lead same-lane drag, once a destination stage
+     * maps to a genuine status change. Legacy `stage` is left untouched —
+     * consistent with every other normal Phase 3 business transition.
+     *
+     * @param  array<string, mixed>  $data  optional 'notes' to persist alongside the status change
+     */
+    public function transitionLeadStatus(Lead $lead, LeadStatus $status, array $data = []): void
+    {
+        DB::transaction(function () use ($lead, $status, $data) {
+            $locked = Lead::query()->whereKey($lead->getKey())->lockForUpdate()->firstOrFail();
+
+            $before = $locked->status;
+
+            $locked->forceFill([
+                'status' => $status->value,
+                'notes' => $data['notes'] ?? $locked->notes,
+            ])->save();
+
+            AuditLogger::record(
+                entityType: 'Lead',
+                entityId: $locked->getKey(),
+                action: 'lead_status_changed',
+                organizationId: $locked->organization_id,
+                before: ['status' => $before?->value],
+                after: ['status' => $status->value],
+            );
+        });
+    }
+
+    /**
+     * Phase 3: the approved, narrow set of next-step actions a Proposal can
+     * generate — pure navigation/next-step creation, never a Proposal
+     * lifecycle change (no approval/versioning/Outlook/PDF workflow —
+     * Phase 4, out of scope). Eligibility: Won/Lost never allow an ordinary
+     * continuation; Hold allows FollowUpRequired only (Hold is a pause, not
+     * a final decision — Follow-Up is the approved review mechanism); any
+     * other non-final state allows all three. Enforced here server-side,
+     * not merely hidden in the UI — a direct call bypassing the UI with an
+     * ineligible outcome is rejected identically.
+     *
+     * @param  array<string, mixed>  $data  destination-specific fields the chosen continuation requires
+     */
+    public function transitionProposalContinuation(Proposal $proposal, ProposalContinuation $continuation, array $data = []): FollowUp|Demo|Lead
+    {
+        return DB::transaction(function () use ($proposal, $continuation, $data) {
+            $locked = Proposal::query()->whereKey($proposal->getKey())->lockForUpdate()->firstOrFail();
+
+            if (in_array($locked->outcome, [ProposalOutcome::Won, ProposalOutcome::Lost], true)) {
+                throw new LogicException(
+                    "Proposal #{$locked->getKey()} cannot use an ordinary continuation action: its outcome is {$locked->outcome->getLabel()}."
+                );
+            }
+
+            if ($locked->outcome === ProposalOutcome::Hold && $continuation !== ProposalContinuation::FollowUpRequired) {
+                throw new LogicException(
+                    "Proposal #{$locked->getKey()} is on Hold — only Follow-Up Required is a valid continuation while on Hold."
+                );
+            }
+
+            $result = match ($continuation) {
+                ProposalContinuation::FollowUpRequired => $this->createFollowUpFromOrigin($locked, 'proposal', $data),
+                ProposalContinuation::DemoRequired => $this->transitionToDemo($this->requireLeadForProposal($locked), $locked, 'proposal', $data),
+                ProposalContinuation::RequirementClarificationRequired => $this->returnLeadFromProposalForClarification($locked, $data),
+            };
+
+            AuditLogger::record(
+                entityType: 'Proposal',
+                entityId: $locked->getKey(),
+                action: 'proposal_continuation_'.$continuation->value,
+                organizationId: $locked->organization_id,
+                before: ['outcome' => $locked->outcome?->value],
+                after: [
+                    'continuation' => $continuation->value,
+                    'downstream_type' => class_basename($result),
+                    'downstream_id' => $result->getKey(),
+                ],
+            );
+
+            return $result;
+        });
+    }
+
+    private function requireLeadForProposal(Proposal $proposal): Lead
+    {
+        $lead = $proposal->lead;
+
+        if ($lead === null) {
+            throw new LogicException("Proposal #{$proposal->getKey()} has no Lead to transition to Demo.");
+        }
+
+        return $lead;
+    }
+
+    /** Returns the SAME Lead to Requirement Collection — never a duplicate Lead, mirrors returnLeadToRequirementCollection(). */
+    private function returnLeadFromProposalForClarification(Proposal $proposal, array $data): Lead
+    {
+        $lead = $this->requireLeadForProposal($proposal);
+
+        $lead->update([
+            'status' => LeadStatus::RequirementCollection->value,
+            'notes' => $data['clarification_notes'] ?? $lead->notes,
+        ]);
+
+        return $lead;
     }
 }
