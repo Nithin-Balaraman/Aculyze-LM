@@ -55,26 +55,45 @@ enum CallOutcome: string implements HasColor, HasLabel
         };
     }
 
-    /** Outcomes that route to the Follow-Ups panel. */
+    /**
+     * Outcomes that ALWAYS route to the Follow-Ups panel unconditionally.
+     * Phase 3: only Callback Requested remains here. No Answer / Switched
+     * Off / Not Reachable no longer auto-create a Follow-Up at all (they
+     * remain plain Calls, notes optional, no automatic next activity).
+     * Concerned Person Not Available and Profile Requested were also
+     * removed — see routesToConditionalFollowUp() below.
+     */
     public function routesToFollowUp(): bool
     {
+        return $this === self::CallbackRequested;
+    }
+
+    /**
+     * Phase 3: outcomes whose Follow-Up creation is conditional on the
+     * caller actually supplying explicit Follow-Up data (`follow_up_at` +
+     * `reason`) rather than always firing — see
+     * App\Services\CallRoutingService::route(). Concerned Person Not
+     * Available only creates a Follow-Up when a real callback is explicitly
+     * agreed; Profile Requested's Follow-Up is optional/intentional only.
+     */
+    public function routesToConditionalFollowUp(): bool
+    {
         return in_array($this, [
-            self::NoAnswer,
-            self::SwitchedOff,
-            self::NotReachable,
-            self::CallbackRequested,
             self::ConcernedPersonNotAvailable,
             self::ProfileRequested,
         ], true);
     }
 
-    /** Outcomes that route to the Appointment Call Sheet. */
+    /**
+     * Outcomes that route to the Appointment Call Sheet. Phase 3:
+     * RequirementIdentified was removed — creating an Appointment merely
+     * because a requirement was identified was a business conflict (it
+     * also created a Lead); Requirement Identified now creates a Lead only,
+     * and an Appointment is scheduled separately if/when the user chooses.
+     */
     public function routesToAppointment(): bool
     {
-        return in_array($this, [
-            self::AppointmentSet,
-            self::RequirementIdentified,
-        ], true);
+        return $this === self::AppointmentSet;
     }
 
     /**
@@ -83,6 +102,9 @@ enum CallOutcome: string implements HasColor, HasLabel
      * CallRecordResource::form()) is the only record of it, surfaced via
      * the "History" tab on the Call Records page instead (see
      * ListCallRecords::getTabs()).
+     *
+     * Note: Others' actual downstream creation (if any) is now driven by
+     * CallNextAction, not by this method — see CallRoutingService::route().
      */
     public function routesNowhere(): bool
     {

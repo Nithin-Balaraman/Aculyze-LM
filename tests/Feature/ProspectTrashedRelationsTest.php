@@ -46,11 +46,15 @@ class ProspectTrashedRelationsTest extends TestCase
     public function test_follow_up_still_resolves_a_soft_deleted_prospect(): void
     {
         $prospect = Prospect::factory()->create(['company_name' => 'Sunrise Plastics']);
+        // Phase 3: No Answer no longer creates a Follow-Up — Callback
+        // Requested is the simplest outcome that still unconditionally
+        // does.
         $call = CallRecord::create([
             'prospect_id' => $prospect->id,
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
-            'outcome' => CallOutcome::NoAnswer,
+            'outcome' => CallOutcome::CallbackRequested,
+            'notes' => 'Asked to call back later.',
         ]);
         $followUp = $call->fresh()->followUp;
 

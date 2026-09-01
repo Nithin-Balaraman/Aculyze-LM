@@ -34,11 +34,15 @@ class FollowUpDeletionCascadeTest extends TestCase
     private function makeFollowUp(User $owner): FollowUp
     {
         $prospect = Prospect::factory()->create(['assigned_to' => $owner->id, 'created_by' => $owner->id]);
+        // Phase 3: No Answer no longer creates a Follow-Up — Callback
+        // Requested is the simplest outcome that still unconditionally
+        // does.
         $call = CallRecord::create([
             'prospect_id' => $prospect->id,
             'user_id' => $owner->id,
             'called_at' => now(),
-            'outcome' => CallOutcome::NoAnswer,
+            'outcome' => CallOutcome::CallbackRequested,
+            'notes' => 'Asked to call back later.',
         ]);
 
         return $call->fresh()->followUp;
@@ -103,8 +107,9 @@ class FollowUpDeletionCascadeTest extends TestCase
         $admin = User::factory()->admin()->create();
         $followUp = $this->makeFollowUp($admin);
 
-        // RequirementIdentified routes to both an Appointment and a Lead —
-        // the generated Call Record is no longer a harmless byproduct.
+        // RequirementIdentified routes to a Lead (Phase 3: Lead only, no
+        // Appointment) — the generated Call Record is no longer a harmless
+        // byproduct.
         $generated = $this->completeFollowUp($followUp, CallOutcome::RequirementIdentified, 'Ready to move forward.');
 
         $this->actingAs($admin);

@@ -2,9 +2,12 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\CallNextAction;
 use App\Enums\CallOutcome;
 use App\Enums\ContactMode;
 use App\Enums\FollowUpStatus;
+use App\Enums\ProfileSentMode;
+use App\Enums\ProfileSentStatus;
 use App\Filament\Resources\FollowUpResource\Pages;
 use App\Models\FollowUp;
 use App\Services\RescheduleService;
@@ -172,8 +175,12 @@ class FollowUpResource extends Resource
                         Forms\Components\DateTimePicker::make('new_follow_up_at')
                             ->label('Next Follow-Up At')
                             ->seconds(false)
-                            ->visible(fn (Forms\Get $get) => self::statusIsCompleting($get('status')) && self::outcomeRoutesToFollowUp($get('outcome')))
-                            ->required(fn (Forms\Get $get) => self::statusIsCompleting($get('status')) && self::outcomeRoutesToFollowUp($get('outcome'))),
+                            ->visible(fn (Forms\Get $get) => self::statusIsCompleting($get('status')) && self::outcomeRoutesToFollowUp($get('outcome'), $get('next_action')))
+                            ->required(fn (Forms\Get $get) => self::statusIsCompleting($get('status')) && self::followUpAtRequired($get('outcome'), $get('next_action'))),
+                        ...self::otherAndProfileSentFields(
+                            outcomeGetter: fn (Forms\Get $get) => $get('outcome'),
+                            activeWhen: fn (Forms\Get $get) => self::statusIsCompleting($get('status')),
+                        ),
                         Forms\Components\Textarea::make('call_notes')
                             ->label('Call Notes')
                             ->rows(3)
@@ -220,9 +227,105 @@ class FollowUpResource extends Resource
         return self::resolveOutcome($outcome)?->routesToAppointment() ?? false;
     }
 
-    private static function outcomeRoutesToFollowUp(mixed $outcome): bool
+    /**
+     * Phase 3: visible whenever the outcome could possibly create a
+     * Follow-Up — unconditionally (Callback Requested) or as an explicit,
+     * intentional decision (Concerned Person Not Available / Profile
+     * Requested's optional callback, or Other's CreateFollowUp next
+     * action) — mirrors CallRecordResource::followUpAtVisible() exactly,
+     * since this form creates a Call Record through the identical model
+     * guards/routing service.
+     */
+    private static function outcomeRoutesToFollowUp(mixed $outcome, mixed $nextAction = null): bool
     {
-        return self::resolveOutcome($outcome)?->routesToFollowUp() ?? false;
+        $resolved = self::resolveOutcome($outcome);
+
+        if ($resolved === null) {
+            return false;
+        }
+
+        if ($resolved->routesToFollowUp() || $resolved->routesToConditionalFollowUp()) {
+            return true;
+        }
+
+        return $resolved === CallOutcome::Others && self::resolveNextAction($nextAction) === CallNextAction::CreateFollowUp;
+    }
+
+    /** Required only where the Follow-Up is mandatory, not merely possible. */
+    private static function followUpAtRequired(mixed $outcome, mixed $nextAction = null): bool
+    {
+        $resolved = self::resolveOutcome($outcome);
+
+        if ($resolved === null) {
+            return false;
+        }
+
+        if ($resolved->routesToFollowUp()) {
+            return true;
+        }
+
+        return $resolved === CallOutcome::Others && self::resolveNextAction($nextAction) === CallNextAction::CreateFollowUp;
+    }
+
+    private static function resolveNextAction(mixed $nextAction): ?CallNextAction
+    {
+        return $nextAction instanceof CallNextAction ? $nextAction : CallNextAction::tryFrom((string) $nextAction);
+    }
+
+    private static function resolveProfileSentStatus(mixed $status): ?ProfileSentStatus
+    {
+        return $status instanceof ProfileSentStatus ? $status : ProfileSentStatus::tryFrom((string) $status);
+    }
+
+    private static function resolveProfileSentMode(mixed $mode): ?ProfileSentMode
+    {
+        return $mode instanceof ProfileSentMode ? $mode : ProfileSentMode::tryFrom((string) $mode);
+    }
+
+    /**
+     * The shared Other/Profile Sent field set appended after the outcome-
+     * dependent appointment/follow-up date pair — reused by both the Edit
+     * page's inline Completed section and the row-action Completed modal,
+     * so the two never diverge. $outcomeGetter/$nextActionGetter read the
+     * respective statePath, which differs between the two contexts.
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    private static function otherAndProfileSentFields(\Closure $outcomeGetter, \Closure $activeWhen): array
+    {
+        $isOther = fn (Forms\Get $get) => $activeWhen($get) && self::resolveOutcome($outcomeGetter($get)) === CallOutcome::Others;
+        $isProfileRequested = fn (Forms\Get $get) => $activeWhen($get) && self::resolveOutcome($outcomeGetter($get)) === CallOutcome::ProfileRequested;
+
+        return [
+            Forms\Components\Select::make('next_action')
+                ->label('Next Action')
+                ->options(CallNextAction::class)
+                ->live()
+                ->visible($isOther)
+                ->required($isOther),
+            Forms\Components\Select::make('profile_sent_status')
+                ->label('Profile Sent Status')
+                ->options(ProfileSentStatus::class)
+                ->live()
+                ->visible($isProfileRequested)
+                ->required($isProfileRequested),
+            Forms\Components\Select::make('profile_sent_mode')
+                ->label('Profile Sent Mode')
+                ->options(ProfileSentMode::class)
+                ->live()
+                ->visible($isProfileRequested)
+                ->required(fn (Forms\Get $get) => $isProfileRequested($get) && self::resolveProfileSentStatus($get('profile_sent_status')) === ProfileSentStatus::Sent),
+            Forms\Components\DateTimePicker::make('profile_sent_at')
+                ->label('Profile Sent At')
+                ->seconds(false)
+                ->visible($isProfileRequested)
+                ->required(fn (Forms\Get $get) => $isProfileRequested($get) && self::resolveProfileSentStatus($get('profile_sent_status')) === ProfileSentStatus::Sent),
+            Forms\Components\Textarea::make('profile_sent_notes')
+                ->label('Profile Sent Notes')
+                ->rows(2)
+                ->visible($isProfileRequested)
+                ->required(fn (Forms\Get $get) => $isProfileRequested($get) && self::resolveProfileSentMode($get('profile_sent_mode')) === ProfileSentMode::Other),
+        ];
     }
 
     /**
@@ -330,8 +433,12 @@ class FollowUpResource extends Resource
                             Forms\Components\DateTimePicker::make('new_follow_up_at')
                                 ->label('Follow Up At')
                                 ->seconds(false)
-                                ->visible(fn (Forms\Get $get) => static::outcomeRoutesToFollowUp($get('outcome')))
-                                ->required(fn (Forms\Get $get) => static::outcomeRoutesToFollowUp($get('outcome'))),
+                                ->visible(fn (Forms\Get $get) => static::outcomeRoutesToFollowUp($get('outcome'), $get('next_action')))
+                                ->required(fn (Forms\Get $get) => static::followUpAtRequired($get('outcome'), $get('next_action'))),
+                            ...self::otherAndProfileSentFields(
+                                outcomeGetter: fn (Forms\Get $get) => $get('outcome'),
+                                activeWhen: fn (Forms\Get $get) => true,
+                            ),
                             Forms\Components\Textarea::make('notes')
                                 ->label('Notes')
                                 ->required()
@@ -342,6 +449,11 @@ class FollowUpResource extends Resource
                             'notes' => $data['notes'],
                             'appointment_at' => $data['appointment_at'] ?? null,
                             'follow_up_at' => $data['new_follow_up_at'] ?? null,
+                            'next_action' => $data['next_action'] ?? null,
+                            'profile_sent_status' => $data['profile_sent_status'] ?? null,
+                            'profile_sent_at' => $data['profile_sent_at'] ?? null,
+                            'profile_sent_mode' => $data['profile_sent_mode'] ?? null,
+                            'profile_sent_notes' => $data['profile_sent_notes'] ?? null,
                         ])),
                     // Phase 2: the ONLY way to change follow_up_at on an
                     // active Follow-Up — normal Edit shows it read-only

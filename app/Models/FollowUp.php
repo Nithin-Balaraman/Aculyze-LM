@@ -212,6 +212,17 @@ class FollowUp extends Model implements \App\Models\Concerns\Reschedulable
                 'notes' => $data['notes'] ?? null,
                 'appointment_at' => $data['appointment_at'] ?? null,
                 'follow_up_at' => $data['follow_up_at'] ?? null,
+                // Phase 3: pass through the same fields a directly-logged
+                // call can carry (Other's next_action, Profile Requested's
+                // structured Profile Sent tracking) — this call goes
+                // through the exact same CallRecord model guards/
+                // CallRoutingService as any other, so it needs the same
+                // data to satisfy them.
+                'next_action' => $data['next_action'] ?? null,
+                'profile_sent_status' => $data['profile_sent_status'] ?? null,
+                'profile_sent_at' => $data['profile_sent_at'] ?? null,
+                'profile_sent_mode' => $data['profile_sent_mode'] ?? null,
+                'profile_sent_notes' => $data['profile_sent_notes'] ?? null,
                 // Marks this Call Record as a byproduct of completing this
                 // Follow-Up rather than one directly logged — see
                 // generatedCallRecord()/deleteHarmlessGeneratedCallRecord().

@@ -46,9 +46,11 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
     public static function followUpRoutingOutcomes(): array
     {
         return [
-            'No Answer' => [CallOutcome::NoAnswer],
-            'Switched Off' => [CallOutcome::SwitchedOff],
-            'Not Reachable' => [CallOutcome::NotReachable],
+            // Phase 3: No Answer / Switched Off / Not Reachable no longer
+            // show (or route to) a Follow-Up at all — see CallRoutingTest.
+            // Concerned Person Not Available / Profile Requested still show
+            // the field (an optional, intentional Follow-Up), just no
+            // longer require it — see followUpAtRequiredOutcomes() below.
             'Callback Requested' => [CallOutcome::CallbackRequested],
             'Concerned Person Not Available' => [CallOutcome::ConcernedPersonNotAvailable],
             'Profile Requested' => [CallOutcome::ProfileRequested],
@@ -58,8 +60,9 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
     public static function appointmentRoutingOutcomes(): array
     {
         return [
+            // Phase 3: Requirement Identified no longer routes to an
+            // Appointment (it creates a Lead only) — see CallRoutingTest.
             'Appointment Set' => [CallOutcome::AppointmentSet],
-            'Requirement Identified' => [CallOutcome::RequirementIdentified],
         ];
     }
 
@@ -96,6 +99,24 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
             ->fillForm($this->baseFormData(['outcome' => CallOutcome::FutureOpportunity->value]))
             ->assertDontSee('Follow Up At')
             ->assertDontSee('Appointment At');
+    }
+
+    /**
+     * Phase 3: No Answer / Switched Off / Not Reachable no longer create any
+     * downstream activity at all — the date fields must not appear for them
+     * either now.
+     */
+    public function test_neither_date_field_is_visible_for_no_answer_switched_off_or_not_reachable(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        foreach ([CallOutcome::NoAnswer, CallOutcome::SwitchedOff, CallOutcome::NotReachable] as $outcome) {
+            Livewire::test(CreateCallRecord::class)
+                ->fillForm($this->baseFormData(['outcome' => $outcome->value]))
+                ->assertDontSee('Follow Up At')
+                ->assertDontSee('Appointment At');
+        }
     }
 
     public function test_setting_follow_up_at_on_the_form_sets_it_on_the_auto_created_follow_up(): void
@@ -144,11 +165,37 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
         $this->actingAs($admin);
 
         Livewire::test(CreateCallRecord::class)
-            ->fillForm($this->baseFormData(['outcome' => CallOutcome::NoAnswer->value, 'follow_up_at' => null]))
+            ->fillForm($this->baseFormData([
+                'outcome' => CallOutcome::CallbackRequested->value,
+                'notes' => 'Asked to call back next week.',
+                'follow_up_at' => null,
+            ]))
             ->call('create')
             ->assertHasFormErrors(['follow_up_at']);
 
         $this->assertDatabaseCount('call_records', 0);
+    }
+
+    /**
+     * Phase 3: Concerned Person Not Available / Profile Requested's
+     * Follow-Up is optional/intentional only — leaving it blank must NOT
+     * fail validation for these two outcomes (unlike Callback Requested).
+     */
+    public function test_leaving_follow_up_at_blank_succeeds_for_conditional_follow_up_outcomes(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        Livewire::test(CreateCallRecord::class)
+            ->fillForm($this->baseFormData([
+                'outcome' => CallOutcome::ConcernedPersonNotAvailable->value,
+                'notes' => 'Decision-maker was out of office.',
+                'follow_up_at' => null,
+            ]))
+            ->call('create')
+            ->assertHasNoFormErrors();
+
+        $this->assertDatabaseCount('call_records', 1);
     }
 
     public function test_leaving_appointment_at_blank_fails_validation_for_an_appointment_routing_outcome(): void
@@ -165,28 +212,25 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
     }
 
     /**
-     * Requirement Identified routes to both an Appointment and a Lead —
-     * confirms the date only applies to the Appointment side and the Lead
-     * (which has no date concept at all) is created normally alongside it.
+     * Phase 3: Requirement Identified creates a Lead ONLY — no Appointment
+     * is automatically created, and the Appointment At field is not even
+     * shown for this outcome anymore (see appointmentRoutingOutcomes()).
      */
-    public function test_requirement_identified_sets_appointment_at_and_creates_the_lead_normally(): void
+    public function test_requirement_identified_creates_the_lead_only_with_no_appointment_field(): void
     {
         $admin = User::factory()->admin()->create();
         $this->actingAs($admin);
 
-        $appointmentAt = now()->addDays(5)->seconds(0);
-
         Livewire::test(CreateCallRecord::class)
             ->fillForm($this->baseFormData([
                 'outcome' => CallOutcome::RequirementIdentified->value,
-                'appointment_at' => $appointmentAt->format('Y-m-d H:i:s'),
                 'notes' => 'Interested in a full rollout.',
             ]))
+            ->assertDontSee('Appointment At')
             ->call('create')
             ->assertHasNoFormErrors();
 
-        $appointment = Appointment::sole();
-        $this->assertSame($appointmentAt->format('Y-m-d H:i:s'), $appointment->appointment_at->format('Y-m-d H:i:s'));
+        $this->assertSame(0, Appointment::count());
         $this->assertDatabaseCount('leads', 1);
     }
 }

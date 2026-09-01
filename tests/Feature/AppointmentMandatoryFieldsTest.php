@@ -145,12 +145,14 @@ class AppointmentMandatoryFieldsTest extends TestCase
     public function test_reassigning_an_auto_routed_appointment_with_blank_appointment_at_still_succeeds(): void
     {
         $prospect = Prospect::factory()->create();
+        // Phase 3: Requirement Identified no longer routes to an
+        // Appointment — Appointment Set is the outcome that does.
         $call = CallRecord::create([
             'prospect_id' => $prospect->id,
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
-            'outcome' => CallOutcome::RequirementIdentified,
-            'notes' => 'Interested in a full rollout.',
+            'outcome' => CallOutcome::AppointmentSet,
+            'notes' => 'Agreed to a site visit.',
         ]);
         $appointment = $call->fresh()->appointment;
         $this->assertNull($appointment->appointment_at);

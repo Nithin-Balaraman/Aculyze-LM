@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\CallNextAction;
 use App\Enums\CallOutcome;
 use App\Enums\FollowUpStatus;
 use App\Filament\Resources\CallRecordResource\Pages\ListCallRecords;
@@ -39,11 +40,17 @@ class FollowUpGeneratedCallRecordVisibilityTest extends TestCase
     private function makeFollowUp(User $owner): FollowUp
     {
         $prospect = Prospect::factory()->create(['assigned_to' => $owner->id, 'created_by' => $owner->id]);
+        // Phase 3: No Answer no longer creates a Follow-Up — Callback
+        // Requested is the simplest outcome that still unconditionally
+        // does, so this fixture keeps producing a real Follow-Up to
+        // complete in the tests below.
         $call = CallRecord::create([
             'prospect_id' => $prospect->id,
             'user_id' => $owner->id,
             'called_at' => now(),
-            'outcome' => CallOutcome::NoAnswer,
+            'outcome' => CallOutcome::CallbackRequested,
+            'notes' => 'Asked to call back later.',
+            'follow_up_at' => now()->addDay(),
         ]);
 
         return $call->fresh()->followUp;
@@ -54,19 +61,19 @@ class FollowUpGeneratedCallRecordVisibilityTest extends TestCase
      * direct model-level equivalent of what that Filament action does, so
      * these tests don't depend on Livewire form-filling mechanics.
      */
-    private function completeFollowUp(FollowUp $followUp, CallOutcome $outcome, string $notes = 'Reached them this time.'): CallRecord
+    private function completeFollowUp(FollowUp $followUp, CallOutcome $outcome, string $notes = 'Reached them this time.', array $extra = []): CallRecord
     {
         $generated = null;
 
-        DB::transaction(function () use ($followUp, $outcome, $notes, &$generated) {
-            $generated = CallRecord::create([
+        DB::transaction(function () use ($followUp, $outcome, $notes, $extra, &$generated) {
+            $generated = CallRecord::create(array_merge([
                 'prospect_id' => $followUp->prospect_id,
                 'user_id' => $followUp->user_id,
                 'called_at' => now(),
                 'outcome' => $outcome,
                 'notes' => $notes,
                 'follow_up_id' => $followUp->id,
-            ]);
+            ], $extra));
 
             $followUp->update(['status' => FollowUpStatus::Completed]);
         });
@@ -102,7 +109,7 @@ class FollowUpGeneratedCallRecordVisibilityTest extends TestCase
         $admin = User::factory()->admin()->create();
         $followUp = $this->makeFollowUp($admin);
         // Others routes nowhere, so it qualifies for History on its outcome alone.
-        $generated = $this->completeFollowUp($followUp, CallOutcome::Others, notes: 'Wrong number.');
+        $generated = $this->completeFollowUp($followUp, CallOutcome::Others, notes: 'Wrong number.', extra: ['next_action' => CallNextAction::NoFurtherAction]);
 
         $this->actingAs($admin);
 
@@ -117,7 +124,7 @@ class FollowUpGeneratedCallRecordVisibilityTest extends TestCase
         $prospect = Prospect::factory()->create();
 
         $noAnswer = CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'called_at' => now(), 'outcome' => CallOutcome::NoAnswer]);
-        $others = CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'called_at' => now(), 'outcome' => CallOutcome::Others, 'notes' => 'Wrong number.']);
+        $others = CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $prospect->assigned_to, 'called_at' => now(), 'outcome' => CallOutcome::Others, 'notes' => 'Wrong number.', 'next_action' => CallNextAction::NoFurtherAction]);
 
         $this->actingAs($admin);
 
@@ -233,8 +240,10 @@ class FollowUpGeneratedCallRecordVisibilityTest extends TestCase
 
         $generated = $this->completeFollowUp($followUp, CallOutcome::RequirementIdentified);
 
-        $this->assertNotNull($generated->fresh()->appointment);
+        // Phase 3: Requirement Identified creates a Lead only, never an
+        // Appointment — see CallRoutingTest.
         $this->assertNotNull($generated->fresh()->lead);
+        $this->assertNull($generated->fresh()->appointment);
     }
 
     /**

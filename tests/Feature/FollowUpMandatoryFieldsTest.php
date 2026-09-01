@@ -83,11 +83,16 @@ class FollowUpMandatoryFieldsTest extends TestCase
     {
         $employee = User::factory()->create();
         $prospect = Prospect::factory()->create(['assigned_to' => $employee->id, 'created_by' => $employee->id]);
+        // Phase 3: No Answer no longer creates a Follow-Up — Callback
+        // Requested is the simplest outcome that still unconditionally
+        // does, and (at the raw model level, bypassing the form) can still
+        // be created with a blank follow_up_at.
         $call = CallRecord::create([
             'prospect_id' => $prospect->id,
             'user_id' => $employee->id,
             'called_at' => now(),
-            'outcome' => CallOutcome::NoAnswer,
+            'outcome' => CallOutcome::CallbackRequested,
+            'notes' => 'Asked to call back later.',
         ]);
         $followUp = $call->fresh()->followUp;
         $this->assertNull($followUp->follow_up_at);
@@ -110,13 +115,14 @@ class FollowUpMandatoryFieldsTest extends TestCase
             'prospect_id' => $prospect->id,
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
-            'outcome' => CallOutcome::NoAnswer,
+            'outcome' => CallOutcome::CallbackRequested,
+            'notes' => 'Asked to call back later.',
         ]);
 
         $followUp = $call->fresh()->followUp;
         $this->assertNotNull($followUp);
         $this->assertNull($followUp->follow_up_at);
-        $this->assertSame('No Answer', $followUp->reason);
+        $this->assertSame('Callback Requested', $followUp->reason);
     }
 
     public function test_model_guard_rejects_a_manually_created_follow_up_without_reason(): void
@@ -176,7 +182,8 @@ class FollowUpMandatoryFieldsTest extends TestCase
             'prospect_id' => $prospect->id,
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
-            'outcome' => CallOutcome::SwitchedOff,
+            'outcome' => CallOutcome::CallbackRequested,
+            'notes' => 'Asked to call back later.',
         ]);
         $followUp = $call->fresh()->followUp;
         $this->assertNull($followUp->follow_up_at);

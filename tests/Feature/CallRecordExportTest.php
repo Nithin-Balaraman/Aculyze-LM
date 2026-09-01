@@ -33,13 +33,13 @@ class CallRecordExportTest extends TestCase
     {
         $prospect = Prospect::factory()->create(['assigned_to' => $caller->id, 'created_by' => $caller->id]);
 
-        return CallRecord::create([
+        return CallRecord::create(array_merge([
             'prospect_id' => $prospect->id,
             'user_id' => $caller->id,
             'called_at' => now(),
             'outcome' => $outcome,
             'notes' => $notes,
-        ]);
+        ], $outcome === CallOutcome::Others ? ['next_action' => \App\Enums\CallNextAction::NoFurtherAction] : []));
     }
 
     public function test_employee_cannot_see_the_immediate_export_action(): void

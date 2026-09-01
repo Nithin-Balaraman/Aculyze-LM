@@ -163,13 +163,15 @@ class FollowUpRescheduleTest extends TestCase
             $user = User::factory()->create(['organization_id' => $org->id]);
             $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
 
-            // Simulates a No Answer call's auto-routed Follow-Up: no
-            // callback time known yet at creation.
+            // Simulates a Callback Requested call's auto-routed Follow-Up:
+            // no callback time known yet at creation (Phase 3: No Answer no
+            // longer routes to a Follow-Up at all).
             $call = \App\Models\CallRecord::create([
                 'prospect_id' => $prospect->id,
                 'user_id' => $user->id,
                 'called_at' => now(),
-                'outcome' => \App\Enums\CallOutcome::NoAnswer,
+                'outcome' => \App\Enums\CallOutcome::CallbackRequested,
+                'notes' => 'Asked to call back later.',
             ]);
             $followUp = $call->fresh()->followUp;
 

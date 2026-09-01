@@ -69,6 +69,18 @@ enum LeadStatus: string implements HasColor, HasLabel
     }
 
     /**
+     * Phase 3: whether this status should exclude the Lead from the stale
+     * "no movement" alert (Lead::scopeStale()) — mirrors
+     * ProposalOutcome::isTerminalForStaleness(). Only NoCurrentProgression is
+     * a genuine stop state; every other status is still actively being
+     * worked and must keep being monitored for staleness.
+     */
+    public function isTerminalForStaleness(): bool
+    {
+        return $this === self::NoCurrentProgression;
+    }
+
+    /**
      * The single source of truth for the approved conservative legacy
      * `stage` -> `status` mapping — used by both
      * App\Console\Commands\BackfillLeadAppointmentStatus (existing rows)

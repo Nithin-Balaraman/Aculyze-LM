@@ -115,7 +115,17 @@ class DashboardGreetingTest extends TestCase
         $this->actingAs($user);
 
         $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
-        $directCall = CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $user->id, 'called_at' => now(), 'outcome' => CallOutcome::NoAnswer]);
+        // Phase 3: No Answer no longer creates a Follow-Up — Callback
+        // Requested is the simplest outcome that still unconditionally
+        // does, so this fixture keeps producing a real Follow-Up to
+        // complete below.
+        $directCall = CallRecord::create([
+            'prospect_id' => $prospect->id,
+            'user_id' => $user->id,
+            'called_at' => now(),
+            'outcome' => CallOutcome::CallbackRequested,
+            'notes' => 'Asked to call back later.',
+        ]);
 
         CallRecord::create([
             'prospect_id' => $prospect->id,

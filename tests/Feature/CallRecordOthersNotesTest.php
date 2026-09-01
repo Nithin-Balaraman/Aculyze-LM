@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\CallNextAction;
 use App\Enums\CallOutcome;
 use App\Filament\Resources\CallRecordResource\Pages\CreateCallRecord;
 use App\Filament\Resources\CallRecordResource\Pages\EditCallRecord;
@@ -69,7 +70,7 @@ class CallRecordOthersNotesTest extends TestCase
         $this->actingAs($admin);
 
         Livewire::test(CreateCallRecord::class)
-            ->fillForm($this->baseFormData(['outcome' => CallOutcome::Others->value, 'notes' => null]))
+            ->fillForm($this->baseFormData(['outcome' => CallOutcome::Others->value, 'notes' => null, 'next_action' => CallNextAction::NoFurtherAction->value]))
             ->call('create')
             ->assertHasFormErrors(['notes']);
 
@@ -88,7 +89,7 @@ class CallRecordOthersNotesTest extends TestCase
         $this->actingAs($admin);
 
         Livewire::test(CreateCallRecord::class)
-            ->fillForm($this->baseFormData(['notes' => null]))
+            ->fillForm($this->baseFormData(['notes' => null, 'next_action' => CallNextAction::NoFurtherAction->value]))
             ->set('data.outcome', CallOutcome::Others)
             ->call('create')
             ->assertHasFormErrors(['notes']);
@@ -102,9 +103,22 @@ class CallRecordOthersNotesTest extends TestCase
         $this->actingAs($admin);
 
         Livewire::test(CreateCallRecord::class)
-            ->fillForm($this->baseFormData(['outcome' => CallOutcome::Others->value, 'notes' => "   \n\t  "]))
+            ->fillForm($this->baseFormData(['outcome' => CallOutcome::Others->value, 'notes' => "   \n\t  ", 'next_action' => CallNextAction::NoFurtherAction->value]))
             ->call('create')
             ->assertHasFormErrors(['notes']);
+
+        $this->assertDatabaseCount('call_records', 0);
+    }
+
+    public function test_creating_an_others_call_record_without_next_action_fails_validation(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        Livewire::test(CreateCallRecord::class)
+            ->fillForm($this->baseFormData(['outcome' => CallOutcome::Others->value, 'notes' => 'Wrong number.', 'next_action' => null]))
+            ->call('create')
+            ->assertHasFormErrors(['next_action']);
 
         $this->assertDatabaseCount('call_records', 0);
     }
@@ -115,7 +129,11 @@ class CallRecordOthersNotesTest extends TestCase
         $this->actingAs($admin);
 
         Livewire::test(CreateCallRecord::class)
-            ->fillForm($this->baseFormData(['outcome' => CallOutcome::Others->value, 'notes' => 'Wrong number, belongs to a different company now.']))
+            ->fillForm($this->baseFormData([
+                'outcome' => CallOutcome::Others->value,
+                'notes' => 'Wrong number, belongs to a different company now.',
+                'next_action' => CallNextAction::NoFurtherAction->value,
+            ]))
             ->call('create')
             ->assertHasNoFormErrors();
 
@@ -131,7 +149,7 @@ class CallRecordOthersNotesTest extends TestCase
         $this->actingAs($admin);
 
         Livewire::test(EditCallRecord::class, ['record' => $call->getRouteKey()])
-            ->fillForm(['outcome' => CallOutcome::Others->value, 'notes' => null])
+            ->fillForm(['outcome' => CallOutcome::Others->value, 'notes' => null, 'next_action' => CallNextAction::NoFurtherAction->value])
             ->call('save')
             ->assertHasFormErrors(['notes']);
 
@@ -145,7 +163,11 @@ class CallRecordOthersNotesTest extends TestCase
         $this->actingAs($admin);
 
         Livewire::test(EditCallRecord::class, ['record' => $call->getRouteKey()])
-            ->fillForm(['outcome' => CallOutcome::Others->value, 'notes' => 'Turned out to be a wrong lead entirely.'])
+            ->fillForm([
+                'outcome' => CallOutcome::Others->value,
+                'notes' => 'Turned out to be a wrong lead entirely.',
+                'next_action' => CallNextAction::NoFurtherAction->value,
+            ])
             ->call('save')
             ->assertHasNoFormErrors();
 
@@ -169,6 +191,47 @@ class CallRecordOthersNotesTest extends TestCase
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
             'outcome' => CallOutcome::Others,
+            'next_action' => CallNextAction::NoFurtherAction,
+        ]);
+    }
+
+    /**
+     * Defense in depth: the model guard must reject an Others save without
+     * an explicit next_action even when notes are present.
+     */
+    public function test_model_guard_rejects_an_others_call_record_without_next_action(): void
+    {
+        $this->expectException(\LogicException::class);
+
+        $prospect = Prospect::factory()->create();
+
+        CallRecord::create([
+            'prospect_id' => $prospect->id,
+            'user_id' => $prospect->assigned_to,
+            'called_at' => now(),
+            'outcome' => CallOutcome::Others,
+            'notes' => 'Wrong number.',
+        ]);
+    }
+
+    /**
+     * Phase 3 integrity rule: next_action is meaningful ONLY for outcome
+     * Other — a non-Other outcome carrying a next_action is rejected
+     * server-side, never silently persisted or cleared.
+     */
+    public function test_model_guard_rejects_a_non_others_outcome_with_a_next_action(): void
+    {
+        $this->expectException(\LogicException::class);
+
+        $prospect = Prospect::factory()->create();
+
+        CallRecord::create([
+            'prospect_id' => $prospect->id,
+            'user_id' => $prospect->assigned_to,
+            'called_at' => now(),
+            'outcome' => CallOutcome::AppointmentSet,
+            'notes' => 'Agreed to a site visit.',
+            'next_action' => CallNextAction::CreateLead,
         ]);
     }
 }

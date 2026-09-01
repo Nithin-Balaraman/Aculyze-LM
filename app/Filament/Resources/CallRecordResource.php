@@ -2,7 +2,10 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\CallNextAction;
 use App\Enums\CallOutcome;
+use App\Enums\ProfileSentMode;
+use App\Enums\ProfileSentStatus;
 use App\Filament\Resources\CallRecordResource\Pages;
 use App\Models\CallRecord;
 use App\Models\Prospect;
@@ -224,16 +227,61 @@ class CallRecordResource extends Resource
                         // they cover every OTHER write path (tests,
                         // seeders, future imports/backfills), not this
                         // form, which now never submits a blank value.
+                        // Phase 3: visible whenever the outcome could
+                        // possibly create a Follow-Up — either
+                        // unconditionally (Callback Requested) or as the
+                        // caller's explicit, intentional decision
+                        // (Concerned Person Not Available / Profile
+                        // Requested's optional callback, or Other's
+                        // CreateFollowUp next action). Required only where
+                        // the Follow-Up is mandatory, not merely possible —
+                        // see self::followUpAtRequired().
                         Forms\Components\DateTimePicker::make('follow_up_at')
                             ->label('Follow Up At')
                             ->seconds(false)
-                            ->visible(fn (Get $get) => self::outcomeRoutesToFollowUp($get('outcome')))
-                            ->required(fn (Get $get) => self::outcomeRoutesToFollowUp($get('outcome'))),
+                            ->visible(fn (Get $get) => self::followUpAtVisible($get('outcome'), $get('next_action')))
+                            ->required(fn (Get $get) => self::followUpAtRequired($get('outcome'), $get('next_action'))),
                         Forms\Components\DateTimePicker::make('appointment_at')
                             ->label('Appointment At')
                             ->seconds(false)
-                            ->visible(fn (Get $get) => self::outcomeRoutesToAppointment($get('outcome')))
-                            ->required(fn (Get $get) => self::outcomeRoutesToAppointment($get('outcome'))),
+                            ->visible(fn (Get $get) => self::appointmentAtVisible($get('outcome'), $get('next_action')))
+                            ->required(fn (Get $get) => self::appointmentAtVisible($get('outcome'), $get('next_action'))),
+                        // Phase 3: the explicit, constrained next-action
+                        // decision — meaningful ONLY for outcome Other (see
+                        // App\Enums\CallNextAction).
+                        Forms\Components\Select::make('next_action')
+                            ->label('Next Action')
+                            ->options(CallNextAction::class)
+                            ->live()
+                            ->visible(fn (Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::Others)
+                            ->required(fn (Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::Others),
+                    ]),
+                // Phase 3: structured Profile Sent tracking — visible only
+                // for outcome Profile Requested. Follow-Up itself stays
+                // optional/intentional only (see follow_up_at above).
+                Forms\Components\Section::make('Profile Sent')
+                    ->columns(2)
+                    ->visible(fn (Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::ProfileRequested)
+                    ->schema([
+                        Forms\Components\Select::make('profile_sent_status')
+                            ->options(ProfileSentStatus::class)
+                            ->live()
+                            ->required(fn (Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::ProfileRequested),
+                        Forms\Components\Select::make('profile_sent_mode')
+                            ->label('Mode')
+                            ->options(ProfileSentMode::class)
+                            ->live()
+                            ->required(fn (Get $get) => self::resolveProfileSentStatus($get('profile_sent_status')) === ProfileSentStatus::Sent),
+                        Forms\Components\DateTimePicker::make('profile_sent_at')
+                            ->label('Sent At')
+                            ->seconds(false)
+                            ->required(fn (Get $get) => self::resolveProfileSentStatus($get('profile_sent_status')) === ProfileSentStatus::Sent),
+                        Forms\Components\Textarea::make('profile_sent_notes')
+                            ->label('Notes')
+                            ->rows(2)
+                            ->columnSpanFull()
+                            ->required(fn (Get $get) => self::resolveProfileSentMode($get('profile_sent_mode')) === ProfileSentMode::Other)
+                            ->helperText('Required when Mode is Other, to explain how the profile was sent.'),
                     ]),
                 // Phase 2 item #5: once a company is selected, show its
                 // already-saved Database details inline so the caller
@@ -290,19 +338,70 @@ class CallRecordResource extends Resource
         return self::resolveOutcome($outcome)?->requiresNotes() ?? false;
     }
 
-    private static function outcomeRoutesToFollowUp(mixed $outcome): bool
+    private static function followUpAtVisible(mixed $outcome, mixed $nextAction): bool
     {
-        return self::resolveOutcome($outcome)?->routesToFollowUp() ?? false;
+        $resolved = self::resolveOutcome($outcome);
+
+        if ($resolved === null) {
+            return false;
+        }
+
+        if ($resolved->routesToFollowUp() || $resolved->routesToConditionalFollowUp()) {
+            return true;
+        }
+
+        return $resolved === CallOutcome::Others && self::resolveNextAction($nextAction) === CallNextAction::CreateFollowUp;
     }
 
-    private static function outcomeRoutesToAppointment(mixed $outcome): bool
+    /** Required only where the Follow-Up is mandatory, not merely possible (Concerned Person Not Available / Profile Requested's callback stays optional). */
+    private static function followUpAtRequired(mixed $outcome, mixed $nextAction): bool
     {
-        return self::resolveOutcome($outcome)?->routesToAppointment() ?? false;
+        $resolved = self::resolveOutcome($outcome);
+
+        if ($resolved === null) {
+            return false;
+        }
+
+        if ($resolved->routesToFollowUp()) {
+            return true;
+        }
+
+        return $resolved === CallOutcome::Others && self::resolveNextAction($nextAction) === CallNextAction::CreateFollowUp;
+    }
+
+    private static function appointmentAtVisible(mixed $outcome, mixed $nextAction): bool
+    {
+        $resolved = self::resolveOutcome($outcome);
+
+        if ($resolved === null) {
+            return false;
+        }
+
+        if ($resolved->routesToAppointment()) {
+            return true;
+        }
+
+        return $resolved === CallOutcome::Others && self::resolveNextAction($nextAction) === CallNextAction::CreateAppointment;
     }
 
     private static function resolveOutcome(mixed $outcome): ?CallOutcome
     {
         return $outcome instanceof CallOutcome ? $outcome : CallOutcome::tryFrom((string) $outcome);
+    }
+
+    private static function resolveNextAction(mixed $nextAction): ?CallNextAction
+    {
+        return $nextAction instanceof CallNextAction ? $nextAction : CallNextAction::tryFrom((string) $nextAction);
+    }
+
+    private static function resolveProfileSentStatus(mixed $status): ?ProfileSentStatus
+    {
+        return $status instanceof ProfileSentStatus ? $status : ProfileSentStatus::tryFrom((string) $status);
+    }
+
+    private static function resolveProfileSentMode(mixed $mode): ?ProfileSentMode
+    {
+        return $mode instanceof ProfileSentMode ? $mode : ProfileSentMode::tryFrom((string) $mode);
     }
 
     /**

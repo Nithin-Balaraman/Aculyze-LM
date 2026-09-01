@@ -50,7 +50,8 @@ class EmployeeDeletionTest extends TestCase
             'prospect_id' => $prospect->id,
             'user_id' => $employee->id,
             'called_at' => now(),
-            'outcome' => CallOutcome::NoAnswer,
+            'outcome' => CallOutcome::CallbackRequested,
+            'notes' => 'Asked to call back later.',
         ]);
         $followUp = $call->fresh()->followUp;
 
@@ -150,7 +151,8 @@ class EmployeeDeletionTest extends TestCase
             'prospect_id' => $prospect->id,
             'user_id' => $target->id,
             'called_at' => now(),
-            'outcome' => CallOutcome::NoAnswer,
+            'outcome' => CallOutcome::CallbackRequested,
+            'notes' => 'Asked to call back later.',
         ]);
         $followUp = $call->fresh()->followUp;
 

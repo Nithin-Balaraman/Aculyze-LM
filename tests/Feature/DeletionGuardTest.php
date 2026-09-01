@@ -79,7 +79,8 @@ class DeletionGuardTest extends TestCase
             'prospect_id' => $prospect->id,
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
-            'outcome' => CallOutcome::NoAnswer,
+            'outcome' => CallOutcome::CallbackRequested,
+            'notes' => 'Asked to call back later.',
         ]);
         $call->fresh()->followUp->delete();
 
@@ -100,7 +101,8 @@ class DeletionGuardTest extends TestCase
             'prospect_id' => $prospect->id,
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
-            'outcome' => CallOutcome::NoAnswer,
+            'outcome' => CallOutcome::CallbackRequested,
+            'notes' => 'Asked to call back later.',
         ]);
 
         $this->actingAs($admin);

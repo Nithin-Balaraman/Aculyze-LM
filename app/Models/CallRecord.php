@@ -2,7 +2,10 @@
 
 namespace App\Models;
 
+use App\Enums\CallNextAction;
 use App\Enums\CallOutcome;
+use App\Enums\ProfileSentMode;
+use App\Enums\ProfileSentStatus;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\EnforcesSameOrganizationRelations;
 use App\Models\Scopes\OrganizationScope;
@@ -31,6 +34,7 @@ class CallRecord extends Model
         'user_id',
         'called_at',
         'outcome',
+        'next_action',
         'notes',
         'follow_up_at',
         'appointment_at',
@@ -38,16 +42,25 @@ class CallRecord extends Model
         'designation',
         'phone_called',
         'follow_up_id',
+        'profile_sent_status',
+        'profile_sent_at',
+        'profile_sent_mode',
+        'profile_sent_notes',
     ];
 
     protected function casts(): array
     {
         return [
             'outcome' => CallOutcome::class,
+            'next_action' => CallNextAction::class,
             'called_at' => 'datetime',
             'follow_up_at' => 'datetime',
             'appointment_at' => 'datetime',
             'processed_at' => 'datetime',
+            'profile_sent_status' => ProfileSentStatus::class,
+            'profile_sent_at' => 'datetime',
+            'profile_sent_mode' => ProfileSentMode::class,
+            'outcome_corrected_at' => 'datetime',
         ];
     }
 
@@ -68,6 +81,48 @@ class CallRecord extends Model
         static::saving(function (self $callRecord) {
             if ($callRecord->outcome->requiresNotes() && ! $callRecord->hasMeaningfulNotes()) {
                 throw new \LogicException("A Call Record cannot be saved with outcome {$callRecord->outcome->getLabel()} without Notes.");
+            }
+
+            $becomingOther = $callRecord->outcome === CallOutcome::Others
+                && (! $callRecord->exists || $callRecord->isDirty('outcome'));
+
+            if ($becomingOther && $callRecord->next_action === null) {
+                throw new \LogicException('A Call Record with outcome Other requires an explicit Next Action.');
+            }
+
+            // Phase 3 integrity rule: next_action is meaningful ONLY for
+            // outcome Other. Reject (never silently clear) a non-Other
+            // outcome carrying a next_action — this surfaces a stale/bad
+            // caller input rather than masking it; the UI is responsible
+            // for clearing the field client-side when outcome changes away
+            // from Other, so a normal user never hits this rejection.
+            if ($callRecord->outcome !== CallOutcome::Others && $callRecord->next_action !== null) {
+                throw new \LogicException('next_action may only be set when outcome is Other.');
+            }
+
+            $becomingProfileRequested = $callRecord->outcome === CallOutcome::ProfileRequested
+                && (! $callRecord->exists || $callRecord->isDirty('outcome'));
+
+            if ($becomingProfileRequested && $callRecord->profile_sent_status === null) {
+                throw new \LogicException('A Call Record becoming outcome Profile Requested requires a Profile Sent status.');
+            }
+
+            $profileSentFieldsDirty = $callRecord->isDirty('profile_sent_status')
+                || $callRecord->isDirty('profile_sent_at')
+                || $callRecord->isDirty('profile_sent_mode')
+                || $callRecord->isDirty('profile_sent_notes');
+
+            if ($profileSentFieldsDirty && $callRecord->profile_sent_status !== null) {
+                if (
+                    $callRecord->profile_sent_status === ProfileSentStatus::Sent
+                    && ($callRecord->profile_sent_at === null || $callRecord->profile_sent_mode === null)
+                ) {
+                    throw new \LogicException('Profile Sent status Sent requires both a sent date/time and a mode.');
+                }
+
+                if ($callRecord->profile_sent_mode === ProfileSentMode::Other && blank($callRecord->profile_sent_notes)) {
+                    throw new \LogicException('Profile Sent mode Other requires explanatory notes.');
+                }
             }
         });
     }

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\CallNextAction;
 use App\Enums\CallOutcome;
 use App\Filament\Resources\CallRecordResource\Pages\ListCallRecords;
 use App\Models\CallRecord;
@@ -84,7 +85,7 @@ class CallRecordTabsTest extends TestCase
         $employee = User::factory()->create();
         $noAnswer = $this->makeCall($employee, CallOutcome::NoAnswer);
         $futureOpportunity = $this->makeCall($employee, CallOutcome::FutureOpportunity, ['notes' => 'No budget this year.']);
-        $others = $this->makeCall($employee, CallOutcome::Others, ['notes' => 'Not a real business anymore.']);
+        $others = $this->makeCall($employee, CallOutcome::Others, ['notes' => 'Not a real business anymore.', 'next_action' => CallNextAction::NoFurtherAction]);
 
         $this->actingAs($employee);
 
