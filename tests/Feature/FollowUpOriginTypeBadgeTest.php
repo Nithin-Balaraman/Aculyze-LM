@@ -79,6 +79,25 @@ class FollowUpOriginTypeBadgeTest extends TestCase
         Livewire::test(ListFollowUps::class)->assertSee('General');
     }
 
+    /**
+     * Styling proof: the badge must be the real <x-filament::badge> pill
+     * component (same shape/size markup the Status column's ->badge()
+     * renders), colored 'gray' so it doesn't visually compete with Status.
+     */
+    public function test_the_badge_renders_as_a_real_gray_filament_badge_pill(): void
+    {
+        $user = User::factory()->create();
+        $this->makeFollowUp($user, 'appointment');
+        $this->actingAs($user);
+
+        $html = Livewire::test(ListFollowUps::class)->html();
+
+        $this->assertMatchesRegularExpression(
+            '/fi-badge[^"]*fi-color-gray"[^>]*>\s*<span class="grid">\s*<span class="truncate">\s*Appointment/s',
+            $html,
+        );
+    }
+
     public function test_the_company_column_renders_the_correct_badge_for_each_real_origin(): void
     {
         $user = User::factory()->create();

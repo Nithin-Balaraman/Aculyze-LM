@@ -29,6 +29,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\HtmlString;
 use LogicException;
 
@@ -316,6 +317,31 @@ class FollowUpResource extends Resource
     }
 
     /**
+     * Company name plus the origin-type badge directly beneath it, in the
+     * same cell. Renders the real <x-filament::badge> component (the exact
+     * one the Status column's ->badge() uses) at 'gray' — visually
+     * identical shape/size/pill styling to every other badge in this app,
+     * just a subtler, neutral color so it never competes with the Status
+     * badge. Company name is HTML-escaped explicitly since the column
+     * itself is ->html() to allow the badge markup through.
+     */
+    private static function renderCompanyWithOriginTypeBadge(string $companyName, ?string $originType): HtmlString
+    {
+        $label = self::resolveOriginTypeLabel($originType);
+
+        if ($label === null) {
+            return new HtmlString(e($companyName));
+        }
+
+        $badge = Blade::render(
+            '<x-filament::badge color="gray">{{ $label }}</x-filament::badge>',
+            ['label' => $label],
+        );
+
+        return new HtmlString(e($companyName).'<div class="mt-1">'.$badge.'</div>');
+    }
+
+    /**
      * Phase 3 correction: Follow-Up -> Demo was one of the four approved
      * routes into Demo (WorkflowTransitionService::transitionToDemo()'s own
      * docblock: "Follow-Up/Appointment/Lead/Proposal -> Demo per the Master
@@ -450,15 +476,18 @@ class FollowUpResource extends Resource
             // multiple Follow-Ups for the same Company (a common case) are
             // distinguishable at a glance. Driven entirely by the existing
             // `origin_type` column (never a new field, never inferred from
-            // legacy stage) via the same description-below-the-value
-            // pattern Filament renders smaller/muted by default — not a
-            // second table column. An unrecognized origin_type (shouldn't
-            // occur) omits the line rather than fabricating a label.
+            // legacy stage) — not a second table column. Rendered as the
+            // exact same <x-filament::badge> pill the Status column's own
+            // ->badge() uses (same shape/size), just colored 'gray' so it
+            // never visually competes with Status. An unrecognized
+            // origin_type (shouldn't occur) omits the badge rather than
+            // fabricating a label.
             Tables\Columns\TextColumn::make('prospect.company_name')
                 ->label('Company')
                 ->searchable()
                 ->sortable()
-                ->description(fn (FollowUp $record) => self::resolveOriginTypeLabel($record->origin_type)),
+                ->html()
+                ->formatStateUsing(fn (string $state, FollowUp $record) => self::renderCompanyWithOriginTypeBadge($state, $record->origin_type)),
             Tables\Columns\TextColumn::make('reason')
                 ->searchable()
                 ->toggleable(isToggledHiddenByDefault: true),
