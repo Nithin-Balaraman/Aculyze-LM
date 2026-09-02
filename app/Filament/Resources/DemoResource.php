@@ -178,6 +178,7 @@ class DemoResource extends Resource
                                 ->searchable(),
                         ])
                         ->action(fn (Demo $record, array $data) => $record->update(['assigned_to' => $data['assigned_to']])),
+                    self::recordOutcomeAction(),
                     // Phase 3: the ONLY way to change demo_at on an active
                     // Demo — normal Edit shows it read-only. This Demo
                     // becomes Rescheduled/history; a brand new Demo is
@@ -201,7 +202,6 @@ class DemoResource extends Resource
                             ['demo_at' => $data['demo_at']],
                             $data['reason'] ?? null,
                         )),
-                    self::recordOutcomeAction(),
                     Tables\Actions\DeleteAction::make()
                         ->visible(fn () => auth()->user()->isAdmin()),
                 ]),

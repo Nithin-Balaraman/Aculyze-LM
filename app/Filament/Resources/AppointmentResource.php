@@ -207,7 +207,7 @@ class AppointmentResource extends Resource
     {
         return Tables\Actions\Action::make('recordOutcome')
             ->label('Record Outcome')
-            ->icon('heroicon-o-check-badge')
+            ->icon('heroicon-o-clipboard-document-check')
             ->color('success')
             ->visible(fn (Appointment $record) => $record->status === AppointmentStatus::Scheduled && auth()->user()->can('update', $record))
             ->form([
