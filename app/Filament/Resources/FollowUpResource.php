@@ -317,13 +317,41 @@ class FollowUpResource extends Resource
     }
 
     /**
+     * Stock Filament badge colors only (no custom palette additions) — one
+     * per type so they're distinguishable at a glance, each chosen to
+     * avoid reading as the same color as the Status badge in the same row
+     * (Tables\Columns\TextColumn::make('status') below: Pending=warning,
+     * Completed=success, Cancelled/Rescheduled=gray — see
+     * FollowUpStatus::getColor()). 'info' and 'primary' are never used by
+     * Status at all; General intentionally still reads 'gray' (matches
+     * Cancelled/Rescheduled, but that overlap was explicitly requested).
+     */
+    private static function resolveOriginTypeColor(?string $originType): string
+    {
+        return match ($originType) {
+            null => 'gray',
+            'appointment' => 'info',
+            'demo' => 'primary',
+            'proposal' => 'success',
+            default => 'gray',
+        };
+    }
+
+    /**
      * Company name plus the origin-type badge directly beneath it, in the
      * same cell. Renders the real <x-filament::badge> component (the exact
-     * one the Status column's ->badge() uses) at 'gray' — visually
-     * identical shape/size/pill styling to every other badge in this app,
-     * just a subtler, neutral color so it never competes with the Status
-     * badge. Company name is HTML-escaped explicitly since the column
-     * itself is ->html() to allow the badge markup through.
+     * one the Status column's ->badge() uses) — identical shape/size/pill
+     * styling to every other badge in this app, colored per type (see
+     * resolveOriginTypeColor()). Company name is HTML-escaped explicitly
+     * since the column itself is ->html() to allow the badge markup
+     * through. The badge is wrapped in an inline-flex container (`w-max`)
+     * rather than a plain block <div> — <x-filament::badge> itself renders
+     * as `display:flex` with no width constraint of its own (Filament's
+     * own ->badge() column mode always wraps it in a `w-max` container for
+     * exactly this reason — see text-column.blade.php), so without this
+     * wrapper the badge silently stretches to whatever width the row's
+     * other content happens to leave available, rendering inconsistently
+     * wide from row to row instead of shrinking to fit its own text.
      */
     private static function renderCompanyWithOriginTypeBadge(string $companyName, ?string $originType): HtmlString
     {
@@ -334,11 +362,11 @@ class FollowUpResource extends Resource
         }
 
         $badge = Blade::render(
-            '<x-filament::badge color="gray">{{ $label }}</x-filament::badge>',
-            ['label' => $label],
+            '<x-filament::badge :color="$color">{{ $label }}</x-filament::badge>',
+            ['label' => $label, 'color' => self::resolveOriginTypeColor($originType)],
         );
 
-        return new HtmlString(e($companyName).'<div class="mt-1">'.$badge.'</div>');
+        return new HtmlString(e($companyName).'<div class="mt-1 inline-flex w-max">'.$badge.'</div>');
     }
 
     /**
