@@ -16,6 +16,7 @@ use App\Models\Demo;
 use App\Models\FollowUp;
 use App\Models\Lead;
 use App\Models\Organization;
+use App\Models\Proposal;
 use App\Models\Prospect;
 use App\Models\User;
 use App\Support\Tenancy\Tenancy;
@@ -241,6 +242,14 @@ class PipelineBoardCrossDropStatusTest extends TestCase
         $method = new \ReflectionMethod($board, 'performCrossDrop');
         $method->setAccessible(true);
         $method->invoke($board, $arguments, $data);
+    }
+
+    private function invokeUnsupportedCrossDropReason(PipelineBoard $board, ?string $sourceResource, ?string $destResource, $source, string $destStage = ''): string
+    {
+        $method = new \ReflectionMethod($board, 'unsupportedCrossDropReason');
+        $method->setAccessible(true);
+
+        return $method->invoke($board, $sourceResource, $destResource, $source, $destStage);
     }
 
     /**
@@ -547,5 +556,126 @@ class PipelineBoardCrossDropStatusTest extends TestCase
 
         $this->assertArrayHasKey(CallOutcome::AppointmentSet->value, $sameLaneOptions);
         $this->assertArrayHasKey(CallOutcome::RequirementIdentified->value, $sameLaneOptions);
+    }
+
+    /**
+     * Investigation finding: Lead -> Proposal requiring a same-lane move to
+     * "Validated" before a direct cross-lane drag into Proposal becomes
+     * eligible is INTENTIONAL, not a bug — it's the exact same eligibility
+     * LeadResource's own "Create Proposal" row action already enforces
+     * everywhere else in the app (stage Validated, or normalized status
+     * ProposalRequired). Lead -> Demo has no such gate because Demo is
+     * genuinely optional/parallel and never a sign the Lead has progressed
+     * (see createCrossDropDestination()'s own docblock) — the two
+     * destinations are deliberately asymmetric, not inconsistently wired.
+     * These tests lock in that a direct one-step drag IS already fully
+     * supported the moment the precondition is met, and is correctly
+     * refused with an explanatory reason before that.
+     */
+    public function test_lead_to_proposal_direct_cross_drop_is_not_eligible_before_the_lead_is_validated(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $this->actingAs($user);
+            $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+            $lead = Lead::create([
+                'prospect_id' => $prospect->id,
+                'assigned_to' => $user->id,
+                'created_by' => $user->id,
+                'stage' => LeadStage::RequirementCollection,
+                'status' => LeadStatus::RequirementCollection,
+                'temperature' => 'warm',
+            ]);
+
+            $board = app(PipelineBoard::class);
+
+            $this->assertFalse($this->invokeCrossDropSupported($board, 'lead', 'proposal', $lead));
+            $this->assertSame(
+                'This Lead needs to reach Validated before it can have a Proposal.',
+                $this->invokeUnsupportedCrossDropReason($board, 'lead', 'proposal', $lead),
+            );
+
+            $this->invokePerformCrossDrop(
+                $board,
+                ['sourceResource' => 'lead', 'sourceId' => $lead->id, 'destResource' => 'proposal', 'destStage' => 'being_prepared'],
+                [],
+            );
+
+            $this->assertSame(0, Proposal::count(), 'An ineligible cross-drop must be refused, never silently create a Proposal.');
+        });
+    }
+
+    public function test_lead_to_proposal_direct_cross_drop_is_eligible_once_validated_and_needs_no_extra_fields(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $this->actingAs($user);
+            $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+            $lead = Lead::create([
+                'prospect_id' => $prospect->id,
+                'assigned_to' => $user->id,
+                'created_by' => $user->id,
+                'stage' => LeadStage::Validated,
+                'status' => LeadStatus::ProposalRequired,
+                'temperature' => 'hot',
+                'notes' => 'Confirmed requirement and budget.',
+            ]);
+
+            $board = app(PipelineBoard::class);
+
+            $this->assertTrue($this->invokeCrossDropSupported($board, 'lead', 'proposal', $lead));
+
+            // Empty $data — proves the "bare Confirm, no fields" behavior
+            // is correct: creating a Proposal from an already-Validated
+            // Lead needs nothing extra, exactly like
+            // WorkflowTransitionService::createProposalFromLead()'s own
+            // zero-input contract used by every other route to Proposal.
+            $this->invokePerformCrossDrop(
+                $board,
+                ['sourceResource' => 'lead', 'sourceId' => $lead->id, 'destResource' => 'proposal', 'destStage' => 'being_prepared'],
+                [],
+            );
+
+            $this->assertSame(1, Proposal::where('lead_id', $lead->id)->count(), 'A single direct cross-drop must create exactly one Proposal.');
+        });
+    }
+
+    public function test_lead_to_proposal_direct_cross_drop_is_not_eligible_once_a_proposal_already_exists(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $this->actingAs($user);
+            $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+            $lead = Lead::create([
+                'prospect_id' => $prospect->id,
+                'assigned_to' => $user->id,
+                'created_by' => $user->id,
+                'stage' => LeadStage::Validated,
+                'status' => LeadStatus::ProposalRequired,
+                'temperature' => 'hot',
+                'notes' => 'Confirmed requirement and budget.',
+            ]);
+            Proposal::create([
+                'lead_id' => $lead->id,
+                'prospect_id' => $prospect->id,
+                'assigned_to' => $user->id,
+                'created_by' => $user->id,
+                'stage' => 'being_prepared',
+            ]);
+
+            $board = app(PipelineBoard::class);
+
+            $this->assertFalse($this->invokeCrossDropSupported($board, 'lead', 'proposal', $lead));
+            $this->assertSame(
+                'This Lead already has a Proposal — open it directly instead of creating a new one.',
+                $this->invokeUnsupportedCrossDropReason($board, 'lead', 'proposal', $lead),
+            );
+        });
     }
 }
