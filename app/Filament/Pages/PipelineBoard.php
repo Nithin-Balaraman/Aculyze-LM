@@ -983,7 +983,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
         ];
 
         if ($destResource !== 'demo' && $source && ! $this->isAlreadyResolved($sourceResource, $source)) {
-            $sourceFields = $this->stageFields($sourceResource, $this->forwardStageFor($sourceResource), 'source_', $source);
+            $sourceFields = $this->stageFields($sourceResource, $this->forwardStageFor($sourceResource), 'source_', $source, $destResource);
 
             if ($sourceFields !== []) {
                 $schema[] = Forms\Components\Section::make('Also resolving: '.$this->resourceLabel($sourceResource))
@@ -1004,13 +1004,13 @@ class PipelineBoard extends Page implements HasActions, HasForms
      *
      * @return array<int, Forms\Components\Component>
      */
-    private function stageFields(?string $resource, ?string $stage, string $prefix, ?Model $record): array
+    private function stageFields(?string $resource, ?string $stage, string $prefix, ?Model $record, ?string $destResource = null): array
     {
         return match ($resource) {
             'appointment' => $this->appointmentStageFields($stage, $record, $prefix),
             'lead' => $this->leadStageFields($stage, $record, $prefix),
             'proposal' => $this->proposalStageFields($stage, $record, $prefix),
-            'follow_up' => $this->followUpStageFields($stage, $record, $prefix),
+            'follow_up' => $this->followUpStageFields($stage, $record, $prefix, $destResource),
             default => [],
         };
     }
@@ -1236,7 +1236,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
     /**
      * @return array<int, Forms\Components\Component>
      */
-    private function followUpStageFields(?string $stage, ?FollowUp $record, string $prefix): array
+    private function followUpStageFields(?string $stage, ?FollowUp $record, string $prefix, ?string $destResource = null): array
     {
         if ($stage === FollowUpStatus::Completed->value) {
             // Mirrors FollowUpResource::table()'s "Completed" row-action
@@ -1244,10 +1244,28 @@ class PipelineBoard extends Page implements HasActions, HasForms
             // and/or a new Follow-up exactly like any other logged call
             // (FollowUp::completeWithCall() doesn't treat this any
             // differently), so the same conditional fields are needed here.
+            //
+            // EXCEPTION (cross-drop only, $destResource !== null): when this
+            // Follow-Up is being resolved as the SOURCE of a cross-drop,
+            // createCrossDropDestination() has already created the real
+            // Appointment/Lead this drag is FOR. An outcome here that ALSO
+            // routes to that same resource type (Appointment Set -> an
+            // Appointment, Requirement Identified -> a Lead) would make the
+            // Call this logs create a SECOND, independent one via
+            // CallRoutingService — so those specific outcomes are excluded
+            // from the choices offered, the same way
+            // finalizeCrossDroppedAppointment()/finalizeCrossDroppedLead()
+            // deliberately never re-run outcome-based downstream creation
+            // for an Appointment/Lead cross-drop source. Every other
+            // outcome (including ones that still create something
+            // genuinely different, e.g. Callback Requested -> a new
+            // Follow-Up) remains offered.
             return [
                 Forms\Components\Select::make("{$prefix}outcome")
                     ->label('Call Outcome')
-                    ->options(CallOutcome::class)
+                    ->options(collect(CallOutcome::cases())
+                        ->reject(fn (CallOutcome $outcome) => $this->wouldDuplicateCrossDropDestination($outcome, $destResource))
+                        ->mapWithKeys(fn (CallOutcome $outcome) => [$outcome->value => $outcome->getLabel()]))
                     ->required()
                     ->live()
                     ->helperText('You reached them — log what happened on this call.'),
@@ -1660,8 +1678,25 @@ class PipelineBoard extends Page implements HasActions, HasForms
         $this->applyDrop($followUp, ['status' => FollowUpStatus::Cancelled, 'notes' => $data['notes'] ?? null], 'Cancelled');
     }
 
-    private function completeFollowUp(FollowUp $followUp, array $data, string $prefix): void
+    private function completeFollowUp(FollowUp $followUp, array $data, string $prefix, ?string $destResource = null): void
     {
+        $outcome = CallOutcome::tryFrom((string) ($data["{$prefix}outcome"] ?? ''));
+
+        // Re-verified here server-side, not just in followUpStageFields()'s
+        // own options-filtering — arguments travel from client-side JS, same
+        // reasoning as every other cross-drop guard in this class. See
+        // followUpStageFields()'s docblock for why this specific combination
+        // would create a duplicate Appointment/Lead.
+        if ($outcome !== null && $this->wouldDuplicateCrossDropDestination($outcome, $destResource)) {
+            Notification::make()
+                ->title("Couldn't move to Completed")
+                ->body('This Call Outcome would create a second '.$this->resourceLabel($destResource).
+                    ' — the one you dragged onto already creates it. Pick a different outcome.')
+                ->danger()
+                ->send();
+            throw new Halt;
+        }
+
         try {
             $followUp->completeWithCall([
                 'outcome' => $data["{$prefix}outcome"] ?? null,
@@ -1737,7 +1772,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 // Proposal) really does mean the Lead has progressed, so
                 // only Demo is excluded here.
                 if ($destResource !== 'demo' && ! $this->isAlreadyResolved($sourceResource, $source)) {
-                    $this->resolveCrossDropSource($sourceResource, $source, $data);
+                    $this->resolveCrossDropSource($sourceResource, $source, $data, $destResource);
                 }
             });
         } catch (\LogicException $e) {
@@ -1883,7 +1918,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * remains directly on the model here — there is no competing
      * normalized-status authority for it to diverge from.
      */
-    private function resolveCrossDropSource(string $sourceResource, Model $source, array $data): void
+    private function resolveCrossDropSource(string $sourceResource, Model $source, array $data, ?string $destResource = null): void
     {
         match ($sourceResource) {
             'appointment' => app(WorkflowTransitionService::class)->finalizeCrossDroppedAppointment($source, ['outcome_notes' => $data['source_outcome_notes'] ?? null]),
@@ -1893,7 +1928,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 'outcome' => ProposalOutcome::Won,
                 'notes' => $data['source_notes'] ?? null,
             ]),
-            'follow_up' => $this->completeFollowUp($source, $data, 'source_'),
+            'follow_up' => $this->completeFollowUp($source, $data, 'source_', $destResource),
             default => null,
         };
     }
@@ -2025,6 +2060,25 @@ class PipelineBoard extends Page implements HasActions, HasForms
         }
 
         return 'This combination is not supported yet.';
+    }
+
+    /**
+     * True when logging a Call with this outcome, as part of resolving a
+     * Follow-Up cross-drop source, would create the same resource type
+     * createCrossDropDestination() already created for this exact drag —
+     * see followUpStageFields()'s own docblock for the full reasoning.
+     * Only Appointment/Lead destinations are affected: Follow-Up and
+     * Proposal destinations don't collide with anything CallRoutingService
+     * creates, and Demo never reaches here at all (resolveCrossDropSource()
+     * is skipped entirely for a Demo destination).
+     */
+    private function wouldDuplicateCrossDropDestination(CallOutcome $outcome, ?string $destResource): bool
+    {
+        return match ($destResource) {
+            'appointment' => $outcome->routesToAppointment(),
+            'lead' => $outcome->routesToLead(),
+            default => false,
+        };
     }
 
     private function forwardStageFor(?string $resource): ?string

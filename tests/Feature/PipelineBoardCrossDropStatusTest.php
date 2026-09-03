@@ -4,13 +4,16 @@ namespace Tests\Feature;
 
 use App\Enums\AppointmentStage;
 use App\Enums\AppointmentStatus;
+use App\Enums\CallOutcome;
 use App\Enums\DemoMode;
 use App\Enums\DemoStatus;
+use App\Enums\FollowUpStatus;
 use App\Enums\LeadStage;
 use App\Enums\LeadStatus;
 use App\Filament\Pages\PipelineBoard;
 use App\Models\Appointment;
 use App\Models\Demo;
+use App\Models\FollowUp;
 use App\Models\Lead;
 use App\Models\Organization;
 use App\Models\Prospect;
@@ -380,5 +383,169 @@ class PipelineBoardCrossDropStatusTest extends TestCase
                 ->where('action', 'appointment_resolved_via_cross_drop')
                 ->count(), 'Source finalization must occur exactly once per cross-drop.');
         });
+    }
+
+    private function makeFollowUp(User $user, Prospect $prospect): FollowUp
+    {
+        return FollowUp::create([
+            'prospect_id' => $prospect->id,
+            'user_id' => $user->id,
+            'follow_up_at' => now()->addDay(),
+            'reason' => 'Test follow-up',
+            'status' => FollowUpStatus::Pending,
+        ]);
+    }
+
+    /**
+     * Regression test for a genuine duplicate-Appointment bug: dragging a
+     * Follow-Up into the Appointment lane created TWO Appointments when the
+     * "Also resolving: Follow-up" dialog's Call Outcome was set to
+     * Appointment Set — one from createCrossDropDestination() (the actual
+     * drag destination) and a SECOND, independent one from
+     * CallRoutingService::createAppointment(), triggered by the CallRecord
+     * completeWithCall() logs to close out the Follow-Up.
+     *
+     * The happy path: the rep picks any Call Outcome that does NOT also
+     * route to an Appointment (Appointment Set is no longer even offered —
+     * see the options-filtering test below) to close out the Follow-Up
+     * call log, while the actual new Appointment is the one
+     * createCrossDropDestination() creates for the drag itself.
+     */
+    public function test_follow_up_to_appointment_cross_drop_creates_exactly_one_appointment(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $this->actingAs($user);
+            $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+            $followUp = $this->makeFollowUp($user, $prospect);
+
+            $this->invokePerformCrossDrop(
+                app(PipelineBoard::class),
+                ['sourceResource' => 'follow_up', 'sourceId' => $followUp->id, 'destResource' => 'appointment', 'destStage' => AppointmentStage::AppointmentMade->value],
+                [
+                    'destination_appointment_at' => now()->addDays(2)->format('Y-m-d H:i:s'),
+                    // Does not route anywhere on its own — proves the ONE
+                    // Appointment that does exist came only from
+                    // createCrossDropDestination().
+                    'source_outcome' => CallOutcome::NoAnswer->value,
+                ]
+            );
+
+            $this->assertSame(1, Appointment::where('prospect_id', $prospect->id)->count(), 'Exactly one Appointment, never a duplicate.');
+
+            $followUp->refresh();
+            $this->assertSame(FollowUpStatus::Completed, $followUp->status);
+        });
+    }
+
+    /**
+     * Symmetric case: the same duplicate risk exists for Follow-Up -> Lead
+     * when the resolving Call Outcome is Requirement Identified (the one
+     * other outcome that independently routes to a Lead via
+     * CallRoutingService).
+     */
+    public function test_follow_up_to_lead_cross_drop_creates_exactly_one_lead(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $this->actingAs($user);
+            $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+            $followUp = $this->makeFollowUp($user, $prospect);
+
+            $this->invokePerformCrossDrop(
+                app(PipelineBoard::class),
+                ['sourceResource' => 'follow_up', 'sourceId' => $followUp->id, 'destResource' => 'lead', 'destStage' => LeadStage::RequirementCollection->value],
+                [
+                    'destination_temperature' => 'warm',
+                    'source_outcome' => CallOutcome::NoAnswer->value,
+                ]
+            );
+
+            $this->assertSame(1, Lead::where('prospect_id', $prospect->id)->count(), 'Exactly one Lead, never a duplicate.');
+
+            $followUp->refresh();
+            $this->assertSame(FollowUpStatus::Completed, $followUp->status);
+        });
+    }
+
+    /**
+     * Defense-in-depth: even a forged/direct request that bypasses the
+     * options-filtering above and submits the duplicate-causing outcome
+     * anyway must be rejected atomically — the destination Appointment
+     * createCrossDropDestination() already created inside the same
+     * transaction must roll back too, never left dangling while the
+     * Follow-Up resolution silently fails.
+     */
+    public function test_the_disallowed_outcome_combination_is_rejected_atomically_not_left_partially_applied(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $this->actingAs($user);
+            $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+            $followUp = $this->makeFollowUp($user, $prospect);
+
+            try {
+                $this->invokePerformCrossDrop(
+                    app(PipelineBoard::class),
+                    ['sourceResource' => 'follow_up', 'sourceId' => $followUp->id, 'destResource' => 'appointment', 'destStage' => AppointmentStage::AppointmentMade->value],
+                    [
+                        'destination_appointment_at' => now()->addDays(2)->format('Y-m-d H:i:s'),
+                        'source_outcome' => CallOutcome::AppointmentSet->value,
+                        'source_appointment_at' => now()->addDays(2)->format('Y-m-d H:i:s'),
+                        'source_notes' => 'Agreed to a site visit.',
+                    ]
+                );
+                $this->fail('Expected the disallowed outcome combination to be rejected.');
+            } catch (\Filament\Support\Exceptions\Halt) {
+                // expected
+            }
+
+            $this->assertSame(0, Appointment::where('prospect_id', $prospect->id)->count(), 'The whole cross-drop must roll back, not leave the destination half-created.');
+
+            $followUp->refresh();
+            $this->assertSame(FollowUpStatus::Pending, $followUp->status, 'A rejected cross-drop must leave the Follow-Up untouched.');
+        });
+    }
+
+    /**
+     * Locks in the UI-level half of the fix: the "Also resolving: Follow-up"
+     * dialog must never even offer the duplicate-causing outcome for the
+     * destination it's paired with, while every other outcome (including
+     * ones that create something genuinely different) stays available.
+     */
+    public function test_follow_up_stage_fields_exclude_the_outcome_that_would_duplicate_the_cross_drop_destination(): void
+    {
+        $board = app(PipelineBoard::class);
+        $method = new \ReflectionMethod($board, 'followUpStageFields');
+        $method->setAccessible(true);
+
+        /** @var array<int, \Filament\Forms\Components\Component> $appointmentDestFields */
+        $appointmentDestFields = $method->invoke($board, FollowUpStatus::Completed->value, null, 'source_', 'appointment');
+        $outcomeField = $appointmentDestFields[0];
+        $options = $outcomeField->getOptions();
+
+        $this->assertArrayNotHasKey(CallOutcome::AppointmentSet->value, $options, 'Appointment Set must be excluded when the destination is Appointment.');
+        $this->assertArrayHasKey(CallOutcome::CallbackRequested->value, $options, 'Unrelated outcomes must remain available.');
+        $this->assertArrayHasKey(CallOutcome::RequirementIdentified->value, $options, 'Requirement Identified is only excluded for a Lead destination.');
+
+        /** @var array<int, \Filament\Forms\Components\Component> $leadDestFields */
+        $leadDestFields = $method->invoke($board, FollowUpStatus::Completed->value, null, 'source_', 'lead');
+        $leadOptions = $leadDestFields[0]->getOptions();
+
+        $this->assertArrayNotHasKey(CallOutcome::RequirementIdentified->value, $leadOptions, 'Requirement Identified must be excluded when the destination is Lead.');
+        $this->assertArrayHasKey(CallOutcome::AppointmentSet->value, $leadOptions, 'Appointment Set is only excluded for an Appointment destination.');
+
+        // The same-lane dialog (no destResource) must offer every outcome.
+        $sameLaneFields = $method->invoke($board, FollowUpStatus::Completed->value, null, '', null);
+        $sameLaneOptions = $sameLaneFields[0]->getOptions();
+
+        $this->assertArrayHasKey(CallOutcome::AppointmentSet->value, $sameLaneOptions);
+        $this->assertArrayHasKey(CallOutcome::RequirementIdentified->value, $sameLaneOptions);
     }
 }
