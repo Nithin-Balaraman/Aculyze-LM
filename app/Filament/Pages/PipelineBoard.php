@@ -390,6 +390,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 'appointment' => $this->appointmentHistoryFields($record),
                 'lead' => $this->leadHistoryFields($record),
                 'proposal' => $this->proposalHistoryFields($record),
+                'demo' => $this->demoHistoryFields($record),
                 default => [],
             },
             'lineage' => $this->recordLineage($resource, $record),
@@ -482,6 +483,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'appointment' => AppointmentResource::formSchema(),
             'lead' => LeadResource::formSchema(),
             'proposal' => ProposalResource::formSchema(),
+            'demo' => DemoResource::formSchema(),
             default => [],
         };
     }
@@ -717,6 +719,29 @@ class PipelineBoard extends Page implements HasActions, HasForms
     }
 
     /**
+     * @return array<int, array{label: string, value: string}>
+     */
+    private function demoHistoryFields(Demo $demo): array
+    {
+        return [
+            ['label' => 'Status', 'value' => $demo->status->getLabel()],
+            ['label' => 'Status Changed At', 'value' => $demo->status_changed_at?->format('d M Y, h:i A') ?? '—'],
+            ['label' => 'Demo At', 'value' => $demo->demo_at?->format('d M Y, h:i A') ?? '—'],
+            ['label' => 'Mode', 'value' => $demo->mode?->getLabel() ?? '—'],
+            [
+                'label' => $demo->mode === DemoMode::OnSite ? 'Location' : 'Meeting Link',
+                'value' => ($demo->mode === DemoMode::OnSite ? $demo->location : $demo->meeting_link) ?: '—',
+            ],
+            ['label' => 'Product / Service', 'value' => $demo->product_service ?: '—'],
+            ['label' => 'Purpose', 'value' => $demo->purpose ?: '—'],
+            ['label' => 'Outcome', 'value' => $demo->outcome?->getLabel() ?? '—'],
+            ['label' => 'Next Action', 'value' => $demo->next_action?->getLabel() ?? '—'],
+            ['label' => 'Notes', 'value' => $demo->notes ?: '—'],
+            ['label' => 'Created', 'value' => $demo->created_at?->format('d M Y, h:i A') ?? '—'],
+        ];
+    }
+
+    /**
      * @return array<int, string>
      */
     private function recordLineage(?string $resource, Model $record): array
@@ -727,6 +752,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'appointment' => $this->appointmentLineage($record),
             'lead' => $this->leadLineage($record),
             'proposal' => $this->proposalLineage($record),
+            'demo' => $this->demoLineage($record),
             default => [],
         };
     }
@@ -809,6 +835,38 @@ class PipelineBoard extends Page implements HasActions, HasForms
     private function proposalLineage(Proposal $proposal): array
     {
         return ['Created from Lead #'.$proposal->lead_id];
+    }
+
+    /**
+     * Demo's lineage is polymorphic (origin_type/origin_id — see the model
+     * docblock), never a call_record_id foreign key like Appointment/Lead/
+     * Follow-up, so this can't reuse those methods' pattern verbatim.
+     *
+     * @return array<int, string>
+     */
+    private function demoLineage(Demo $demo): array
+    {
+        $lines = [
+            $demo->origin_type && $demo->origin_id
+                ? 'Created from '.$this->resourceLabel($demo->origin_type).' #'.$demo->origin_id
+                : 'Created directly — no recorded origin',
+        ];
+
+        if ($demo->generatedFollowUp) {
+            $lines[] = 'Recording this outcome created Follow-up #'.$demo->generatedFollowUp->id;
+        }
+
+        if ($demo->lead?->proposal) {
+            $lines[] = 'Lead has Proposal #'.$demo->lead->proposal->id;
+        }
+
+        $repeatDemo = Demo::query()->where('origin_type', 'demo')->where('origin_id', $demo->id)->first();
+
+        if ($repeatDemo) {
+            $lines[] = 'Recording this outcome created Demo #'.$repeatDemo->id;
+        }
+
+        return $lines;
     }
 
     private function dropModalHeading(array $arguments): string

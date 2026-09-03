@@ -53,7 +53,21 @@ class DemoResource extends Resource
      */
     public static function form(Form $form): Form
     {
-        return $form->schema([
+        return $form->schema(self::formSchema());
+    }
+
+    /**
+     * Extracted so PipelineBoard's in-board Edit/View actions (which reuse
+     * every resource's real form for full parity — see PipelineBoard's
+     * editRecordAction()/viewRecordAction()) can call this directly instead
+     * of duplicating these fields — matches the AppointmentResource::
+     * formSchema()/ProspectResource::formSchema() precedent.
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    public static function formSchema(): array
+    {
+        return [
             Forms\Components\Section::make('Demo Details')
                 ->columns(2)
                 ->schema([
@@ -87,7 +101,7 @@ class DemoResource extends Resource
                         ->rows(3)
                         ->columnSpanFull(),
                 ]),
-        ]);
+        ];
     }
 
     private static function resolveMode(mixed $mode): ?DemoMode
