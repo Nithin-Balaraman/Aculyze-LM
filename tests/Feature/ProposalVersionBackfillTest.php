@@ -6,11 +6,15 @@ use App\Enums\ProposalOutcome;
 use App\Enums\ProposalStage;
 use App\Enums\ProposalVersionLifecycle;
 use App\Models\Lead;
+use App\Models\Organization;
 use App\Models\Proposal;
+use App\Models\ProposalVersion;
 use App\Models\Prospect;
 use App\Models\User;
+use App\Support\Tenancy\Tenancy;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
@@ -176,5 +180,96 @@ class ProposalVersionBackfillTest extends TestCase
         $this->assertDatabaseCount('proposal_versions', 0);
         $this->assertNull($unsupported->fresh()->current_version_id);
         $this->assertNull($supported->fresh()->current_version_id);
+    }
+
+    /**
+     * The backfill command uses raw DB::table() throughout, bypassing every
+     * Eloquent global scope — so tenant isolation here is NOT "OrganizationScope
+     * happens to protect it" but a structural property of the command itself:
+     * each new proposal_versions row copies organization_id verbatim from its
+     * OWN Proposal row (see backfillOne()), and no query in the command ever
+     * joins or matches rows across Proposals. Two organizations' Proposals are
+     * processed independently in the same run with no shared state between them.
+     */
+    public function test_backfill_isolates_each_proposals_v1_to_its_own_organization_and_never_cross_links(): void
+    {
+        $orgA = Organization::factory()->create();
+        $ownerA = Tenancy::runAs($orgA->id, fn () => User::factory()->create(['organization_id' => $orgA->id]));
+        $proposalA = Tenancy::runAs($orgA->id, fn () => $this->proposal($ownerA, ProposalStage::BeingPrepared, null, 10000.00));
+
+        $orgB = Organization::factory()->create();
+        $ownerB = Tenancy::runAs($orgB->id, fn () => User::factory()->create(['organization_id' => $orgB->id]));
+        $proposalB = Tenancy::runAs($orgB->id, fn () => $this->proposal($ownerB, ProposalStage::Sent, ProposalOutcome::Hold, 20000.00));
+
+        Artisan::call('aculyze:backfill-proposal-versions');
+
+        // Queried via raw DB::table(), not the Eloquent currentVersion()
+        // relation: OrganizationScope would otherwise filter both rows out
+        // entirely under this test's own ambient TenantContext (neither
+        // Org A nor Org B), which is a scoping artifact of the assertion,
+        // not a property of the command under test.
+        $versionA = DB::table('proposal_versions')->where('proposal_id', $proposalA->id)->first();
+        $versionB = DB::table('proposal_versions')->where('proposal_id', $proposalB->id)->first();
+
+        $this->assertNotNull($versionA);
+        $this->assertNotNull($versionB);
+        $this->assertSame($orgA->id, $versionA->organization_id);
+        $this->assertSame($orgB->id, $versionB->organization_id);
+        $this->assertNotSame($versionA->id, $versionB->id);
+
+        // Neither organization's version is visible from the other's
+        // tenant context — the standard OrganizationScope check (via the
+        // Eloquent model, since assertDatabaseMissing queries the raw table
+        // and would not exercise the scope at all), applied here to the
+        // rows the backfill command itself produced.
+        Tenancy::runAs($orgA->id, function () use ($versionB) {
+            $this->assertNull(ProposalVersion::find($versionB->id));
+        });
+        Tenancy::runAs($orgB->id, function () use ($versionA) {
+            $this->assertNull(ProposalVersion::find($versionA->id));
+        });
+    }
+
+    /**
+     * Documents the command's actual trust boundary rather than an assumed
+     * one: BackfillProposalVersions performs NO independent validation that
+     * a Proposal row's own organization_id column agrees with its Lead/
+     * Prospect's real organization — it reads organization_id directly off
+     * the Proposal row (backfillOne(), `'organization_id' => $proposal->organization_id`)
+     * and writes it straight onto the new ProposalVersion. Under normal
+     * operation this can never diverge (App\Models\Concerns\
+     * EnforcesSameOrganizationRelations blocks a Proposal from ever being
+     * saved with a lead_id/prospect_id from a different organization than
+     * its own organization_id). This test simulates a Proposal row that is
+     * ALREADY corrupted at the database level — written via raw DB::table()
+     * to bypass that Eloquent guard, exactly the way real bad legacy data
+     * could exist — to prove what the command does when its one input
+     * assumption is violated: it propagates the row's organization_id
+     * verbatim rather than refusing. This is a genuine gap (no independent
+     * cross-check against the Proposal's own Prospect), reported to the
+     * reviewer rather than silently fixed, since correcting it is a design
+     * decision beyond this verification pass's scope.
+     */
+    public function test_backfill_propagates_an_already_corrupted_proposal_organization_id_without_independent_cross_check(): void
+    {
+        $orgA = Organization::factory()->create();
+        $ownerA = Tenancy::runAs($orgA->id, fn () => User::factory()->create(['organization_id' => $orgA->id]));
+        $proposal = Tenancy::runAs($orgA->id, fn () => $this->proposal($ownerA, ProposalStage::BeingPrepared, null, 10000.00));
+
+        $orgB = Organization::factory()->create();
+
+        // Corrupt organization_id directly at the DB layer — bypassing
+        // EnforcesSameOrganizationRelations, which would reject this same
+        // change if attempted through Eloquent. The Proposal's lead_id/
+        // prospect_id still point at real Org A rows; only organization_id
+        // itself is now inconsistent with them.
+        DB::table('proposals')->where('id', $proposal->id)->update(['organization_id' => $orgB->id]);
+
+        Artisan::call('aculyze:backfill-proposal-versions');
+
+        $version = DB::table('proposal_versions')->where('proposal_id', $proposal->id)->first();
+
+        $this->assertNotNull($version, 'Expected the command to still write a version for the corrupted row (documenting current behavior).');
+        $this->assertSame($orgB->id, $version->organization_id, 'Command currently propagates the corrupted organization_id verbatim rather than refusing — see this test\'s docblock.');
     }
 }
