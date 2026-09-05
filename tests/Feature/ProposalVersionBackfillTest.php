@@ -231,30 +231,28 @@ class ProposalVersionBackfillTest extends TestCase
     }
 
     /**
-     * Documents the command's actual trust boundary rather than an assumed
-     * one: BackfillProposalVersions performs NO independent validation that
-     * a Proposal row's own organization_id column agrees with its Lead/
-     * Prospect's real organization — it reads organization_id directly off
-     * the Proposal row (backfillOne(), `'organization_id' => $proposal->organization_id`)
-     * and writes it straight onto the new ProposalVersion. Under normal
-     * operation this can never diverge (App\Models\Concerns\
-     * EnforcesSameOrganizationRelations blocks a Proposal from ever being
-     * saved with a lead_id/prospect_id from a different organization than
-     * its own organization_id). This test simulates a Proposal row that is
-     * ALREADY corrupted at the database level — written via raw DB::table()
-     * to bypass that Eloquent guard, exactly the way real bad legacy data
-     * could exist — to prove what the command does when its one input
-     * assumption is violated: it propagates the row's organization_id
-     * verbatim rather than refusing. This is a genuine gap (no independent
-     * cross-check against the Proposal's own Prospect), reported to the
-     * reviewer rather than silently fixed, since correcting it is a design
-     * decision beyond this verification pass's scope.
+     * 4A-1 correction: BackfillProposalVersions now cross-checks a
+     * Proposal's own organization_id against its Lead's and Prospect's
+     * organization_id (organizationIntegrityIssue()) before any write —
+     * re-implementing, over raw DB::table(), the exact same relationships
+     * App\Models\Proposal::organizationScopedRelations() declares and
+     * App\Models\Concerns\EnforcesSameOrganizationRelations enforces on
+     * every normal Eloquent save (which this command's raw queries bypass
+     * entirely). This test simulates a Proposal row that is ALREADY
+     * corrupted at the database level — written via raw DB::table() to
+     * bypass that Eloquent guard, exactly the way real bad legacy data
+     * could exist — and proves the command refuses the entire run rather
+     * than silently repairing, guessing, or migrating it: zero
+     * ProposalVersion rows are created anywhere, including for an
+     * otherwise-valid Proposal present in the very same run (the same
+     * all-or-nothing behavior already proven for an unsupported stage/
+     * outcome combination above).
      */
-    public function test_backfill_propagates_an_already_corrupted_proposal_organization_id_without_independent_cross_check(): void
+    public function test_a_proposal_whose_organization_id_disagrees_with_its_lead_or_prospect_halts_the_entire_run(): void
     {
         $orgA = Organization::factory()->create();
         $ownerA = Tenancy::runAs($orgA->id, fn () => User::factory()->create(['organization_id' => $orgA->id]));
-        $proposal = Tenancy::runAs($orgA->id, fn () => $this->proposal($ownerA, ProposalStage::BeingPrepared, null, 10000.00));
+        $corrupted = Tenancy::runAs($orgA->id, fn () => $this->proposal($ownerA, ProposalStage::BeingPrepared, null, 10000.00));
 
         $orgB = Organization::factory()->create();
 
@@ -263,13 +261,40 @@ class ProposalVersionBackfillTest extends TestCase
         // change if attempted through Eloquent. The Proposal's lead_id/
         // prospect_id still point at real Org A rows; only organization_id
         // itself is now inconsistent with them.
-        DB::table('proposals')->where('id', $proposal->id)->update(['organization_id' => $orgB->id]);
+        DB::table('proposals')->where('id', $corrupted->id)->update(['organization_id' => $orgB->id]);
 
-        Artisan::call('aculyze:backfill-proposal-versions');
+        // An otherwise-perfectly-valid Proposal, in the SAME run, to prove
+        // the corrupted row halts everything rather than just itself.
+        $healthy = Tenancy::runAs($orgA->id, fn () => $this->proposal($ownerA, ProposalStage::Sent, ProposalOutcome::Hold, 20000.00));
 
-        $version = DB::table('proposal_versions')->where('proposal_id', $proposal->id)->first();
+        $exitCode = Artisan::call('aculyze:backfill-proposal-versions');
 
-        $this->assertNotNull($version, 'Expected the command to still write a version for the corrupted row (documenting current behavior).');
-        $this->assertSame($orgB->id, $version->organization_id, 'Command currently propagates the corrupted organization_id verbatim rather than refusing — see this test\'s docblock.');
+        $this->assertSame(1, $exitCode);
+        $this->assertDatabaseCount('proposal_versions', 0);
+        $this->assertNull(DB::table('proposals')->where('id', $corrupted->id)->value('current_version_id'));
+        $this->assertNull(DB::table('proposals')->where('id', $healthy->id)->value('current_version_id'));
+
+        $output = Artisan::output();
+        $this->assertStringContainsString("Proposal #{$corrupted->id}", $output);
+        $this->assertStringContainsString('does not match', $output);
+
+        // Nothing was repaired, guessed, or mutated on the corrupted row itself.
+        $this->assertSame($orgB->id, DB::table('proposals')->where('id', $corrupted->id)->value('organization_id'));
+    }
+
+    public function test_dry_run_reports_the_organization_integrity_anomaly_without_writing_anything(): void
+    {
+        $orgA = Organization::factory()->create();
+        $ownerA = Tenancy::runAs($orgA->id, fn () => User::factory()->create(['organization_id' => $orgA->id]));
+        $corrupted = Tenancy::runAs($orgA->id, fn () => $this->proposal($ownerA, ProposalStage::BeingPrepared, null, 10000.00));
+
+        $orgB = Organization::factory()->create();
+        DB::table('proposals')->where('id', $corrupted->id)->update(['organization_id' => $orgB->id]);
+
+        $exitCode = Artisan::call('aculyze:backfill-proposal-versions', ['--dry-run' => true]);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertDatabaseCount('proposal_versions', 0);
+        $this->assertStringContainsString("Proposal #{$corrupted->id}", Artisan::output());
     }
 }

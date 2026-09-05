@@ -22,6 +22,20 @@ use Illuminate\Support\Facades\DB;
  * fabricated history"). Broaden KNOWN_COMBINATIONS only after explicit
  * business sign-off, never speculatively.
  *
+ * Organization integrity (4A-1 correction): before any write, every
+ * candidate Proposal's own organization_id is cross-checked against its
+ * Lead's and Prospect's organization_id — the same relationships
+ * App\Models\Proposal::organizationScopedRelations() declares and
+ * App\Models\Concerns\EnforcesSameOrganizationRelations enforces on every
+ * normal Eloquent save. This command bypasses that guard entirely (raw
+ * DB::table(), no model events), so it re-implements the same check
+ * directly: a Proposal whose organization_id disagrees with either its
+ * Lead's or its Prospect's organization_id is an organization-integrity
+ * anomaly, refusing the ENTIRE run exactly like an unsupported stage/
+ * outcome combination does — flagged, never silently repaired, never
+ * guessed which organization is "correct", and no ProposalVersion is ever
+ * created for it.
+ *
  * No fabricated evidence: is_legacy_backfill=true always, and
  * manager_reviewed_by/approved_by/returned_by/*_at/*_comment are always left
  * NULL — this includes the sent+hold combination, per the locked "Option 1"
@@ -74,10 +88,18 @@ class BackfillProposalVersions extends Command
         $anomalies = [];
 
         foreach ($proposals as $proposal) {
+            $organizationIssue = $this->organizationIntegrityIssue($proposal);
+
+            if ($organizationIssue !== null) {
+                $anomalies[] = [$proposal, $organizationIssue];
+
+                continue;
+            }
+
             $combination = $this->matchCombination($proposal);
 
             if ($combination === null) {
-                $anomalies[] = $proposal;
+                $anomalies[] = [$proposal, 'stage/outcome combination ('.($proposal->stage ?? 'NULL').'/'.($proposal->outcome ?? 'NULL').') is not one of the confirmed production combinations'];
 
                 continue;
             }
@@ -86,13 +108,13 @@ class BackfillProposalVersions extends Command
         }
 
         if ($anomalies !== []) {
-            $this->error('Refusing to run: found Proposal row(s) whose stage/outcome combination is not one of the confirmed production combinations. No row was changed.');
+            $this->error('Refusing to run: found Proposal row(s) that fail validation. No row was changed.');
 
-            foreach ($anomalies as $proposal) {
-                $this->error(" - Proposal #{$proposal->id}: stage=".($proposal->stage ?? 'NULL').', outcome='.($proposal->outcome ?? 'NULL'));
+            foreach ($anomalies as [$proposal, $reason]) {
+                $this->error(" - Proposal #{$proposal->id}: {$reason}");
             }
 
-            $this->error('Resolve the mapping for these Proposal(s) explicitly (extend KNOWN_COMBINATIONS only after business sign-off) before re-running.');
+            $this->error('Resolve these Proposal(s) explicitly before re-running — this command never guesses or repairs corrupt/ambiguous source data.');
 
             return self::FAILURE;
         }
@@ -132,6 +154,34 @@ class BackfillProposalVersions extends Command
         $this->verify();
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Cross-checks a Proposal's own organization_id against its Lead's and
+     * Prospect's organization_id — the exact relationships
+     * App\Models\Proposal::organizationScopedRelations() declares as
+     * organization-scoped ('lead_id', 'prospect_id'). Returns a
+     * human-readable reason if they disagree, or null if consistent
+     * (including when a related row's organization_id is itself NULL,
+     * which this command treats as "nothing to contradict" rather than an
+     * anomaly — matching EnforcesSameOrganizationRelations' own null-safe
+     * comparison).
+     */
+    private function organizationIntegrityIssue(object $proposal): ?string
+    {
+        $leadOrganizationId = DB::table('leads')->where('id', $proposal->lead_id)->value('organization_id');
+
+        if ($leadOrganizationId !== null && $leadOrganizationId !== $proposal->organization_id) {
+            return "organization_id ({$proposal->organization_id}) does not match its Lead #{$proposal->lead_id}'s organization_id ({$leadOrganizationId})";
+        }
+
+        $prospectOrganizationId = DB::table('prospects')->where('id', $proposal->prospect_id)->value('organization_id');
+
+        if ($prospectOrganizationId !== null && $prospectOrganizationId !== $proposal->organization_id) {
+            return "organization_id ({$proposal->organization_id}) does not match its Prospect #{$proposal->prospect_id}'s organization_id ({$prospectOrganizationId})";
+        }
+
+        return null;
     }
 
     /**
