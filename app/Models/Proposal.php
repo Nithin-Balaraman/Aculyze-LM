@@ -7,13 +7,15 @@ use App\Enums\ProposalStage;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\EnforcesSameOrganizationRelations;
 use App\Models\Scopes\OrganizationScope;
+use App\Support\Authorization\HierarchyVisibility;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
 
 class Proposal extends Model
 {
@@ -134,6 +136,28 @@ class Proposal extends Model
     }
 
     /**
+     * Phase 4A-1: every immutable commercial-document snapshot ever taken
+     * of this Proposal (Master BA Specification section 3.2) — V1, V2,
+     * V3... never mutated once created, only ever appended to.
+     */
+    public function versions(): HasMany
+    {
+        return $this->hasMany(ProposalVersion::class)->orderBy('version_number');
+    }
+
+    /** The exact ProposalVersion the team is currently working with commercially — moves atomically when a new Draft revision is created (section 7). */
+    public function currentVersion(): BelongsTo
+    {
+        return $this->belongsTo(ProposalVersion::class, 'current_version_id');
+    }
+
+    /** Set only when an exact sent/non-superseded version is accepted (section 7) — the authoritative source for Won reporting and billing handoff. */
+    public function winningVersion(): BelongsTo
+    {
+        return $this->belongsTo(ProposalVersion::class, 'winning_version_id');
+    }
+
+    /**
      * A Proposal is stale once it has sat without stage/outcome movement for
      * 20+ days, unless it has a closed outcome (Won/Lost always closed;
      * Hold is configurable — see ProposalOutcome::isTerminalForStaleness()).
@@ -155,7 +179,7 @@ class Proposal extends Model
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        return \App\Support\Authorization\HierarchyVisibility::scopeFor($query, $user, 'assigned_to');
+        return HierarchyVisibility::scopeFor($query, $user, 'assigned_to');
     }
 
     /**
@@ -196,6 +220,8 @@ class Proposal extends Model
             'prospect_id' => ['prospects', 'Prospect'],
             'assigned_to' => ['users', 'assigned User'],
             'created_by' => ['users', 'creating User'],
+            'current_version_id' => ['proposal_versions', 'current Version'],
+            'winning_version_id' => ['proposal_versions', 'winning Version'],
         ];
     }
 }
