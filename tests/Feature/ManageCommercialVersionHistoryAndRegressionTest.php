@@ -65,13 +65,19 @@ class ManageCommercialVersionHistoryAndRegressionTest extends TestCase
     // H. VERSION HISTORY
     // -----------------------------------------------------------------
 
+    /**
+     * Order is newest Version first, and asserted through each row's own
+     * distinctive persisted grand total rather than the bare digits "1"/"2",
+     * which match incidental markup anywhere on the page and so proved
+     * nothing about ordering (or about the rows rendering at all).
+     */
     public function test_multiple_versions_render_in_correct_order(): void
     {
         ['employee' => $employee, 'manager' => $manager] = $this->hierarchy();
         $proposal = $this->proposalFor($employee);
 
-        $v1 = ProposalVersion::factory()->create(['proposal_id' => $proposal->id, 'version_number' => 1, 'lifecycle_status' => ProposalVersionLifecycle::Sent]);
-        $v2 = ProposalVersion::factory()->create(['proposal_id' => $proposal->id, 'version_number' => 2]);
+        $v1 = ProposalVersion::factory()->create(['proposal_id' => $proposal->id, 'version_number' => 1, 'lifecycle_status' => ProposalVersionLifecycle::Sent, 'grand_total' => '111.11']);
+        $v2 = ProposalVersion::factory()->create(['proposal_id' => $proposal->id, 'version_number' => 2, 'grand_total' => '222.22']);
         $proposal->forceFill(['current_version_id' => $v2->id])->save();
         $v1->forceFill(['superseded_by_version_id' => $v2->id, 'superseded_at' => now()])->save();
 
@@ -79,7 +85,7 @@ class ManageCommercialVersionHistoryAndRegressionTest extends TestCase
 
         Livewire::test(ManageCommercialVersion::class, ['record' => $proposal->getRouteKey()])
             ->assertSuccessful()
-            ->assertSeeInOrder(['1', '2']);
+            ->assertSeeInOrder(['222.22', '111.11']);
     }
 
     public function test_frozen_history_is_read_only(): void

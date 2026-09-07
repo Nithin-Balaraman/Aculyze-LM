@@ -222,68 +222,103 @@ class ManageCommercialVersion extends ViewRecord
         ]);
     }
 
+    /**
+     * Bound to the PROPOSAL record, not to the current ProposalVersion —
+     * deliberately, and this is the whole bug fix for blank Version
+     * History rows. Filament resolves every entry (including each
+     * RepeatableEntry child) by data_get()-ing its ABSOLUTE state path
+     * against the infolist's own record, so both sections have to address
+     * real, resolvable relation paths from the Proposal:
+     * "currentVersion.<column>" for the summary, and the genuine
+     * versionsNewestFirst() relation for the history. The previous
+     * implementation bound the infolist to the Version and gave the
+     * history a synthetic "history" name with a manual ->state() closure,
+     * which made every child resolve data_get($currentVersion,
+     * "history.<i>.<column>") — always null, hence blank rows. Only the
+     * two children that carried their own ->state() closures (Superseded
+     * By, Legacy) escaped that resolution and rendered, which is exactly
+     * what the manual smoke test observed.
+     */
     public function infolist(Infolist $infolist): Infolist
     {
-        $version = $this->currentVersion;
-
         return $infolist
-            ->record($version)
+            ->record($this->record)
             ->schema([
                 InfolistSection::make('Commercial Version Summary')
                     ->columns(3)
                     ->schema([
-                        TextEntry::make('version_number')->label('Version'),
-                        TextEntry::make('lifecycle_status')->label('Commercial Version Status')->badge(),
-                        TextEntry::make('is_current')
+                        TextEntry::make('currentVersion.version_number')->label('Version'),
+                        TextEntry::make('currentVersion.lifecycle_status')->label('Commercial Version Status')->badge(),
+                        TextEntry::make('current_or_historical')
                             ->label('Current / Frozen')
-                            ->state(fn () => $this->record->current_version_id === $version->id ? 'Current' : 'Historical'),
-                        TextEntry::make('is_legacy_backfill')
+                            ->state('Current'),
+                        TextEntry::make('currentVersion.is_legacy_backfill')
                             ->label('Legacy')
                             ->badge()
-                            ->state(fn () => $version->is_legacy_backfill ? 'Legacy' : null)
-                            ->visible(fn () => $version->is_legacy_backfill)
-                            ->color('gray'),
-                        TextEntry::make('customer_name_snapshot')->label('Customer Name')->placeholder('Not available'),
-                        TextEntry::make('customer_gstin_snapshot')->label('GSTIN')->placeholder('—'),
-                        TextEntry::make('billing_address_snapshot')->label('Billing Address')->placeholder('—'),
-                        TextEntry::make('billing_state_snapshot')->label('Billing State')->placeholder('—'),
-                        TextEntry::make('place_of_supply_snapshot')->label('Place of Supply')->placeholder('—'),
-                        TextEntry::make('payment_terms')->placeholder('—'),
-                        TextEntry::make('validity_terms')->placeholder('—'),
-                        TextEntry::make('scope_notes')->label('Scope Notes')->placeholder('—'),
-                        TextEntry::make('subtotal')->money('INR')->placeholder('Not available'),
-                        TextEntry::make('total_discount')->label('Total Discount')->money('INR')->placeholder('Not available'),
-                        TextEntry::make('tax_total')->label('Tax Total')->money('INR')->placeholder('Not available'),
-                        TextEntry::make('grand_total')->label('Grand Total')->money('INR')->placeholder('Not available'),
-                        TextEntry::make('currency_code')->label('Currency'),
-                        TextEntry::make('submitted_by_name')->label('Submitted By')->state(fn () => $version->submittedBy?->name)->placeholder('—'),
-                        TextEntry::make('submitted_at')->dateTime()->placeholder('—'),
-                        TextEntry::make('approved_by_name')->label('Approved By')->state(fn () => $version->approvedBy?->name)->placeholder('—'),
-                        TextEntry::make('approved_at')->dateTime()->placeholder('—'),
-                        TextEntry::make('approval_comment')->placeholder('—'),
-                        TextEntry::make('returned_by_name')->label('Returned By')->state(fn () => $version->returnedBy?->name)->placeholder('—'),
-                        TextEntry::make('returned_at')->dateTime()->placeholder('—'),
-                        TextEntry::make('return_reason')->label('Return Reason')->placeholder('—'),
-                        TextEntry::make('sent_at')->date()->placeholder('—'),
-                        TextEntry::make('superseded_at')->dateTime()->placeholder('—')->visible(fn () => $version->superseded_at !== null),
+                            ->color('gray')
+                            ->state(fn () => $this->currentVersion->is_legacy_backfill ? 'Legacy' : null)
+                            ->visible(fn () => $this->currentVersion->is_legacy_backfill),
+                        TextEntry::make('currentVersion.customer_name_snapshot')->label('Customer Name')->placeholder('Not available'),
+                        TextEntry::make('currentVersion.customer_gstin_snapshot')->label('GSTIN')->placeholder('—'),
+                        TextEntry::make('currentVersion.billing_address_snapshot')->label('Billing Address')->placeholder('—'),
+                        TextEntry::make('currentVersion.billing_state_snapshot')->label('Billing State')->placeholder('—'),
+                        TextEntry::make('currentVersion.place_of_supply_snapshot')->label('Place of Supply')->placeholder('—'),
+                        TextEntry::make('currentVersion.payment_terms')->label('Payment Terms')->placeholder('—'),
+                        TextEntry::make('currentVersion.validity_terms')->label('Validity Terms')->placeholder('—'),
+                        TextEntry::make('currentVersion.scope_notes')->label('Scope Notes')->placeholder('—'),
+                        TextEntry::make('currentVersion.subtotal')->label('Subtotal')->money('INR')->placeholder('Not available'),
+                        TextEntry::make('currentVersion.total_discount')->label('Total Discount')->money('INR')->placeholder('Not available'),
+                        TextEntry::make('currentVersion.tax_total')->label('Tax Total')->money('INR')->placeholder('Not available'),
+                        TextEntry::make('currentVersion.grand_total')->label('Grand Total')->money('INR')->placeholder('Not available'),
+                        TextEntry::make('currentVersion.currency_code')->label('Currency')->placeholder('—'),
+                        TextEntry::make('currentVersion.submittedBy.name')->label('Submitted By')->placeholder('—'),
+                        TextEntry::make('currentVersion.submitted_at')->label('Submitted At')->dateTime()->placeholder('—'),
+                        TextEntry::make('currentVersion.approvedBy.name')->label('Approved By')->placeholder('—'),
+                        TextEntry::make('currentVersion.approved_at')->label('Approved At')->dateTime()->placeholder('—'),
+                        TextEntry::make('currentVersion.approval_comment')->label('Approval Comment')->placeholder('—'),
+                        TextEntry::make('currentVersion.returnedBy.name')->label('Returned By')->placeholder('—'),
+                        TextEntry::make('currentVersion.returned_at')->label('Returned At')->dateTime()->placeholder('—'),
+                        TextEntry::make('currentVersion.return_reason')->label('Return Reason')->placeholder('—'),
+                        TextEntry::make('currentVersion.sent_at')->label('Sent At')->date()->placeholder('—'),
+                        TextEntry::make('currentVersion.superseded_at')->label('Superseded At')->dateTime()->placeholder('—'),
                     ]),
                 InfolistSection::make('Version History')
+                    ->description('Newest Version first. Every Version — current and historical — can be opened read-only.')
                     ->schema([
-                        RepeatableEntry::make('history')
+                        RepeatableEntry::make('versionsNewestFirst')
                             ->label('')
-                            ->state(fn () => $this->record->versions()->orderBy('version_number')->get())
+                            ->columns(4)
                             ->schema([
-                                TextEntry::make('version_number')->label('Version'),
-                                TextEntry::make('lifecycle_status')->badge(),
-                                TextEntry::make('created_at')->label('Created')->dateTime(),
+                                TextEntry::make('version_number')->label('Version')->formatStateUsing(fn ($state) => "V{$state}"),
+                                TextEntry::make('lifecycle_status')->label('Commercial Version Status')->badge(),
+                                TextEntry::make('created_at')->label('Created')->dateTime()->placeholder('—'),
+                                TextEntry::make('grand_total')->label('Grand Total')->money('INR')->placeholder('—'),
                                 TextEntry::make('submitted_at')->label('Submitted')->dateTime()->placeholder('—'),
                                 TextEntry::make('approved_at')->label('Approved')->dateTime()->placeholder('—'),
+                                TextEntry::make('returned_at')->label('Returned')->dateTime()->placeholder('—'),
                                 TextEntry::make('sent_at')->label('Sent')->date()->placeholder('—'),
-                                TextEntry::make('grand_total')->label('Grand Total')->money('INR')->placeholder('—'),
-                                TextEntry::make('superseded_by_version_id')->label('Superseded By')->state(fn ($record) => $record->superseded_by_version_id ? "V{$record->supersededByVersion?->version_number}" : null)->placeholder('—'),
-                                TextEntry::make('is_legacy_backfill')->label('Legacy')->state(fn ($record) => $record->is_legacy_backfill ? 'Legacy' : null)->placeholder('—'),
-                            ])
-                            ->columns(4),
+                                TextEntry::make('submittedBy.name')->label('Submitted By')->placeholder('—'),
+                                TextEntry::make('approvedBy.name')->label('Approved By')->placeholder('—'),
+                                TextEntry::make('returnedBy.name')->label('Returned By')->placeholder('—'),
+                                TextEntry::make('return_reason')->label('Return Reason')->placeholder('—'),
+                                TextEntry::make('approval_comment')->label('Approval Comment')->placeholder('—'),
+                                TextEntry::make('superseded_by_version_id')
+                                    ->label('Superseded By')
+                                    ->state(fn ($record) => $record->superseded_by_version_id ? "V{$record->supersededByVersion?->version_number}" : null)
+                                    ->placeholder('—'),
+                                TextEntry::make('is_legacy_backfill')
+                                    ->label('Legacy')
+                                    ->state(fn ($record) => $record->is_legacy_backfill ? 'Legacy' : null)
+                                    ->placeholder('—'),
+                                TextEntry::make('open_version')
+                                    ->label('Full Detail')
+                                    ->state('View Version')
+                                    ->color('primary')
+                                    ->url(fn ($record) => ProposalResource::getUrl('commercial-version', [
+                                        'record' => $this->record,
+                                        'version' => $record->getKey(),
+                                    ])),
+                            ]),
                     ]),
             ]);
     }

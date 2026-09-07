@@ -555,6 +555,7 @@ class ProposalResource extends Resource
             'view' => Pages\ViewProposal::route('/{record}'),
             'edit' => Pages\EditProposal::route('/{record}/edit'),
             'commercial' => Pages\ManageCommercialVersion::route('/{record}/commercial'),
+            'commercial-version' => Pages\ViewCommercialVersion::route('/{record}/commercial/versions/{version}'),
         ];
     }
 

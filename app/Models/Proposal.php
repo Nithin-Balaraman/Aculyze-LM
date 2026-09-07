@@ -145,6 +145,20 @@ class Proposal extends Model
         return $this->hasMany(ProposalVersion::class)->orderBy('version_number');
     }
 
+    /**
+     * Phase 4A-2.5 bug fix: the same history, newest Version first — the
+     * explicit order the commercial Version History reads in. A dedicated
+     * relation (rather than an ad-hoc ->state() closure on the infolist)
+     * specifically because Filament resolves every RepeatableEntry child
+     * by data_get()-ing the entry's absolute state path against the
+     * infolist's own record: the path has to be a real, resolvable
+     * relation name or every plain column renders blank.
+     */
+    public function versionsNewestFirst(): HasMany
+    {
+        return $this->hasMany(ProposalVersion::class)->orderByDesc('version_number');
+    }
+
     /** The exact ProposalVersion the team is currently working with commercially — moves atomically when a new Draft revision is created (section 7). */
     public function currentVersion(): BelongsTo
     {
