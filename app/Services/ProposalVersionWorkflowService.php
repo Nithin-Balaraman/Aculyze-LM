@@ -63,10 +63,9 @@ class ProposalVersionWorkflowService
     ];
 
     /**
-     * Manager-or-above only. Draft -> Submitted. Structural validation only
-     * (no financial recalculation — that is 4A-2.3's ProposalVersionCalculator;
-     * see this class's own docblock on the fields deliberately NOT checked
-     * here).
+     * Manager-or-above only. Draft -> Submitted. Runs structural validation
+     * first, then the authoritative Brick\Math financial recalculation
+     * (4A-2.3's ProposalVersionCalculator) before freezing the transition.
      */
     public function submit(ProposalVersion $version, User $actor): void
     {
@@ -84,6 +83,15 @@ class ProposalVersionWorkflowService
             }
 
             $this->assertStructuralSubmitPrerequisites($locked);
+
+            // 4A-2.3: authoritative Brick\Math recalculation — stages (but
+            // does not itself save) $locked's subtotal/total_discount/
+            // tax_total/grand_total, and separately saves each line/tax
+            // component's own recalculated amounts. A LogicException here
+            // (invalid discount/tax data) rolls back this entire
+            // transaction, including any line/component already saved by
+            // this call — Draft is left completely unchanged.
+            app(ProposalVersionCalculator::class)->recalculate($locked);
 
             $locked->forceFill([
                 'lifecycle_status' => ProposalVersionLifecycle::Submitted,
@@ -381,13 +389,11 @@ class ProposalVersionWorkflowService
             }
         }
 
-        // Deliberately NOT validated here (4A-2.3 boundary — see this
-        // method's docblock): authoritative discount-percentage-range/
-        // fixed-discount-vs-gross checks and any recalculation of
-        // gross/discount/taxable/tax/line totals. Those require the
-        // decimal-safe ProposalVersionCalculator this sub-stage does not
-        // build, and validating them incorrectly now (e.g. via native
-        // float) would be worse than not validating them yet.
+        // Deliberately NOT validated here: authoritative discount-
+        // percentage-range/fixed-discount-vs-gross checks and any
+        // recalculation of gross/discount/taxable/tax/line totals — that is
+        // ProposalVersionCalculator::recalculate()'s job (4A-2.3), called
+        // separately by submit() right after this method returns.
     }
 
     /**
