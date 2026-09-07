@@ -54,10 +54,10 @@ class WorkflowTransitionService
 {
     /**
      * @param  array<string, mixed>  $data  destination-specific fields the chosen outcome requires
-     *     (e.g. 'follow_up_at'/'reason' for FollowUpRequired, 'lead_id' for DemoRequired/ProposalRequired),
-     *     plus 'outcome_notes' — required by Appointment's own model guard whenever status reaches
-     *     Completed (mirrors the legacy stage-driven "Succeeded/Not Succeeded requires Outcome Notes" rule,
-     *     migrated in Phase 3 to key off normalized status instead).
+     *                                      (e.g. 'follow_up_at'/'reason' for FollowUpRequired, 'lead_id' for DemoRequired/ProposalRequired),
+     *                                      plus 'outcome_notes' — required by Appointment's own model guard whenever status reaches
+     *                                      Completed (mirrors the legacy stage-driven "Succeeded/Not Succeeded requires Outcome Notes" rule,
+     *                                      migrated in Phase 3 to key off normalized status instead).
      */
     public function transitionAppointmentOutcome(Appointment $appointment, AppointmentOutcome $outcome, array $data): void
     {
@@ -221,9 +221,9 @@ class WorkflowTransitionService
 
     /**
      * @param  array<string, mixed>  $data  destination-specific fields the resolved next_action requires
-     *     ('reason'/'notes' for Another Demo Required's new schedule, 'clarification_notes' for Requirement
-     *     Clarification, 'follow_up_at'/'reason' for a Demo Follow-Up, etc.), plus 'next_action' when the
-     *     outcome is non-deterministic (Interested/OK, Correction Needed, Other).
+     *                                      ('reason'/'notes' for Another Demo Required's new schedule, 'clarification_notes' for Requirement
+     *                                      Clarification, 'follow_up_at'/'reason' for a Demo Follow-Up, etc.), plus 'next_action' when the
+     *                                      outcome is non-deterministic (Interested/OK, Correction Needed, Other).
      */
     public function transitionDemoOutcome(Demo $demo, DemoOutcome $outcome, array $data): void
     {
@@ -372,22 +372,21 @@ class WorkflowTransitionService
     }
 
     /**
-     * Proposal's schema is untouched in Phase 2 (out of scope) — it has no
+     * Phase 4A-2.4: delegates to the centralized ProposalCreationService —
+     * every runtime Proposal creation now also atomically receives its V1
+     * Draft ProposalVersion (locked Decision 12), never a bare Proposal.
+     * Proposal's own schema remains untouched by Phase 2 — it has no
      * origin_type/origin_id column. Lineage back to the originating
      * Demo/Appointment is captured in the AuditLogger event this method's
      * caller writes (downstream_type/downstream_id), not as a column here.
      */
     private function createProposalFromLead(Lead $lead): Proposal
     {
-        return Proposal::query()->firstOrCreate(
-            ['lead_id' => $lead->getKey()],
-            [
-                'prospect_id' => $lead->prospect_id,
-                'assigned_to' => $lead->assigned_to,
-                'created_by' => $lead->created_by,
-                'stage' => ProposalStage::BeingPrepared->value,
-            ]
-        );
+        return app(ProposalCreationService::class)->createForLead($lead, [
+            'assigned_to' => $lead->assigned_to,
+            'created_by' => $lead->created_by,
+            'stage' => ProposalStage::BeingPrepared->value,
+        ]);
     }
 
     /**

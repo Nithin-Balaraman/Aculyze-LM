@@ -24,8 +24,9 @@ use App\Models\CallRecord;
 use App\Models\Demo;
 use App\Models\FollowUp;
 use App\Models\Lead;
-use App\Models\Prospect;
 use App\Models\Proposal;
+use App\Models\Prospect;
+use App\Services\ProposalCreationService;
 use App\Services\WorkflowTransitionService;
 use Filament\Actions;
 use Filament\Actions\Concerns\InteractsWithActions;
@@ -39,6 +40,8 @@ use Filament\Support\Exceptions\Halt;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -234,7 +237,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
     }
 
     /**
-     * @return array{0: \Illuminate\Support\Carbon, 1: \Illuminate\Support\Carbon}|null
+     * @return array{0: Carbon, 1: Carbon}|null
      */
     private function periodRange(): ?array
     {
@@ -1918,9 +1921,14 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 'temperature' => $data['destination_temperature'] ?? LeadTemperature::Warm,
                 'notes' => $data['destination_notes'] ?? null,
             ]),
-            'proposal' => Proposal::create([
-                'lead_id' => $source instanceof Lead ? $source->id : null,
-                'prospect_id' => $prospect->id,
+            // Phase 4A-2.4: routed through the centralized
+            // ProposalCreationService — crossDropSupported() above already
+            // guarantees $source is a Lead with no existing Proposal by the
+            // time this case runs (same guarantee the 'demo' case below
+            // relies on), so this atomically creates the Proposal AND its
+            // V1 Draft ProposalVersion together (locked Decision 12),
+            // never the bare Proposal this line used to leave behind.
+            'proposal' => $source instanceof Lead ? app(ProposalCreationService::class)->createForLead($source, [
                 'assigned_to' => $assignedTo,
                 'created_by' => auth()->id(),
                 'stage' => $destStage,
@@ -1934,7 +1942,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                     default => null,
                 },
                 'notes' => $data['destination_notes'] ?? null,
-            ]),
+            ]) : null,
             // Phase 3: routed through the same centralized
             // WorkflowTransitionService::transitionToDemo() every other
             // Demo-creating path uses (LeadResource's own "Schedule Demo"
@@ -2442,9 +2450,10 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * with no isTerminal() method; Call has no stage concept at all).
      *
      * @template TModel of \Illuminate\Database\Eloquent\Model
-     * @param  \Illuminate\Support\Collection<int, TModel>  $records
-     * @param  array<int, \App\Enums\AppointmentStage|\App\Enums\LeadStage|\App\Enums\ProposalStage>  $cases
-     * @param  \Closure(TModel): (\App\Enums\AppointmentStage|\App\Enums\LeadStage|\App\Enums\ProposalStage)  $stageOf
+     *
+     * @param  Collection<int, TModel>  $records
+     * @param  array<int, AppointmentStage|LeadStage|ProposalStage>  $cases
+     * @param  \Closure(TModel): (AppointmentStage|LeadStage|ProposalStage)  $stageOf
      * @param  \Closure(TModel): string  $meta
      * @param  \Closure(TModel): bool  $isLost
      * @param  \Closure(TModel): string  $urlFor
