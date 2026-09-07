@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ProposalTaxComponentType;
+use App\Enums\ProposalVersionLifecycle;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\EnforcesSameOrganizationRelations;
 use App\Models\Scopes\OrganizationScope;
@@ -10,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 
 /**
  * Phase 4A-1: one tax component snapshot (CGST/SGST/IGST/Cess/Other) on a
@@ -40,6 +42,48 @@ class ProposalVersionLineTaxComponent extends Model
     protected static function booted(): void
     {
         static::addGlobalScope(new OrganizationScope);
+
+        // 4A-2.1 locked Decision 11 (E): a tax component may be created/
+        // updated/deleted only while its parent line's ProposalVersion is
+        // Draft. Model/domain-level, not UI-only — two-level lookup
+        // (component -> line -> version), same direct-query idiom as
+        // ProposalVersionLine's own guard.
+        static::creating(function (self $component): void {
+            self::assertParentVersionIsDraft($component->proposal_version_line_id, 'create');
+        });
+
+        static::updating(function (self $component): void {
+            self::assertParentVersionIsDraft($component->proposal_version_line_id, 'update');
+
+            if ($component->isDirty('proposal_version_line_id')) {
+                self::assertParentVersionIsDraft($component->getOriginal('proposal_version_line_id'), 'update');
+            }
+        });
+
+        static::deleting(function (self $component): void {
+            self::assertParentVersionIsDraft($component->proposal_version_line_id, 'delete');
+        });
+    }
+
+    private static function assertParentVersionIsDraft(?int $lineId, string $action): void
+    {
+        if (! $lineId) {
+            return;
+        }
+
+        $versionId = DB::table('proposal_version_lines')->where('id', $lineId)->value('proposal_version_id');
+
+        if (! $versionId) {
+            return;
+        }
+
+        $lifecycle = DB::table('proposal_versions')->where('id', $versionId)->value('lifecycle_status');
+
+        if ($lifecycle !== null && $lifecycle !== ProposalVersionLifecycle::Draft->value) {
+            throw new LogicException(
+                "Cannot {$action} a tax component on ProposalVersionLine #{$lineId}: its ProposalVersion #{$versionId} is no longer Draft ({$lifecycle})."
+            );
+        }
     }
 
     public function line(): BelongsTo

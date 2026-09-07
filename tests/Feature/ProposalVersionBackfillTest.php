@@ -110,6 +110,11 @@ class ProposalVersionBackfillTest extends TestCase
         $this->assertNull($version->approved_at);
         $this->assertNull($version->returned_by);
         $this->assertNull($version->returned_at);
+        // 4A-2.1: the real formal Manager submission evidence must not be
+        // fabricated for a legacy version either — none of these 6
+        // production rows ever had a genuine "Manager submits" event.
+        $this->assertNull($version->submitted_by);
+        $this->assertNull($version->submitted_at);
         $this->assertDatabaseCount('proposal_version_lines', 0);
     }
 

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ProposalLineDiscountType;
+use App\Enums\ProposalVersionLifecycle;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\EnforcesSameOrganizationRelations;
 use App\Models\Scopes\OrganizationScope;
@@ -11,6 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 
 /**
  * Phase 4A-1: one commercial line row snapshot, belonging to exactly one
@@ -60,6 +62,45 @@ class ProposalVersionLine extends Model
     protected static function booted(): void
     {
         static::addGlobalScope(new OrganizationScope);
+
+        // 4A-2.1 locked Decision 11 (D): a line may be created/updated/
+        // deleted only while its parent ProposalVersion is Draft. Model/
+        // domain-level, not UI-only — checked via a direct query against
+        // the parent's CURRENT lifecycle_status, mirroring the existing
+        // inheritedOrganizationId() idiom already used in this class,
+        // rather than trusting a possibly-stale loaded relationship.
+        static::creating(function (self $line): void {
+            self::assertParentVersionIsDraft($line->proposal_version_id, 'create');
+        });
+
+        static::updating(function (self $line): void {
+            self::assertParentVersionIsDraft($line->proposal_version_id, 'update');
+
+            // Defensive: also reject moving a line AWAY from an already-frozen
+            // parent onto a different one, not just editing it in place.
+            if ($line->isDirty('proposal_version_id')) {
+                self::assertParentVersionIsDraft($line->getOriginal('proposal_version_id'), 'update');
+            }
+        });
+
+        static::deleting(function (self $line): void {
+            self::assertParentVersionIsDraft($line->proposal_version_id, 'delete');
+        });
+    }
+
+    private static function assertParentVersionIsDraft(?int $proposalVersionId, string $action): void
+    {
+        if (! $proposalVersionId) {
+            return;
+        }
+
+        $lifecycle = DB::table('proposal_versions')->where('id', $proposalVersionId)->value('lifecycle_status');
+
+        if ($lifecycle !== null && $lifecycle !== ProposalVersionLifecycle::Draft->value) {
+            throw new LogicException(
+                "Cannot {$action} a line on ProposalVersion #{$proposalVersionId}: it is no longer Draft ({$lifecycle})."
+            );
+        }
     }
 
     public function proposalVersion(): BelongsTo

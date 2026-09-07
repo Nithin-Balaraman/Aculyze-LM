@@ -212,4 +212,56 @@ class ProposalVersionModelTest extends TestCase
         $this->assertSame(ProposalOutcome::Won, $proposal->fresh()->outcome);
         $this->assertSame($version->id, $proposal->fresh()->winningVersion->id);
     }
+
+    /**
+     * Phase 4A-2.1 locked Decision 2: submitted_by/submitted_at are the
+     * real formal Manager submission evidence — nullable, and never
+     * auto-populated merely by creating a Version.
+     */
+    public function test_submitted_by_and_submitted_at_are_nullable_and_not_auto_populated(): void
+    {
+        $owner = User::factory()->create();
+        $proposal = $this->proposal($owner);
+
+        $version = ProposalVersion::factory()->create([
+            'proposal_id' => $proposal->id,
+            'version_number' => 1,
+        ]);
+
+        $this->assertNull($version->submitted_by);
+        $this->assertNull($version->submitted_at);
+    }
+
+    /**
+     * manager_reviewed_by/at/comment come from the earlier, since-corrected
+     * workflow assumption and are not part of the actual locked workflow
+     * (Manager prepares -> Manager submits -> Senior Manager Approves/
+     * Returns). A Version must be able to carry real submission evidence
+     * while leaving these three permanently null/unrequired.
+     */
+    public function test_manager_reviewed_fields_are_not_required_alongside_submission_evidence(): void
+    {
+        $owner = User::factory()->create();
+        $proposal = $this->proposal($owner);
+        $manager = User::factory()->create();
+
+        $version = ProposalVersion::factory()->create([
+            'proposal_id' => $proposal->id,
+            'version_number' => 1,
+            'lifecycle_status' => ProposalVersionLifecycle::Draft,
+        ]);
+
+        $version->forceFill([
+            'lifecycle_status' => ProposalVersionLifecycle::Submitted,
+            'submitted_by' => $manager->id,
+            'submitted_at' => now(),
+        ])->save();
+
+        $fresh = $version->fresh();
+        $this->assertSame($manager->id, $fresh->submitted_by);
+        $this->assertNotNull($fresh->submitted_at);
+        $this->assertNull($fresh->manager_reviewed_by);
+        $this->assertNull($fresh->manager_reviewed_at);
+        $this->assertNull($fresh->manager_review_comment);
+    }
 }
