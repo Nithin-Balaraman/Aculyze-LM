@@ -13,6 +13,14 @@ class ViewProposal extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            // Phase 4A-2.5: the only entry point into the new commercial
+            // ProposalVersion workflow — no separate navigation item exists
+            // for it (locked product decision: ProposalVersion is
+            // contextual under Proposal, never a global Resource).
+            Actions\Action::make('commercialVersion')
+                ->label('Commercial Version')
+                ->icon('heroicon-o-document-currency-rupee')
+                ->url(fn () => ProposalResource::getUrl('commercial', ['record' => $this->getRecord()])),
             Actions\EditAction::make(),
             ProposalResource::downloadAttachmentAction(),
         ];

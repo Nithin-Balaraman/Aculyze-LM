@@ -184,6 +184,22 @@ class ProposalVersion extends Model
         return $this->hasOne(self::class, 'superseded_by_version_id');
     }
 
+    /** Phase 4A-2.5: read-only workflow-evidence lookups for the commercial UI — never used for authorization itself. */
+    public function submittedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'submitted_by');
+    }
+
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function returnedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'returned_by');
+    }
+
     public function isEditable(): bool
     {
         return $this->lifecycle_status->isEditable();

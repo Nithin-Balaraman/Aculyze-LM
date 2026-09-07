@@ -21,6 +21,22 @@ use App\Support\Authorization\HierarchyVisibility;
  */
 class ProposalVersionPolicy
 {
+    /**
+     * Phase 4A-2.5: Manager-or-above may edit a Draft's commercial content
+     * within their own hierarchy scope; Senior Manager, organization-wide —
+     * the exact same rule as submit() (locked Decision, Master BA section
+     * 4). Callers must additionally check lifecycle_status === Draft
+     * themselves (or rely on ProposalVersionDraftService::saveDraft()'s own
+     * server-side re-check) — this method only answers "is this actor
+     * allowed to edit Drafts on this Proposal at all", never "is this
+     * specific Version currently editable".
+     */
+    public function edit(User $user, ProposalVersion $version): bool
+    {
+        return ($user->isManager() || $user->isSeniorManager())
+            && HierarchyVisibility::canAccess($user, $version->proposal, 'assigned_to');
+    }
+
     /** Manager prepares/submits within their own hierarchy; Senior Manager, organization-wide. */
     public function submit(User $user, ProposalVersion $version): bool
     {

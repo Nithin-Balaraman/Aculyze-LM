@@ -61,166 +61,166 @@ class ProposalResource extends Resource
     public static function formSchema(): array
     {
         return [
-                Forms\Components\Section::make()
-                    ->columns(2)
-                    ->schema([
-                        // whereDoesntHave('proposal') is what keeps
-                        // already-claimed Leads out of the options list on
-                        // Create — but on Edit/View, this field's own
-                        // record's Lead already has a Proposal (this one!),
-                        // so without the orWhere() escape hatch below, this
-                        // Select's own current value was excluded from the
-                        // very query used to resolve its display label —
-                        // Filament's async getFormSelectOptionLabel() call
-                        // came back null, and the JS fell back to showing
-                        // the raw lead_id instead of the company name.
-                        Forms\Components\Select::make('lead_id')
-                            ->label('Lead')
-                            ->relationship(
-                                'lead',
-                                'id',
-                                modifyQueryUsing: fn (Builder $query, ?Proposal $record) => $query
-                                    ->visibleTo(auth()->user())
-                                    ->where(
-                                        fn (Builder $query) => $query
-                                            ->whereDoesntHave('proposal')
-                                            ->when($record, fn (Builder $query) => $query->orWhere(
-                                                $query->getModel()->getQualifiedKeyName(),
-                                                $record->lead_id,
-                                            ))
-                                    ),
-                            )
-                            ->getOptionLabelFromRecordUsing(fn (Lead $record) => $record->prospect->company_name.' — '.$record->stage->getLabel())
-                            ->required()
-                            ->searchable()
-                            ->preload()
-                            ->disabled(fn (?Proposal $record) => $record !== null)
-                            ->dehydrated(),
-                        Forms\Components\Select::make('assigned_to')
-                            ->label('Assigned Employee')
-                            ->options(fn () => User::query()->pluck('name', 'id'))
-                            ->default(fn () => auth()->id())
-                            ->required()
-                            ->searchable()
-                            ->disabled(fn () => ! auth()->user()->isAdmin())
-                            ->dehydrated(),
-                        // ->live() so attachment_paths' visible()/required()
-                        // below react the moment Stage changes — same
-                        // mechanism as CallRecordResource's outcome-driven
-                        // fields and LeadResource's stage-driven Notes
-                        // requirement.
-                        Forms\Components\Select::make('stage')
-                            ->options(ProposalStage::class)
-                            ->required()
-                            ->default(ProposalStage::BeingPrepared)
-                            ->live(),
-                        // ->live() so notes' required()/rule() below react
-                        // the moment Final Outcome changes — same mechanism
-                        // as stage above.
-                        Forms\Components\Select::make('outcome')
-                            ->label('Final Outcome')
-                            ->options(ProposalOutcome::class)
-                            ->live()
-                            ->helperText('Leave blank while the Proposal is still in progress.'),
-                        Forms\Components\TextInput::make('value')
-                            ->label('Proposal Value (₹)')
-                            ->numeric()
-                            ->prefix('₹'),
-                        Forms\Components\DatePicker::make('sent_at'),
-                        // Required the moment Final Outcome is Won or Lost —
-                        // a genuine final decision should always leave a
-                        // record of why. Mirrors the same required()+rule()
-                        // pairing LeadResource uses for "Notes required when
-                        // Validated" — plain required() alone would accept a
-                        // whitespace-only value.
-                        Forms\Components\Textarea::make('notes')
-                            ->rows(3)
-                            ->columnSpanFull()
-                            ->required(fn (Get $get) => self::outcomeIsFinal($get('outcome')))
-                            ->validationMessages([
-                                'required' => 'Notes are required when the Final Outcome is Won or Lost.',
-                            ])
-                            ->rule(
-                                fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
-                                    if (self::outcomeIsFinal($get('outcome')) && blank($value)) {
-                                        $fail('Notes are required when the Final Outcome is Won or Lost.');
-                                    }
-                                },
-                            ),
-                        // Required the moment Stage is "Proposal Sent" — on
-                        // every save, including an already-Sent Proposal
-                        // from before this field existed, the next time it's
-                        // opened and saved (deliberate: no backfill/grandfathering).
-                        // Stored on the 'local' disk (private, already
-                        // signature-protected by Laravel's own storage.local
-                        // route — see config/filesystems.php) rather than
-                        // the public 'avatars' disk. previewable(false)
-                        // because Filament's private-file preview link calls
-                        // $storage->temporaryUrl(), which the stock local
-                        // Flysystem adapter doesn't support — it would throw
-                        // and silently fall back to a plain unsigned URL
-                        // that the signature-checking route would then
-                        // reject. Viewing/downloading instead goes through
-                        // downloadAttachmentAction() below, which streams
-                        // each file directly and rides the same page-level
-                        // authorization Filament already applies to reach
-                        // this Resource's Edit/View pages.
-                        //
-                        // ->multiple(): a Proposal can carry any number of
-                        // attachments now, of any file type (dropped
-                        // acceptedFileTypes(['application/pdf']) — no
-                        // longer PDF-only). ->storeFileNamesIn() persists
-                        // each file's real original filename into
-                        // attachment_names (keyed by its stored path — see
-                        // Proposal::attachments()), since Filament stores
-                        // the file itself under a generated name to avoid
-                        // collisions between different uploads that happen
-                        // to share a filename.
-                        Forms\Components\FileUpload::make('attachment_paths')
-                            ->label('Attachments')
-                            ->multiple()
-                            ->storeFileNamesIn('attachment_names')
-                            ->disk('local')
-                            ->directory('proposal-attachments')
-                            ->visibility('private')
-                            ->maxSize(10240)
-                            ->previewable(false)
-                            ->columnSpanFull()
-                            // Visible once Sent OR once at least one file
-                            // already exists — so a Proposal that moves on
-                            // to a later stage (Customer Accepted, or a
-                            // Lost outcome) doesn't lose sight of what it
-                            // already has attached; required-ness is
-                            // untouched and still keys only off Sent.
-                            ->visible(fn (Get $get) => self::stageIsSent($get('stage')) || filled($get('attachment_paths')))
-                            ->required(fn (Get $get) => self::stageIsSent($get('stage')))
-                            ->validationMessages([
-                                'required' => 'At least one attachment is required once the Proposal stage is Proposal Sent.',
-                            ])
-                            // visible() above depends on attachment_paths'
-                            // own value, so removing every file (clearing
-                            // it to empty) can itself make the field hidden
-                            // in the same save (stage moved away from Sent
-                            // at the same time) — and Filament's fields
-                            // don't dehydrate while hidden by default,
-                            // which would silently keep the stale paths in
-                            // the database. dehydratedWhenHidden() makes
-                            // sure the cleared state still overwrites
-                            // attachment_paths regardless of visibility at
-                            // save time.
-                            ->dehydratedWhenHidden()
-                            // Filament's FileUpload does NOT delete the
-                            // underlying stored file when removed via the
-                            // form's own "x" button unless this is set —
-                            // without it, clicking "x" only detaches the
-                            // reference, leaving the file itself orphaned
-                            // on the 'local' disk indefinitely.
-                            ->deleteUploadedFileUsing(function (string|TemporaryUploadedFile $file): void {
-                                if (is_string($file)) {
-                                    Storage::disk('local')->delete($file);
+            Forms\Components\Section::make()
+                ->columns(2)
+                ->schema([
+                    // whereDoesntHave('proposal') is what keeps
+                    // already-claimed Leads out of the options list on
+                    // Create — but on Edit/View, this field's own
+                    // record's Lead already has a Proposal (this one!),
+                    // so without the orWhere() escape hatch below, this
+                    // Select's own current value was excluded from the
+                    // very query used to resolve its display label —
+                    // Filament's async getFormSelectOptionLabel() call
+                    // came back null, and the JS fell back to showing
+                    // the raw lead_id instead of the company name.
+                    Forms\Components\Select::make('lead_id')
+                        ->label('Lead')
+                        ->relationship(
+                            'lead',
+                            'id',
+                            modifyQueryUsing: fn (Builder $query, ?Proposal $record) => $query
+                                ->visibleTo(auth()->user())
+                                ->where(
+                                    fn (Builder $query) => $query
+                                        ->whereDoesntHave('proposal')
+                                        ->when($record, fn (Builder $query) => $query->orWhere(
+                                            $query->getModel()->getQualifiedKeyName(),
+                                            $record->lead_id,
+                                        ))
+                                ),
+                        )
+                        ->getOptionLabelFromRecordUsing(fn (Lead $record) => $record->prospect->company_name.' — '.$record->stage->getLabel())
+                        ->required()
+                        ->searchable()
+                        ->preload()
+                        ->disabled(fn (?Proposal $record) => $record !== null)
+                        ->dehydrated(),
+                    Forms\Components\Select::make('assigned_to')
+                        ->label('Assigned Employee')
+                        ->options(fn () => User::query()->pluck('name', 'id'))
+                        ->default(fn () => auth()->id())
+                        ->required()
+                        ->searchable()
+                        ->disabled(fn () => ! auth()->user()->isAdmin())
+                        ->dehydrated(),
+                    // ->live() so attachment_paths' visible()/required()
+                    // below react the moment Stage changes — same
+                    // mechanism as CallRecordResource's outcome-driven
+                    // fields and LeadResource's stage-driven Notes
+                    // requirement.
+                    Forms\Components\Select::make('stage')
+                        ->options(ProposalStage::class)
+                        ->required()
+                        ->default(ProposalStage::BeingPrepared)
+                        ->live(),
+                    // ->live() so notes' required()/rule() below react
+                    // the moment Final Outcome changes — same mechanism
+                    // as stage above.
+                    Forms\Components\Select::make('outcome')
+                        ->label('Final Outcome')
+                        ->options(ProposalOutcome::class)
+                        ->live()
+                        ->helperText('Leave blank while the Proposal is still in progress.'),
+                    Forms\Components\TextInput::make('value')
+                        ->label('Proposal Value (₹)')
+                        ->numeric()
+                        ->prefix('₹'),
+                    Forms\Components\DatePicker::make('sent_at'),
+                    // Required the moment Final Outcome is Won or Lost —
+                    // a genuine final decision should always leave a
+                    // record of why. Mirrors the same required()+rule()
+                    // pairing LeadResource uses for "Notes required when
+                    // Validated" — plain required() alone would accept a
+                    // whitespace-only value.
+                    Forms\Components\Textarea::make('notes')
+                        ->rows(3)
+                        ->columnSpanFull()
+                        ->required(fn (Get $get) => self::outcomeIsFinal($get('outcome')))
+                        ->validationMessages([
+                            'required' => 'Notes are required when the Final Outcome is Won or Lost.',
+                        ])
+                        ->rule(
+                            fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
+                                if (self::outcomeIsFinal($get('outcome')) && blank($value)) {
+                                    $fail('Notes are required when the Final Outcome is Won or Lost.');
                                 }
-                            }),
-                    ]),
+                            },
+                        ),
+                    // Required the moment Stage is "Proposal Sent" — on
+                    // every save, including an already-Sent Proposal
+                    // from before this field existed, the next time it's
+                    // opened and saved (deliberate: no backfill/grandfathering).
+                    // Stored on the 'local' disk (private, already
+                    // signature-protected by Laravel's own storage.local
+                    // route — see config/filesystems.php) rather than
+                    // the public 'avatars' disk. previewable(false)
+                    // because Filament's private-file preview link calls
+                    // $storage->temporaryUrl(), which the stock local
+                    // Flysystem adapter doesn't support — it would throw
+                    // and silently fall back to a plain unsigned URL
+                    // that the signature-checking route would then
+                    // reject. Viewing/downloading instead goes through
+                    // downloadAttachmentAction() below, which streams
+                    // each file directly and rides the same page-level
+                    // authorization Filament already applies to reach
+                    // this Resource's Edit/View pages.
+                    //
+                    // ->multiple(): a Proposal can carry any number of
+                    // attachments now, of any file type (dropped
+                    // acceptedFileTypes(['application/pdf']) — no
+                    // longer PDF-only). ->storeFileNamesIn() persists
+                    // each file's real original filename into
+                    // attachment_names (keyed by its stored path — see
+                    // Proposal::attachments()), since Filament stores
+                    // the file itself under a generated name to avoid
+                    // collisions between different uploads that happen
+                    // to share a filename.
+                    Forms\Components\FileUpload::make('attachment_paths')
+                        ->label('Attachments')
+                        ->multiple()
+                        ->storeFileNamesIn('attachment_names')
+                        ->disk('local')
+                        ->directory('proposal-attachments')
+                        ->visibility('private')
+                        ->maxSize(10240)
+                        ->previewable(false)
+                        ->columnSpanFull()
+                        // Visible once Sent OR once at least one file
+                        // already exists — so a Proposal that moves on
+                        // to a later stage (Customer Accepted, or a
+                        // Lost outcome) doesn't lose sight of what it
+                        // already has attached; required-ness is
+                        // untouched and still keys only off Sent.
+                        ->visible(fn (Get $get) => self::stageIsSent($get('stage')) || filled($get('attachment_paths')))
+                        ->required(fn (Get $get) => self::stageIsSent($get('stage')))
+                        ->validationMessages([
+                            'required' => 'At least one attachment is required once the Proposal stage is Proposal Sent.',
+                        ])
+                        // visible() above depends on attachment_paths'
+                        // own value, so removing every file (clearing
+                        // it to empty) can itself make the field hidden
+                        // in the same save (stage moved away from Sent
+                        // at the same time) — and Filament's fields
+                        // don't dehydrate while hidden by default,
+                        // which would silently keep the stale paths in
+                        // the database. dehydratedWhenHidden() makes
+                        // sure the cleared state still overwrites
+                        // attachment_paths regardless of visibility at
+                        // save time.
+                        ->dehydratedWhenHidden()
+                        // Filament's FileUpload does NOT delete the
+                        // underlying stored file when removed via the
+                        // form's own "x" button unless this is set —
+                        // without it, clicking "x" only detaches the
+                        // reference, leaving the file itself orphaned
+                        // on the 'local' disk indefinitely.
+                        ->deleteUploadedFileUsing(function (string|TemporaryUploadedFile $file): void {
+                            if (is_string($file)) {
+                                Storage::disk('local')->delete($file);
+                            }
+                        }),
+                ]),
         ];
     }
 
@@ -554,6 +554,7 @@ class ProposalResource extends Resource
             'create' => Pages\CreateProposal::route('/create'),
             'view' => Pages\ViewProposal::route('/{record}'),
             'edit' => Pages\EditProposal::route('/{record}/edit'),
+            'commercial' => Pages\ManageCommercialVersion::route('/{record}/commercial'),
         ];
     }
 
