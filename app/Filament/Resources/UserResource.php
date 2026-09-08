@@ -244,6 +244,22 @@ class UserResource extends Resource
 
         $service = app(EmployeeDeletionService::class);
 
+        // Audit fix pass 1 (locked Decision D3): a formal ProposalVersion
+        // actor cannot be hard-deleted at all, so offering cleanup options
+        // would be misleading. The service blocks this independently — this
+        // just explains it before the admin fills anything in.
+        if ($service->isProposalVersionActor($record)) {
+            return [
+                Forms\Components\Placeholder::make('blocked')
+                    ->label('')
+                    ->content(
+                        "{$record->name} is recorded as the actor on permanent Proposal commercial Version history ".
+                        '(who submitted, approved or returned a commercial Version). That evidence is never reassigned or rewritten, '.
+                        'so this employee cannot be deleted.'
+                    ),
+            ];
+        }
+
         if (! $service->hasDependencies($record)) {
             // Section 5.7: nothing to clean up, so keep the simple
             // confirm-only behavior — no extra choices to make.
@@ -262,14 +278,15 @@ class UserResource extends Resource
             Forms\Components\Radio::make('option')
                 ->label('What should happen to their records?')
                 ->options([
-                    'reassign' => 'Keep Companies (Reassign) — Database records stay and become unassigned; their other records are removed.',
-                    'delete_everything' => 'Delete Everything (Including Companies) — their Database records, and everything else they own, are removed.',
+                    'reassign' => 'Keep Companies (Reassign) — Database records stay and become unassigned; their Appointments, Follow-Ups and Leads with no history are removed.',
+                    'delete_everything' => 'Delete Everything (Including Companies) — their Database records are removed too.',
                 ])
+                ->helperText('Neither option removes Proposals, their commercial Version history, or Demos — those are permanent records and are always kept and handed over.')
                 ->required()
                 ->default('reassign'),
             Forms\Components\Select::make('replacement_id')
-                ->label('Reassign their Call Records (and direct reports, if any) to')
-                ->helperText('Required — Call Records are permanent history and are never deleted, only handed to someone else. Any record they merely created (but that belongs to someone else), and anyone reporting to them, also move to this person.')
+                ->label('Hand their permanent records over to')
+                ->helperText('Required — Call Records, Proposals (with all their commercial Version history), Demos, and the Leads those hang off are permanent history: they are never deleted, only handed to someone else. Any record they merely created (but that belongs to someone else), and anyone reporting to them, also move to this person.')
                 ->options(fn () => User::query()->where('organization_id', $record->organization_id)->whereKeyNot($record->id)->orderBy('name')->pluck('name', 'id'))
                 ->searchable()
                 ->required($requiresReplacement)

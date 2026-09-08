@@ -3,6 +3,8 @@
 namespace App\Filament\Resources\ProposalResource\Pages;
 
 use App\Filament\Resources\ProposalResource;
+use App\Models\Proposal;
+use App\Support\DeletionGuard;
 use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
 use Livewire\Attributes\Url;
@@ -23,7 +25,12 @@ class EditProposal extends EditRecord
         return [
             Actions\ViewAction::make(),
             ProposalResource::downloadAttachmentAction(),
-            Actions\DeleteAction::make(),
+            // Same server-side blocker the list row's Delete uses (audit
+            // fix pass 1, F1) — mirrors EditLead/EditFollowUp/
+            // EditCallRecord, so no Proposal with commercial Version
+            // history can be deleted from this page either.
+            Actions\DeleteAction::make()
+                ->before(fn (Proposal $record) => DeletionGuard::guardRecord($record, 'proposal')),
         ];
     }
 

@@ -216,6 +216,34 @@ class Proposal extends Model
             ->where('stage_changed_at', '<=', $threshold);
     }
 
+    /**
+     * Audit fix pass 1, F1 (locked Decision D1): a Proposal blocks deletion
+     * the moment it has ANY ProposalVersion. Commercial Versions are
+     * permanent commercial/audit history — an Approved or Sent Version must
+     * never disappear because someone clicked Delete on its parent Proposal
+     * — and proposal_versions.proposal_id is RESTRICT precisely so the
+     * database agrees. This is the friendly, reusable, server-side half of
+     * that same rule: the blocker is evaluated before delete() is ever
+     * called (App\Support\DeletionGuard), leaving the RESTRICT constraint as
+     * a genuine last line of defence rather than the user-facing behaviour.
+     *
+     * A Proposal with zero Versions keeps the existing delete behaviour.
+     *
+     * @return array<string, int>
+     */
+    public function deletionBlockers(): array
+    {
+        return [
+            'commercial Version(s)' => $this->versions()->count(),
+        ];
+    }
+
+    /** Commercial Versions are never "reassigned or removed" — see App\Support\DeletionGuard::message(). */
+    public function deletionBlockerAdvice(): string
+    {
+        return 'This Proposal has commercial version history and cannot be deleted — commercial Versions are permanent records and are never removed.';
+    }
+
     /** Inherits organization_id from the Prospect this Proposal is against. */
     protected function inheritedOrganizationId(): ?int
     {

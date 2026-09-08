@@ -8,6 +8,7 @@ use App\Enums\LeadTemperature;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\EnforcesSameOrganizationRelations;
 use App\Models\Scopes\OrganizationScope;
+use App\Support\Authorization\HierarchyVisibility;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -15,8 +16,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
 
 class Lead extends Model
 {
@@ -216,7 +217,7 @@ class Lead extends Model
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        return \App\Support\Authorization\HierarchyVisibility::scopeFor($query, $user, 'assigned_to');
+        return HierarchyVisibility::scopeFor($query, $user, 'assigned_to');
     }
 
     /**
@@ -255,13 +256,26 @@ class Lead extends Model
      * 9, folded into the same blocking-delete fix as Sections 5 & 8) — the
      * Proposal is real sales history that must not vanish with its Lead.
      *
+     * Audit fix pass 1, F4 (locked Decision D5): Demos are the same kind of
+     * history and were simply never added here when Demo landed in Phase 2,
+     * so a Lead with Demos but no Proposal used to reach demos.lead_id's
+     * RESTRICT constraint and surface as a raw 500. Demo history is never
+     * cascade-deleted; the Lead is blocked instead.
+     *
      * @return array<string, int>
      */
     public function deletionBlockers(): array
     {
         return [
             'Proposal' => (int) $this->proposal()->exists(),
+            'Demo(s)' => $this->demos()->count(),
         ];
+    }
+
+    /** Neither a Proposal nor Demo history is ever "removed" to unblock a Lead — see App\Support\DeletionGuard::message(). */
+    public function deletionBlockerAdvice(): string
+    {
+        return 'A Lead is never deleted out from under its Proposal or Demo history — that history stays with it.';
     }
 
     /** Inherits organization_id from the Prospect this Lead is against. */

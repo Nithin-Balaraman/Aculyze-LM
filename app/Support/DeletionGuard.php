@@ -35,7 +35,7 @@ class DeletionGuard
 
         Notification::make()
             ->title("Can't delete this {$subjectLabel}")
-            ->body(self::message($blockers))
+            ->body(self::message($blockers, $record))
             ->danger()
             ->send();
 
@@ -71,15 +71,27 @@ class DeletionGuard
     }
 
     /**
+     * "Reassign or remove those first" is the right advice for most
+     * blockers, but not for permanent history that is never removed at all
+     * (a Proposal's commercial Versions, a Lead's Demos). Audit fix pass 1
+     * (Section 7) therefore lets a model replace that closing sentence with
+     * its own domain-accurate one via an optional
+     * `deletionBlockerAdvice(): string`, while the itemized counts above it
+     * stay identical everywhere.
+     *
      * @param  array<string, int>  $blockers
      */
-    private static function message(array $blockers): string
+    private static function message(array $blockers, Model $record): string
     {
         $total = array_sum($blockers);
         $breakdown = collect($blockers)
             ->map(fn (int $count, string $label) => "{$count} {$label}")
             ->implode(', ');
 
-        return "It still has {$total} related record(s) — {$breakdown}. Reassign or remove those first.";
+        $advice = method_exists($record, 'deletionBlockerAdvice')
+            ? $record->deletionBlockerAdvice()
+            : 'Reassign or remove those first.';
+
+        return "It still has {$total} related record(s) — {$breakdown}. {$advice}";
     }
 }

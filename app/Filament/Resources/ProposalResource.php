@@ -11,6 +11,7 @@ use App\Models\Lead;
 use App\Models\Proposal;
 use App\Models\User;
 use App\Services\WorkflowTransitionService;
+use App\Support\DeletionGuard;
 use App\Support\TableBulkActions;
 use Filament\Actions;
 use Filament\Forms;
@@ -22,6 +23,7 @@ use Filament\Support\Exceptions\Halt;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use LogicException;
@@ -439,14 +441,25 @@ class ProposalResource extends Resource
                         ->action(fn (Proposal $record, array $data) => $record->update(['assigned_to' => $data['assigned_to']])),
                     self::continueAction(),
                     Tables\Actions\DeleteAction::make()
-                        ->visible(fn () => auth()->user()->isAdmin()),
+                        ->visible(fn () => auth()->user()->isAdmin())
+                        ->before(fn (Proposal $record) => DeletionGuard::guardRecord($record, 'proposal')),
                 ]),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     TableBulkActions::deselectAll(),
+                    // Established convention (App\Support\DeletionGuard::
+                    // guardRecords, already used by Lead/Call Record/User):
+                    // if ANY selected Proposal still has commercial Version
+                    // history the WHOLE batch is blocked and named, never
+                    // silently part-deleted.
                     Tables\Actions\DeleteBulkAction::make()
-                        ->visible(fn () => auth()->user()->isAdmin()),
+                        ->visible(fn () => auth()->user()->isAdmin())
+                        ->before(fn (Collection $records) => DeletionGuard::guardRecords(
+                            $records,
+                            'proposals',
+                            fn (Proposal $proposal) => $proposal->prospect->company_name,
+                        )),
                 ]),
             ])
             ->defaultSort('created_at', 'desc')

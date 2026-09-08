@@ -111,14 +111,20 @@ class EmployeeDeletionTest extends TestCase
 
         $breakdown = $this->service()->dependencyBreakdown($employee);
 
+        // Audit fix pass 1 added `demos` (F3) and the three permanent
+        // ProposalVersion actor counts (F2/locked Decision D3).
         $this->assertSame([
             'prospects' => 1,
             'callRecords' => 1,
             'followUps' => 1,
             'appointments' => 1,
+            'demos' => 0,
             'leads' => 1,
             'proposals' => 1,
             'directReports' => 0,
+            'versionsSubmitted' => 0,
+            'versionsApproved' => 0,
+            'versionsReturned' => 0,
         ], $breakdown);
     }
 
@@ -228,7 +234,15 @@ class EmployeeDeletionTest extends TestCase
 
     // --- 5 & 6. Option A ---
 
-    public function test_option_a_keeps_and_unassigns_prospects_and_deletes_other_owned_records(): void
+    /**
+     * Audit fix pass 1 (locked Decision D2) changed what "everything else"
+     * means: a Proposal is permanent commercial history and is now handed
+     * to the replacement rather than deleted, and — because
+     * proposals.lead_id is RESTRICT — so is the Lead it hangs off.
+     * Follow-Ups, Appointments and Leads with no Proposal/Demo history are
+     * unchanged and still deleted.
+     */
+    public function test_option_a_keeps_and_unassigns_prospects_hands_over_proposals_and_deletes_the_rest(): void
     {
         $employee = User::factory()->create();
         $replacement = User::factory()->create();
@@ -241,8 +255,17 @@ class EmployeeDeletionTest extends TestCase
 
         $this->assertDatabaseMissing('follow_ups', ['id' => $set['followUp']->id]);
         $this->assertDatabaseMissing('appointments', ['id' => $set['appointment']->id]);
-        $this->assertDatabaseMissing('leads', ['id' => $set['lead']->id]);
-        $this->assertDatabaseMissing('proposals', ['id' => $set['proposal']->id]);
+
+        $this->assertDatabaseHas('proposals', [
+            'id' => $set['proposal']->id,
+            'assigned_to' => $replacement->id,
+            'created_by' => $replacement->id,
+        ]);
+        $this->assertDatabaseHas('leads', [
+            'id' => $set['lead']->id,
+            'assigned_to' => $replacement->id,
+            'created_by' => $replacement->id,
+        ]);
         $this->assertDatabaseMissing('users', ['id' => $employee->id]);
     }
 
@@ -262,8 +285,11 @@ class EmployeeDeletionTest extends TestCase
 
         $this->assertDatabaseMissing('follow_ups', ['id' => $set['followUp']->id]);
         $this->assertDatabaseMissing('appointments', ['id' => $set['appointment']->id]);
-        $this->assertDatabaseMissing('leads', ['id' => $set['lead']->id]);
-        $this->assertDatabaseMissing('proposals', ['id' => $set['proposal']->id]);
+
+        // "Delete Everything" has never meant commercial history: Option B
+        // differs from Option A only in soft-deleting the Prospect.
+        $this->assertDatabaseHas('proposals', ['id' => $set['proposal']->id, 'assigned_to' => $replacement->id]);
+        $this->assertDatabaseHas('leads', ['id' => $set['lead']->id, 'assigned_to' => $replacement->id]);
         $this->assertDatabaseMissing('users', ['id' => $employee->id]);
     }
 
@@ -406,9 +432,20 @@ class EmployeeDeletionTest extends TestCase
         $this->assertNull($reason->invoke(null, $onlyAdmin->fresh()));
     }
 
-    // --- 13. Transaction rollback ---
+    // --- 13. A Lead owned by the employee whose Proposal is someone else's ---
 
-    public function test_a_lead_owned_by_the_employee_with_a_proposal_owned_by_someone_else_rolls_back_cleanly(): void
+    /**
+     * This used to be the service's headline rollback case: the Lead was
+     * hard-deleted, its FK to someone else's Proposal threw, and the whole
+     * transaction rolled back with a generic "referenced by data outside
+     * their own ownership" message. Audit fix pass 1 (locked Decision D2)
+     * removes the cause entirely — a Lead with a Proposal is never deleted
+     * in the first place, so this now simply succeeds, leaving the other
+     * employee's Proposal completely untouched. Rollback itself is still
+     * covered, by the cross-organization replacement case in
+     * tests/Feature/DeletionSafetyAuditFixTest.php.
+     */
+    public function test_a_lead_owned_by_the_employee_with_a_proposal_owned_by_someone_else_is_handed_over_not_deleted(): void
     {
         $employee = User::factory()->create();
         $otherEmployee = User::factory()->create();
@@ -439,17 +476,13 @@ class EmployeeDeletionTest extends TestCase
             'outcome' => CallOutcome::NoAnswer,
         ]);
 
-        $this->expectException(EmployeeDeletionFailedException::class);
+        $this->service()->reassignAndDelete($employee, $replacement);
 
-        try {
-            $this->service()->reassignAndDelete($employee, $replacement);
-        } finally {
-            // Nothing should have changed — full rollback.
-            $this->assertDatabaseHas('users', ['id' => $employee->id]);
-            $this->assertDatabaseHas('leads', ['id' => $lead->id, 'assigned_to' => $employee->id]);
-            $this->assertDatabaseHas('proposals', ['id' => $proposal->id, 'assigned_to' => $otherEmployee->id]);
-            $this->assertDatabaseHas('call_records', ['prospect_id' => $prospect->id, 'user_id' => $employee->id]);
-        }
+        $this->assertDatabaseMissing('users', ['id' => $employee->id]);
+        $this->assertDatabaseHas('leads', ['id' => $lead->id, 'assigned_to' => $replacement->id]);
+        // Someone else's Proposal is not this employee's to move.
+        $this->assertDatabaseHas('proposals', ['id' => $proposal->id, 'assigned_to' => $otherEmployee->id, 'created_by' => $otherEmployee->id]);
+        $this->assertDatabaseHas('call_records', ['prospect_id' => $prospect->id, 'user_id' => $replacement->id]);
     }
 
     // --- Full guided flow through the Filament action ---
@@ -523,8 +556,11 @@ class EmployeeDeletionTest extends TestCase
         $employee = User::factory()->create();
         $this->makeFullOwnershipSet($employee);
 
+        // Audit fix pass 1 (Section 7) names what actually needs an owner
+        // rather than always saying "Call Records" — an employee can now
+        // need a replacement purely because they own Proposals or Demos.
         $this->expectException(EmployeeDeletionFailedException::class);
-        $this->expectExceptionMessage('Choose who should take over their Call Records before continuing.');
+        $this->expectExceptionMessage('Choose who should take over their Call Records, assigned Proposals');
 
         $this->service()->reassignAndDelete($employee, null);
     }

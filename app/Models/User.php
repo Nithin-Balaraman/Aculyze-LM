@@ -398,6 +398,45 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
     }
 
     /**
+     * Audit fix pass 1, F3: Demo landed in Phase 2, after
+     * App\Services\EmployeeDeletionService was written, and was never given
+     * the ownership relations every other activity type has — so no
+     * dependency surface could see a Demo at all and demos.assigned_to/
+     * created_by (both RESTRICT) surfaced as a raw FK error instead.
+     */
+    public function assignedDemos(): HasMany
+    {
+        return $this->hasMany(Demo::class, 'assigned_to');
+    }
+
+    public function createdDemos(): HasMany
+    {
+        return $this->hasMany(Demo::class, 'created_by');
+    }
+
+    /**
+     * Audit fix pass 1, F2 (locked Decision D3): the three formal
+     * ProposalVersion workflow-actor fields. These are permanent evidence of
+     * who actually performed a commercial action — never reassigned, never
+     * nulled, never rewritten — so their only role in deletion is to BLOCK
+     * it (see App\Services\EmployeeDeletionService), never to be moved.
+     */
+    public function submittedProposalVersions(): HasMany
+    {
+        return $this->hasMany(ProposalVersion::class, 'submitted_by');
+    }
+
+    public function approvedProposalVersions(): HasMany
+    {
+        return $this->hasMany(ProposalVersion::class, 'approved_by');
+    }
+
+    public function returnedProposalVersions(): HasMany
+    {
+        return $this->hasMany(ProposalVersion::class, 'returned_by');
+    }
+
+    /**
      * Every FK on this user (assigned_to/created_by/user_id across every
      * module) is a plain RESTRICT constraint, so deleting a User with any of
      * these still attached would otherwise fail as a raw DB error. Named so
@@ -426,7 +465,16 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
             'created Lead(s)' => $this->createdLeads()->count(),
             'assigned Proposal(s)' => $this->assignedProposals()->count(),
             'created Proposal(s)' => $this->createdProposals()->count(),
+            'assigned Demo(s)' => $this->assignedDemos()->count(),
+            'created Demo(s)' => $this->createdDemos()->count(),
             'direct Report(s)' => $this->directReports()->count(),
+            // Permanent commercial evidence (locked Decision D3) — listed
+            // here so bulk delete blocks on it and names it, exactly as it
+            // does for every other RESTRICT reference. Unlike the rest,
+            // these can never be cleared by reassignment.
+            'Proposal Version(s) they submitted' => $this->submittedProposalVersions()->count(),
+            'Proposal Version(s) they approved' => $this->approvedProposalVersions()->count(),
+            'Proposal Version(s) they returned' => $this->returnedProposalVersions()->count(),
         ];
     }
 }

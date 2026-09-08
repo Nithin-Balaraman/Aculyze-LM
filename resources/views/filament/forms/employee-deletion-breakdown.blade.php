@@ -4,9 +4,15 @@
         'callRecords' => 'Call Records',
         'followUps' => 'Follow-Ups',
         'appointments' => 'Appointments',
+        'demos' => 'Demos',
         'leads' => 'Leads',
         'proposals' => 'Proposals',
         'directReports' => 'Direct Reports',
+        // Permanent commercial evidence, not cleanup — a replacement can
+        // never absorb these (see App\Services\EmployeeDeletionService).
+        'versionsSubmitted' => 'Versions they submitted',
+        'versionsApproved' => 'Versions they approved',
+        'versionsReturned' => 'Versions they returned',
     ];
 @endphp
 
