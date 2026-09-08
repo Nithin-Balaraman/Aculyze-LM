@@ -2429,7 +2429,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
         return $this->stageBasedLane(
             label: 'Proposal',
             records: $this->scopeToPeriod(
-                ProposalResource::getEloquentQuery()->with('prospect'),
+                ProposalResource::getEloquentQuery()->with(['prospect', 'currentVersion']),
                 'stage_changed_at',
             )->latest('created_at')->get(),
             cases: ProposalStage::cases(),
@@ -2439,6 +2439,9 @@ class PipelineBoard extends Page implements HasActions, HasForms
             resourceKey: 'proposal',
             urlFor: fn (Proposal $proposal) => ProposalResource::getUrl('view', ['record' => $proposal]),
             outcomeOf: fn (Proposal $proposal) => $proposal->outcome?->value,
+            versionStatusOf: fn (Proposal $proposal) => $proposal->currentVersion
+                ? 'V'.$proposal->currentVersion->version_number.' '.$proposal->currentVersion->lifecycle_status->getLabel()
+                : null,
         );
     }
 
@@ -2458,6 +2461,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * @param  \Closure(TModel): bool  $isLost
      * @param  \Closure(TModel): string  $urlFor
      * @param  \Closure(TModel): (?string)  $outcomeOf
+     * @param  \Closure(TModel): (?string)  $versionStatusOf
      */
     private function stageBasedLane(
         string $label,
@@ -2469,10 +2473,11 @@ class PipelineBoard extends Page implements HasActions, HasForms
         string $resourceKey,
         \Closure $urlFor,
         ?\Closure $outcomeOf = null,
+        ?\Closure $versionStatusOf = null,
     ): array {
         $grouped = $records->groupBy(fn ($record) => $stageOf($record)->value);
 
-        $stages = collect($cases)->mapWithKeys(function ($case) use ($grouped, $resourceKey, $meta, $isLost, $urlFor, $outcomeOf) {
+        $stages = collect($cases)->mapWithKeys(function ($case) use ($grouped, $resourceKey, $meta, $isLost, $urlFor, $outcomeOf, $versionStatusOf) {
             $cards = ($grouped[$case->value] ?? collect())->map(fn ($record) => $this->card(
                 resource: $resourceKey,
                 id: $record->id,
@@ -2481,6 +2486,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 url: $urlFor($record),
                 isLost: $isLost($record),
                 outcome: $outcomeOf ? $outcomeOf($record) : null,
+                versionStatus: $versionStatusOf ? $versionStatusOf($record) : null,
             ));
 
             return [$case->value => [
@@ -2512,6 +2518,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
         string $url,
         bool $isLost = false,
         ?string $outcome = null,
+        ?string $versionStatus = null,
     ): array {
         return [
             'resource' => $resource,
@@ -2522,6 +2529,14 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'url' => $url,
             'isLost' => $isLost,
             'outcome' => $outcome,
+            // F6: a small read-only Commercial Version Status indicator,
+            // null for every lane that has no commercial Version. The board
+            // itself is deliberately NOT redesigned — grouping still keys
+            // off legacy stage exactly as before, and nothing here is
+            // draggable, clickable or writable. It exists only so the two
+            // coexisting status systems are distinguishable at a glance
+            // while PHASE4_OUTCOME_CUTOVER_GATE is OPEN.
+            'versionStatus' => $versionStatus,
         ];
     }
 

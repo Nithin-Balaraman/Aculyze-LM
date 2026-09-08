@@ -112,18 +112,35 @@ class ProposalResource extends Resource
                     // fields and LeadResource's stage-driven Notes
                     // requirement.
                     Forms\Components\Select::make('stage')
+                        ->label('Proposal Stage')
                         ->options(ProposalStage::class)
                         ->required()
                         ->default(ProposalStage::BeingPrepared)
-                        ->live(),
+                        ->live()
+                        ->helperText('How this Proposal is progressing overall — separate from the Commercial Version Status below.'),
                     // ->live() so notes' required()/rule() below react
-                    // the moment Final Outcome changes — same mechanism
+                    // the moment Proposal Outcome changes — same mechanism
                     // as stage above.
                     Forms\Components\Select::make('outcome')
-                        ->label('Final Outcome')
+                        ->label('Proposal Outcome')
                         ->options(ProposalOutcome::class)
                         ->live()
-                        ->helperText('Leave blank while the Proposal is still in progress.'),
+                        ->helperText('The final result of this Proposal. Leave blank while it is still in progress.'),
+                    // F6: a strictly read-only mirror of the commercial
+                    // ProposalVersion lifecycle, so the two status systems
+                    // are visible side by side and cannot be mistaken for
+                    // each other while PHASE4_OUTCOME_CUTOVER_GATE is OPEN.
+                    // A Placeholder writes nothing, so no Version state can
+                    // ever be edited from this form; the Commercial Version
+                    // page remains the only place it changes. Hidden on
+                    // Create, where no Version exists yet.
+                    Forms\Components\Placeholder::make('commercial_version_status')
+                        ->label('Commercial Version Status')
+                        ->visible(fn (?Proposal $record) => $record !== null)
+                        ->content(fn (?Proposal $record) => $record?->currentVersion
+                            ? 'V'.$record->currentVersion->version_number.' — '.$record->currentVersion->lifecycle_status->getLabel()
+                            : 'No commercial Version yet')
+                        ->helperText('Read-only. The commercial document\'s own workflow state — change it on the Commercial Version page.'),
                     Forms\Components\TextInput::make('value')
                         ->label('Proposal Value (₹)')
                         ->numeric()
@@ -358,13 +375,31 @@ class ProposalResource extends Resource
                 ->label('Company')
                 ->searchable()
                 ->sortable(),
+            // F6: the two status systems legitimately coexist while
+            // PHASE4_OUTCOME_CUTOVER_GATE is OPEN, so every screen names
+            // which one it is showing. These two are the LEGACY parent-
+            // Proposal state; the Commercial Version Status below is the
+            // Phase 4A-2 ProposalVersion lifecycle. Labels only — no
+            // outcome logic, no winning_version_id, no gate change.
             Tables\Columns\TextColumn::make('stage')
+                ->label('Proposal Stage')
                 ->badge()
                 ->sortable(),
             Tables\Columns\TextColumn::make('outcome')
+                ->label('Proposal Outcome')
                 ->badge()
                 ->placeholder('In Progress')
                 ->sortable(),
+            // Read-only mirror of the current Version's lifecycle — never
+            // editable from a table, and deliberately not sortable, since
+            // it lives on proposal_versions rather than this table.
+            Tables\Columns\TextColumn::make('currentVersion.lifecycle_status')
+                ->label('Commercial Version Status')
+                ->badge()
+                ->placeholder('No Version yet')
+                ->description(fn (Proposal $record) => $record->currentVersion
+                    ? 'V'.$record->currentVersion->version_number
+                    : null),
             Tables\Columns\TextColumn::make('value')
                 ->label('Value')
                 ->money('INR')
@@ -439,6 +474,21 @@ class ProposalResource extends Resource
                                 ->searchable(),
                         ])
                         ->action(fn (Proposal $record, array $data) => $record->update(['assigned_to' => $data['assigned_to']])),
+                    // F5: the commercial workflow was one level deeper
+                    // than every other resource's primary actions (list ->
+                    // View Proposal -> Commercial Version). This is a pure
+                    // navigation link to the SAME ManageCommercialVersion
+                    // page — it creates and mutates nothing, and adds no
+                    // global ProposalVersion resource or navigation item,
+                    // so ProposalVersion stays contextual under Proposal.
+                    // Authorization is unchanged: the row only exists for
+                    // Proposals the user can already see, and the target
+                    // page runs its own authorizeAccess() regardless.
+                    Tables\Actions\Action::make('commercialVersion')
+                        ->label('Commercial Version')
+                        ->icon('heroicon-o-document-currency-rupee')
+                        ->color('gray')
+                        ->url(fn (Proposal $record) => static::getUrl('commercial', ['record' => $record])),
                     self::continueAction(),
                     Tables\Actions\DeleteAction::make()
                         ->visible(fn () => auth()->user()->isAdmin())

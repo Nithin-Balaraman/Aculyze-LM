@@ -125,6 +125,19 @@
                     </span>
                 @endif
 
+                {{-- F6: a read-only Commercial Version Status chip, present
+                only on cards that actually have a commercial Version. The
+                board's own grouping still keys off legacy stage exactly as
+                before — this is a label, not a lane concept, and is
+                deliberately styled differently from the outcome tag above so
+                the two status systems are never mistaken for each other. --}}
+                @if ($card['versionStatus'] ?? null)
+                    <span
+                        title="Commercial Version Status"
+                        class="w-fit rounded bg-brand-cyan/10 px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wide text-brand-cyan"
+                    >CV · {{ strtoupper($card['versionStatus']) }}</span>
+                @endif
+
                 <div class="flex items-center gap-1.5">
                     <span class="truncate font-mono text-[10px] text-gray-400 dark:text-gray-500">{{ $card['meta'] }}</span>
                     @if ($card['isLost'])
