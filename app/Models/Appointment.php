@@ -8,8 +8,10 @@ use App\Enums\AppointmentStatus;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\EnforcesSameOrganizationRelations;
 use App\Models\Concerns\GuardsScheduleAgainstDirectEdit;
+use App\Models\Concerns\Reschedulable;
 use App\Models\Concerns\ValidatesOriginLineage;
 use App\Models\Scopes\OrganizationScope;
+use App\Support\Authorization\HierarchyVisibility;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -17,8 +19,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Phase 2: `status` (App\Enums\AppointmentStatus, lifecycle) and `outcome`
@@ -40,7 +42,7 @@ use Illuminate\Support\Facades\Date;
  *   AppointmentOutcome::RequirementIdentified ever creates/moves to a
  *   Lead; no other outcome does.
  */
-class Appointment extends Model implements \App\Models\Concerns\Reschedulable
+class Appointment extends Model implements Reschedulable
 {
     use BelongsToOrganization, EnforcesSameOrganizationRelations, GuardsScheduleAgainstDirectEdit, HasFactory, ValidatesOriginLineage;
 
@@ -290,7 +292,7 @@ class Appointment extends Model implements \App\Models\Concerns\Reschedulable
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        return \App\Support\Authorization\HierarchyVisibility::scopeFor($query, $user, 'assigned_to');
+        return HierarchyVisibility::scopeFor($query, $user, 'assigned_to');
     }
 
     /**
@@ -339,6 +341,37 @@ class Appointment extends Model implements \App\Models\Concerns\Reschedulable
             AppointmentStatus::Completed->value,
             AppointmentStatus::Cancelled->value,
         ]);
+    }
+
+    /**
+     * Deletion-guard completion sweep: appointments.rescheduled_from_id is
+     * a plain self-referencing RESTRICT foreign key, so deleting the
+     * ORIGINAL of a rescheduled pair used to fail as a raw, uncaught 500.
+     * The reschedule link is genuine lineage — it records that this
+     * Appointment was moved rather than simply abandoned — so the original
+     * is blocked rather than cascaded.
+     *
+     * This is about DIRECT deletion only. It deliberately does not touch
+     * how employee offboarding treats Appointments (App\Services\
+     * EmployeeDeletionService still hard-deletes assigned Appointments);
+     * that retention question is logged as a separate business decision.
+     *
+     * No other foreign key in the schema points at appointments —
+     * `origin_type`/`origin_id` elsewhere is a morph with no foreign key.
+     *
+     * @return array<string, int>
+     */
+    public function deletionBlockers(): array
+    {
+        return [
+            'replacement Appointment' => (int) $this->replacedBy()->exists(),
+        ];
+    }
+
+    /** Reschedule lineage is never "reassigned or removed" — see App\Support\DeletionGuard::message(). */
+    public function deletionBlockerAdvice(): string
+    {
+        return 'A rescheduled Appointment keeps a permanent link back to the Appointment it replaced, so the original is never deleted out from under it.';
     }
 
     /** Inherits organization_id from the Prospect this Appointment is against. */

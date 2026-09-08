@@ -12,6 +12,7 @@ use App\Models\Lead;
 use App\Models\User;
 use App\Services\RescheduleService;
 use App\Services\WorkflowTransitionService;
+use App\Support\DeletionGuard;
 use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -22,6 +23,7 @@ use Filament\Support\Exceptions\Halt;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use LogicException;
 
 /**
@@ -57,113 +59,113 @@ class AppointmentResource extends Resource
     public static function formSchema(): array
     {
         return [
-                Forms\Components\Section::make()
-                    ->columns(2)
-                    ->schema([
-                        Forms\Components\Select::make('prospect_id')
-                            ->label('Company')
-                            ->relationship(
-                                'prospect',
-                                'company_name',
-                                modifyQueryUsing: fn (Builder $query) => $query->visibleTo(auth()->user()),
-                            )
-                            ->required()
-                            ->searchable()
-                            ->preload(),
-                        Forms\Components\Select::make('assigned_to')
-                            ->label('Assigned Employee')
-                            ->options(fn () => User::query()->pluck('name', 'id'))
-                            ->default(fn () => auth()->id())
-                            ->required()
-                            ->searchable()
-                            ->disabled(fn () => ! auth()->user()->isAdmin())
-                            ->dehydrated(),
-                        Forms\Components\DateTimePicker::make('appointment_at')
-                            ->required()
-                            ->seconds(false)
-                            // Phase 2: normal Edit must never silently
-                            // change an ALREADY-SET schedule — the
-                            // dedicated "Reschedule" row action is the
-                            // only way (see table()). A still-NULL
-                            // schedule (auto-routed from a call before the
-                            // exact time was known) stays editable here —
-                            // filling it in for the first time is not a
-                            // reschedule.
-                            ->disabled(fn (?Appointment $record) => $record?->appointment_at !== null)
-                            ->dehydrated(fn (?Appointment $record) => $record?->appointment_at === null),
-                        // ->live() so outcome_notes' required()/rule()
-                        // below react the moment Stage changes — same
-                        // mechanism as LeadResource's stage-driven Notes
-                        // requirement.
-                        // Phase 3 correction round 2: legacy `stage` is
-                        // editable only at creation, when it drives the
-                        // create-only stage->status fallback (see
-                        // Appointment::booted()) — there is no established
-                        // normalized workflow state yet to diverge from. On
-                        // an EXISTING record it is read-only: normalized
-                        // status is authoritative, and every real business
-                        // conclusion (Succeeded/Not Succeeded/any other
-                        // outcome) must go through the Record Outcome
-                        // action, never a hand-edited legacy value here.
-                        // Mirrors appointment_at's own disabled-on-existing/
-                        // editable-on-create pattern below.
-                        Forms\Components\Select::make('stage')
-                            ->options(AppointmentStage::class)
-                            ->required()
-                            ->default(AppointmentStage::AppointmentMade)
-                            ->live()
-                            ->disabled(fn (?Appointment $record) => $record !== null)
-                            ->dehydrated(fn (?Appointment $record) => $record === null)
-                            ->helperText(fn (?Appointment $record) => $record !== null
-                                ? 'Read-only — use Record Outcome to change this Appointment\'s business state.'
-                                : null),
-                        Forms\Components\Textarea::make('meeting_notes')
-                            ->rows(3)
-                            ->columnSpanFull(),
-                        // Required the moment Stage reaches a terminal value
-                        // (Succeeded or Not Succeeded) — a final result
-                        // should always leave a record of what happened.
-                        // Mirrors the same required()+rule() pairing
-                        // LeadResource uses for "Notes required when
-                        // Validated" — plain required() alone would accept a
-                        // whitespace-only value.
-                        Forms\Components\Textarea::make('outcome_notes')
-                            ->rows(3)
-                            ->columnSpanFull()
-                            ->required(fn (Get $get) => self::stageIsTerminal($get('stage')))
-                            ->validationMessages([
-                                'required' => 'Outcome Notes are required when the stage is Succeeded or Not Succeeded.',
-                            ])
-                            ->rule(
-                                fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
-                                    if (self::stageIsTerminal($get('stage')) && blank($value)) {
-                                        $fail('Outcome Notes are required when the stage is Succeeded or Not Succeeded.');
-                                    }
-                                },
-                            ),
-                    ]),
-                // is_lost/lost_reason/lost_at/lost_at_stage are deliberately
-                // absent from Appointment's own $fillable (only markLost()
-                // sets them, via forceFill() — see its own docblock:
-                // "without touching its normal `stage` field or stage
-                // history"), so these are read-only Placeholders, never an
-                // editable field — there was previously no way to see WHY a
-                // Lost Appointment was marked Lost anywhere on this page.
-                Forms\Components\Section::make('Lost')
-                    ->visible(fn (?Appointment $record) => $record?->is_lost ?? false)
-                    ->columns(3)
-                    ->schema([
-                        Forms\Components\Placeholder::make('lost_reason_display')
-                            ->label('Reason')
-                            ->columnSpanFull()
-                            ->content(fn (Appointment $record) => $record->lost_reason ?: '—'),
-                        Forms\Components\Placeholder::make('lost_at_stage_display')
-                            ->label('Stage At Time Of Loss')
-                            ->content(fn (Appointment $record) => $record->lost_at_stage?->getLabel() ?? '—'),
-                        Forms\Components\Placeholder::make('lost_at_display')
-                            ->label('Lost At')
-                            ->content(fn (Appointment $record) => $record->lost_at?->format('d M Y, h:i A') ?? '—'),
-                    ]),
+            Forms\Components\Section::make()
+                ->columns(2)
+                ->schema([
+                    Forms\Components\Select::make('prospect_id')
+                        ->label('Company')
+                        ->relationship(
+                            'prospect',
+                            'company_name',
+                            modifyQueryUsing: fn (Builder $query) => $query->visibleTo(auth()->user()),
+                        )
+                        ->required()
+                        ->searchable()
+                        ->preload(),
+                    Forms\Components\Select::make('assigned_to')
+                        ->label('Assigned Employee')
+                        ->options(fn () => User::query()->pluck('name', 'id'))
+                        ->default(fn () => auth()->id())
+                        ->required()
+                        ->searchable()
+                        ->disabled(fn () => ! auth()->user()->isAdmin())
+                        ->dehydrated(),
+                    Forms\Components\DateTimePicker::make('appointment_at')
+                        ->required()
+                        ->seconds(false)
+                        // Phase 2: normal Edit must never silently
+                        // change an ALREADY-SET schedule — the
+                        // dedicated "Reschedule" row action is the
+                        // only way (see table()). A still-NULL
+                        // schedule (auto-routed from a call before the
+                        // exact time was known) stays editable here —
+                        // filling it in for the first time is not a
+                        // reschedule.
+                        ->disabled(fn (?Appointment $record) => $record?->appointment_at !== null)
+                        ->dehydrated(fn (?Appointment $record) => $record?->appointment_at === null),
+                    // ->live() so outcome_notes' required()/rule()
+                    // below react the moment Stage changes — same
+                    // mechanism as LeadResource's stage-driven Notes
+                    // requirement.
+                    // Phase 3 correction round 2: legacy `stage` is
+                    // editable only at creation, when it drives the
+                    // create-only stage->status fallback (see
+                    // Appointment::booted()) — there is no established
+                    // normalized workflow state yet to diverge from. On
+                    // an EXISTING record it is read-only: normalized
+                    // status is authoritative, and every real business
+                    // conclusion (Succeeded/Not Succeeded/any other
+                    // outcome) must go through the Record Outcome
+                    // action, never a hand-edited legacy value here.
+                    // Mirrors appointment_at's own disabled-on-existing/
+                    // editable-on-create pattern below.
+                    Forms\Components\Select::make('stage')
+                        ->options(AppointmentStage::class)
+                        ->required()
+                        ->default(AppointmentStage::AppointmentMade)
+                        ->live()
+                        ->disabled(fn (?Appointment $record) => $record !== null)
+                        ->dehydrated(fn (?Appointment $record) => $record === null)
+                        ->helperText(fn (?Appointment $record) => $record !== null
+                            ? 'Read-only — use Record Outcome to change this Appointment\'s business state.'
+                            : null),
+                    Forms\Components\Textarea::make('meeting_notes')
+                        ->rows(3)
+                        ->columnSpanFull(),
+                    // Required the moment Stage reaches a terminal value
+                    // (Succeeded or Not Succeeded) — a final result
+                    // should always leave a record of what happened.
+                    // Mirrors the same required()+rule() pairing
+                    // LeadResource uses for "Notes required when
+                    // Validated" — plain required() alone would accept a
+                    // whitespace-only value.
+                    Forms\Components\Textarea::make('outcome_notes')
+                        ->rows(3)
+                        ->columnSpanFull()
+                        ->required(fn (Get $get) => self::stageIsTerminal($get('stage')))
+                        ->validationMessages([
+                            'required' => 'Outcome Notes are required when the stage is Succeeded or Not Succeeded.',
+                        ])
+                        ->rule(
+                            fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
+                                if (self::stageIsTerminal($get('stage')) && blank($value)) {
+                                    $fail('Outcome Notes are required when the stage is Succeeded or Not Succeeded.');
+                                }
+                            },
+                        ),
+                ]),
+            // is_lost/lost_reason/lost_at/lost_at_stage are deliberately
+            // absent from Appointment's own $fillable (only markLost()
+            // sets them, via forceFill() — see its own docblock:
+            // "without touching its normal `stage` field or stage
+            // history"), so these are read-only Placeholders, never an
+            // editable field — there was previously no way to see WHY a
+            // Lost Appointment was marked Lost anywhere on this page.
+            Forms\Components\Section::make('Lost')
+                ->visible(fn (?Appointment $record) => $record?->is_lost ?? false)
+                ->columns(3)
+                ->schema([
+                    Forms\Components\Placeholder::make('lost_reason_display')
+                        ->label('Reason')
+                        ->columnSpanFull()
+                        ->content(fn (Appointment $record) => $record->lost_reason ?: '—'),
+                    Forms\Components\Placeholder::make('lost_at_stage_display')
+                        ->label('Stage At Time Of Loss')
+                        ->content(fn (Appointment $record) => $record->lost_at_stage?->getLabel() ?? '—'),
+                    Forms\Components\Placeholder::make('lost_at_display')
+                        ->label('Lost At')
+                        ->content(fn (Appointment $record) => $record->lost_at?->format('d M Y, h:i A') ?? '—'),
+                ]),
         ];
     }
 
@@ -437,14 +439,20 @@ class AppointmentResource extends Resource
                             $data['reason'] ?? null,
                         )),
                     Tables\Actions\DeleteAction::make()
-                        ->visible(fn () => auth()->user()->isAdmin()),
+                        ->visible(fn () => auth()->user()->isAdmin())
+                        ->before(fn (Appointment $record) => DeletionGuard::guardRecord($record, 'appointment')),
                 ]),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     TableBulkActions::deselectAll(),
                     Tables\Actions\DeleteBulkAction::make()
-                        ->visible(fn () => auth()->user()->isAdmin()),
+                        ->visible(fn () => auth()->user()->isAdmin())
+                        ->before(fn (Collection $records) => DeletionGuard::guardRecords(
+                            $records,
+                            'appointments',
+                            fn (Appointment $appointment) => $appointment->prospect->company_name,
+                        )),
                 ]),
             ])
             ->defaultSort('appointment_at', 'asc')

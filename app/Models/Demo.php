@@ -9,8 +9,10 @@ use App\Enums\DemoStatus;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\EnforcesSameOrganizationRelations;
 use App\Models\Concerns\GuardsScheduleAgainstDirectEdit;
+use App\Models\Concerns\Reschedulable;
 use App\Models\Concerns\ValidatesOriginLineage;
 use App\Models\Scopes\OrganizationScope;
+use App\Support\Authorization\HierarchyVisibility;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -44,7 +46,7 @@ use Illuminate\Support\Facades\DB;
  *   outcome/next_action was "Schedule Another Demo", or a Follow-Up/
  *   Appointment/Lead/Proposal transitioning to Demo for the first time.
  */
-class Demo extends Model implements \App\Models\Concerns\Reschedulable
+class Demo extends Model implements Reschedulable
 {
     use BelongsToOrganization;
     use EnforcesSameOrganizationRelations;
@@ -209,7 +211,7 @@ class Demo extends Model implements \App\Models\Concerns\Reschedulable
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        return \App\Support\Authorization\HierarchyVisibility::scopeFor($query, $user, 'assigned_to');
+        return HierarchyVisibility::scopeFor($query, $user, 'assigned_to');
     }
 
     public function isOverdue(): bool
@@ -225,6 +227,36 @@ class Demo extends Model implements \App\Models\Concerns\Reschedulable
         return $this->status === DemoStatus::Scheduled
             && $this->demo_at !== null
             && $this->demo_at->isToday();
+    }
+
+    /**
+     * Deletion-guard completion sweep: demos.rescheduled_from_id is a plain
+     * self-referencing RESTRICT foreign key, so deleting the ORIGINAL of a
+     * rescheduled pair used to fail as a raw, uncaught 500. The reschedule
+     * link is genuine lineage — it is what records that this Demo did not
+     * simply vanish, it was moved — so the original is blocked rather than
+     * cascaded. (Deleting the replacement first is still possible and then
+     * frees the original, exactly as with every other blocker here.)
+     *
+     * No other foreign key in the schema points at demos. `origin_type`/
+     * `origin_id` on follow_ups/appointments/demos is a morph with no
+     * foreign key at all — see the completion report's ambiguous-rules
+     * section, which deliberately leaves that as an open business decision
+     * rather than silently extending blocking to it.
+     *
+     * @return array<string, int>
+     */
+    public function deletionBlockers(): array
+    {
+        return [
+            'replacement Demo' => (int) $this->replacedBy()->exists(),
+        ];
+    }
+
+    /** Reschedule lineage is never "reassigned or removed" — see App\Support\DeletionGuard::message(). */
+    public function deletionBlockerAdvice(): string
+    {
+        return 'A rescheduled Demo keeps a permanent link back to the Demo it replaced, so the original is never deleted out from under it.';
     }
 
     /** Inherits organization_id from the Lead this Demo is against. */

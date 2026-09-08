@@ -301,6 +301,13 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
             ['call_records', ['user_id']],
             ['follow_ups', ['user_id']],
             ['appointments', ['assigned_to', 'created_by']],
+            // Deletion-guard completion sweep: Demo landed in Phase 2,
+            // after this guard was written, and was the one activity type
+            // missing from it — so a user owning only Demos could be moved
+            // to another organization, stranding them. Both columns are
+            // listed because assigned/created ownership is already how
+            // every other activity table here is treated.
+            ['demos', ['assigned_to', 'created_by']],
             ['leads', ['assigned_to', 'created_by']],
             ['proposals', ['assigned_to', 'created_by']],
             ['export_requests', ['user_id']],

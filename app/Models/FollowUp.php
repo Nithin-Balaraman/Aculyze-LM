@@ -7,13 +7,16 @@ use App\Enums\FollowUpStatus;
 use App\Models\Concerns\BelongsToOrganization;
 use App\Models\Concerns\EnforcesSameOrganizationRelations;
 use App\Models\Concerns\GuardsScheduleAgainstDirectEdit;
+use App\Models\Concerns\Reschedulable;
 use App\Models\Concerns\ValidatesOriginLineage;
 use App\Models\Scopes\OrganizationScope;
+use App\Support\Authorization\HierarchyVisibility;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\DB;
 
@@ -28,7 +31,7 @@ use Illuminate\Support\Facades\DB;
  *   next_action was "More Time / Discussion" / "Create Follow-Up" — see
  *   App\Services\WorkflowTransitionService).
  */
-class FollowUp extends Model implements \App\Models\Concerns\Reschedulable
+class FollowUp extends Model implements Reschedulable
 {
     use BelongsToOrganization, EnforcesSameOrganizationRelations, GuardsScheduleAgainstDirectEdit, HasFactory, ValidatesOriginLineage;
 
@@ -122,7 +125,7 @@ class FollowUp extends Model implements \App\Models\Concerns\Reschedulable
     }
 
     /** Which prior workflow activity caused this Follow-Up to be created as the next business action — lineage, not reschedule linkage. */
-    public function origin(): \Illuminate\Database\Eloquent\Relations\MorphTo
+    public function origin(): MorphTo
     {
         return $this->morphTo();
     }
@@ -241,7 +244,7 @@ class FollowUp extends Model implements \App\Models\Concerns\Reschedulable
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        return \App\Support\Authorization\HierarchyVisibility::scopeFor($query, $user, 'user_id');
+        return HierarchyVisibility::scopeFor($query, $user, 'user_id');
     }
 
     /** Inherits organization_id from the Prospect this Follow-Up is against. */
@@ -272,12 +275,18 @@ class FollowUp extends Model implements \App\Models\Concerns\Reschedulable
      * as a raw, uncaught 500 rather than the friendly DeletionGuard
      * message every other RESTRICT relationship gets.
      *
+     * Deletion-guard completion sweep: follow_ups.rescheduled_from_id is
+     * exactly the same kind of RESTRICT self-reference as its Appointment
+     * and Demo counterparts and had been missed here, so deleting the
+     * ORIGINAL of a rescheduled pair still produced that raw 500.
+     *
      * @return array<string, int>
      */
     public function deletionBlockers(): array
     {
         return [
             'Call Record' => (int) $this->generatedCallRecord()->exists(),
+            'replacement Follow-Up' => (int) $this->replacedBy()->exists(),
         ];
     }
 

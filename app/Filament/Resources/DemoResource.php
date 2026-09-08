@@ -11,6 +11,7 @@ use App\Models\Demo;
 use App\Models\User;
 use App\Services\RescheduleService;
 use App\Services\WorkflowTransitionService;
+use App\Support\DeletionGuard;
 use App\Support\TableBulkActions;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -21,6 +22,7 @@ use Filament\Support\Exceptions\Halt;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use LogicException;
 
 /**
@@ -217,14 +219,20 @@ class DemoResource extends Resource
                             $data['reason'] ?? null,
                         )),
                     Tables\Actions\DeleteAction::make()
-                        ->visible(fn () => auth()->user()->isAdmin()),
+                        ->visible(fn () => auth()->user()->isAdmin())
+                        ->before(fn (Demo $record) => DeletionGuard::guardRecord($record, 'demo')),
                 ]),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     TableBulkActions::deselectAll(),
                     Tables\Actions\DeleteBulkAction::make()
-                        ->visible(fn () => auth()->user()->isAdmin()),
+                        ->visible(fn () => auth()->user()->isAdmin())
+                        ->before(fn (Collection $records) => DeletionGuard::guardRecords(
+                            $records,
+                            'demos',
+                            fn (Demo $demo) => $demo->prospect->company_name,
+                        )),
                 ]),
             ])
             ->defaultSort('demo_at', 'asc')

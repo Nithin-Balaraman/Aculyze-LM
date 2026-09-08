@@ -3,6 +3,8 @@
 namespace App\Filament\Resources\AppointmentResource\Pages;
 
 use App\Filament\Resources\AppointmentResource;
+use App\Models\Appointment;
+use App\Support\DeletionGuard;
 use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
 use Livewire\Attributes\Url;
@@ -22,7 +24,11 @@ class EditAppointment extends EditRecord
     {
         return [
             Actions\ViewAction::make(),
-            Actions\DeleteAction::make(),
+            // Same server-side blocker the list row's Delete uses, so a
+            // rescheduled Appointment's original cannot be deleted from
+            // here either (mirrors EditLead/EditFollowUp/EditProposal).
+            Actions\DeleteAction::make()
+                ->before(fn (Appointment $record) => DeletionGuard::guardRecord($record, 'appointment')),
         ];
     }
 
