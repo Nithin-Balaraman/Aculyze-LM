@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
@@ -188,6 +189,21 @@ class FollowUp extends Model implements Reschedulable
     public function responsibleEmployee(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /**
+     * Phase 4A-3.1 (schema/model only — populated starting in 4A-3.4). A
+     * real, restrictOnDelete FK from ProposalClientResponse — deliberately
+     * NOT the existing unenforced origin_type/origin_id lineage pattern
+     * (docs/OPEN_BUSINESS_DECISIONS.md OPEN-2). Once the 4A-3.4 client
+     * response service exists, this Follow-Up cannot be deleted while a
+     * client response still names it — FollowUp::deletionBlockers() will
+     * need a corresponding entry added at that point (deferred: nothing
+     * populates this relation yet, so there is nothing to guard today).
+     */
+    public function resultingFromClientResponses(): HasMany
+    {
+        return $this->hasMany(ProposalClientResponse::class);
     }
 
     /**

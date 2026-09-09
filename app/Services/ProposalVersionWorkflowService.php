@@ -117,7 +117,7 @@ class ProposalVersionWorkflowService
     public function approve(ProposalVersion $version, User $actor, ?string $comment = null): void
     {
         DB::transaction(function () use ($version, $actor, $comment) {
-            [, $locked] = $this->lockProposalAndVersion($version);
+            [$proposal, $locked] = $this->lockProposalAndVersion($version);
 
             if ($locked->lifecycle_status !== ProposalVersionLifecycle::Submitted) {
                 throw new LogicException(
@@ -146,6 +146,27 @@ class ProposalVersionWorkflowService
                 before: ['lifecycle_status' => ProposalVersionLifecycle::Submitted->value],
                 after: ['lifecycle_status' => ProposalVersionLifecycle::Approved->value, 'comment' => $comment],
             );
+
+            // Phase 4A-3.1 (locked Decision 1): allocated exactly once, on
+            // whichever approval is this Proposal's FIRST — every later
+            // approval/revision leaves an already-assigned number
+            // untouched. Commits atomically with the approval itself since
+            // this runs inside the same transaction and the same Proposal
+            // row lock ProposalNumberService relies on being already held.
+            $numberWasMissing = $proposal->proposal_number === null;
+
+            app(ProposalNumberService::class)->allocateIfMissing($proposal);
+
+            if ($numberWasMissing && $proposal->proposal_number !== null) {
+                AuditLogger::record(
+                    entityType: 'Proposal',
+                    entityId: $proposal->getKey(),
+                    action: 'proposal_number_allocated',
+                    organizationId: $proposal->organization_id,
+                    before: ['proposal_number' => null],
+                    after: ['proposal_number' => $proposal->proposal_number],
+                );
+            }
         });
     }
 

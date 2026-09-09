@@ -106,6 +106,10 @@ class ProposalVersion extends Model
         'returned_at',
         'return_reason',
         'sent_at',
+        'released_at',
+        'released_by',
+        'released_pdf_artifact_id',
+        'release_comment',
     ];
 
     protected function casts(): array
@@ -123,6 +127,7 @@ class ProposalVersion extends Model
             'approved_at' => 'datetime',
             'returned_at' => 'datetime',
             'sent_at' => 'datetime',
+            'released_at' => 'datetime',
         ];
     }
 
@@ -200,6 +205,55 @@ class ProposalVersion extends Model
         return $this->belongsTo(User::class, 'returned_by');
     }
 
+    /** Phase 4A-3.1 (schema/model only — the Release service itself is 4A-3.3). */
+    public function releasedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'released_by');
+    }
+
+    public function releasedPdfArtifact(): BelongsTo
+    {
+        return $this->belongsTo(ProposalPdfArtifact::class, 'released_pdf_artifact_id');
+    }
+
+    public function pdfArtifacts(): HasMany
+    {
+        return $this->hasMany(ProposalPdfArtifact::class);
+    }
+
+    public function sends(): HasMany
+    {
+        return $this->hasMany(ProposalSend::class);
+    }
+
+    public function clientResponses(): HasMany
+    {
+        return $this->hasMany(ProposalClientResponse::class);
+    }
+
+    /** The current primary successful artifact for this Version, if any (proposal_pdf_artifacts.primary_lock_key claims exactly this Version's id). */
+    public function currentPrimaryArtifact(): HasOne
+    {
+        return $this->hasOne(ProposalPdfArtifact::class)->whereColumn('primary_lock_key', 'proposal_versions.id');
+    }
+
+    /**
+     * Release staleness is DERIVED, never stored (locked Decision 9): a
+     * Release is stale exactly when the artifact it named is no longer the
+     * current primary — i.e. a correction has since produced a new primary
+     * artifact. A Version with no Release at all is not "stale", it simply
+     * has none — callers that need to distinguish should check
+     * `released_at` separately.
+     */
+    public function isReleaseStale(): bool
+    {
+        if ($this->released_pdf_artifact_id === null) {
+            return false;
+        }
+
+        return $this->released_pdf_artifact_id !== $this->currentPrimaryArtifact?->getKey();
+    }
+
     public function isEditable(): bool
     {
         return $this->lifecycle_status->isEditable();
@@ -225,6 +279,8 @@ class ProposalVersion extends Model
             'manager_reviewed_by' => ['users', 'reviewing User'],
             'approved_by' => ['users', 'approving User'],
             'returned_by' => ['users', 'returning User'],
+            'released_by' => ['users', 'releasing User'],
+            'released_pdf_artifact_id' => ['proposal_pdf_artifacts', 'released PDF artifact'],
         ];
     }
 }

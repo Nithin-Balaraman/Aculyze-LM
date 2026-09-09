@@ -444,6 +444,43 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
     }
 
     /**
+     * Phase 4A-3.1: the five new permanent commercial-actor references,
+     * mirroring submittedProposalVersions()/approvedProposalVersions()/
+     * returnedProposalVersions() above exactly. Like those three, these are
+     * permanent evidence and are never reassigned, blanked or rewritten —
+     * EmployeeDeletionService::assertNotAProposalVersionActor()'s existing
+     * precedent extends to these once the services that populate them
+     * (4A-3.2 PDF generation, 4A-3.3 Release/send, 4A-3.4 client responses)
+     * are implemented; that blocker extension is deferred to whichever of
+     * those sub-phases first makes these columns reachable, since nothing
+     * populates them yet in 4A-3.1.
+     */
+    public function generatedProposalPdfArtifacts(): HasMany
+    {
+        return $this->hasMany(ProposalPdfArtifact::class, 'generated_by');
+    }
+
+    public function releasedProposalVersions(): HasMany
+    {
+        return $this->hasMany(ProposalVersion::class, 'released_by');
+    }
+
+    public function attemptedProposalSends(): HasMany
+    {
+        return $this->hasMany(ProposalSend::class, 'attempted_by');
+    }
+
+    public function sentProposalSends(): HasMany
+    {
+        return $this->hasMany(ProposalSend::class, 'sent_by');
+    }
+
+    public function recordedProposalClientResponses(): HasMany
+    {
+        return $this->hasMany(ProposalClientResponse::class, 'recorded_by');
+    }
+
+    /**
      * Every FK on this user (assigned_to/created_by/user_id across every
      * module) is a plain RESTRICT constraint, so deleting a User with any of
      * these still attached would otherwise fail as a raw DB error. Named so

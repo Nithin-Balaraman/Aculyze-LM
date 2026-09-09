@@ -43,6 +43,7 @@ class Proposal extends Model
             'value' => 'decimal:2',
             'sent_at' => 'date',
             'stage_changed_at' => 'datetime',
+            'last_client_activity_at' => 'datetime',
             'attachment_paths' => 'array',
             'attachment_names' => 'array',
         ];
@@ -52,11 +53,23 @@ class Proposal extends Model
     {
         static::addGlobalScope(new OrganizationScope);
 
-        // Only real stage/outcome movement resets the stale clock — editing
-        // notes or the proposal value must not reset it (AGENTS.md
-        // sections 27-28, mirroring the Lead stage-timing rule).
+        // Only a genuine STAGE change resets the stale clock (locked
+        // Decision 18, Phase 4A-3.1 correction) — `outcome` changing by
+        // itself no longer does, even on its very first change (e.g. a
+        // More Time client response setting outcome=Hold while stage stays
+        // exactly what it was). This was verified safe against every
+        // existing runtime writer of `outcome` before being narrowed:
+        // PipelineBoard::dropProposal() and resolveCrossDropSource()'s
+        // proposal branch both always set `stage` in the same write
+        // whenever they set `outcome` (dropProposal() even bails out
+        // early if the dragged stage wouldn't change), so no existing path
+        // relied on outcome-only dirtying to reset this timestamp.
+        // Meaningful client-activity staleness (More Time, Other -> Create
+        // Follow-Up) is tracked separately via `last_client_activity_at`,
+        // written only by the not-yet-implemented
+        // ProposalClientResponseService (4A-3.4) — see Proposal::isStale().
         static::saving(function (self $proposal) {
-            if ($proposal->isDirty('stage') || $proposal->isDirty('outcome') || ! $proposal->exists) {
+            if ($proposal->isDirty('stage') || ! $proposal->exists) {
                 $proposal->stage_changed_at = Date::now();
             }
 
@@ -172,9 +185,49 @@ class Proposal extends Model
     }
 
     /**
-     * A Proposal is stale once it has sat without stage/outcome movement for
-     * 20+ days, unless it has a closed outcome (Won/Lost always closed;
-     * Hold is configurable — see ProposalOutcome::isTerminalForStaleness()).
+     * Phase 4A-3.1 (schema/model only — populated starting in 4A-3.3/4A-3.4).
+     * Every send/client-response/billing-handoff row against ANY Version of
+     * this Proposal — denormalized directly onto proposal_id precisely so
+     * these don't require joining through versions() for every
+     * Proposal-scoped query (same reasoning already documented for
+     * prospect_id's own denormalization above).
+     */
+    public function sends(): HasMany
+    {
+        return $this->hasMany(ProposalSend::class);
+    }
+
+    public function clientResponses(): HasMany
+    {
+        return $this->hasMany(ProposalClientResponse::class);
+    }
+
+    /**
+     * Deliberately hasMany, not hasOne: the exactly-once backstop
+     * (`UNIQUE(accepted_response_id)` on proposal_billing_handoffs) is
+     * scoped to one handoff per Accepted EVENT, not one per Proposal ever —
+     * a future Reopen may legitimately produce a second handoff for the
+     * same Proposal (locked Decision 15).
+     */
+    public function billingHandoffs(): HasMany
+    {
+        return $this->hasMany(ProposalBillingHandoff::class);
+    }
+
+    /**
+     * A Proposal is stale once it has sat without stage movement OR
+     * meaningful client activity for 20+ days, unless it has a closed
+     * outcome (Won/Lost always closed; Hold is configurable — see
+     * ProposalOutcome::isTerminalForStaleness()).
+     *
+     * `last_client_activity_at` (locked Decision 18, Phase 4A-3.1
+     * correction) is a service-owned cache written only by the
+     * not-yet-implemented ProposalClientResponseService (4A-3.4), only for
+     * More Time and Other -> Create Follow-Up responses — never for Other
+     * -> Await Further Contact, never by any other write path. It can only
+     * ever push the effective reference date LATER (fresher); a Proposal
+     * with no `stage_changed_at` at all is never stale regardless of
+     * `last_client_activity_at`, preserving the exact existing semantic.
      */
     public function isStale(): bool
     {
@@ -182,7 +235,11 @@ class Proposal extends Model
             return false;
         }
 
-        return $this->stage_changed_at->lte(
+        $reference = $this->last_client_activity_at !== null && $this->last_client_activity_at->gt($this->stage_changed_at)
+            ? $this->last_client_activity_at
+            : $this->stage_changed_at;
+
+        return $reference->lte(
             Date::now()->subDays((int) config('aculyze.proposal_stale_after_days'))
         );
     }
@@ -208,12 +265,24 @@ class Proposal extends Model
             array_filter(ProposalOutcome::cases(), fn (ProposalOutcome $outcome) => $outcome->isTerminalForStaleness())
         );
 
+        // NULL-safe equivalent of isStale()'s "later of stage_changed_at
+        // and last_client_activity_at" reference date (locked Decision 18,
+        // Phase 4A-3.1 correction). Raw GREATEST() in MariaDB/MySQL returns
+        // NULL the moment ANY argument is NULL — unlike PostgreSQL, it does
+        // NOT ignore nulls — so `last_client_activity_at` (NULL for most
+        // Proposals) is COALESCEd against `stage_changed_at` before the
+        // comparison, and the whole expression is only reached at all once
+        // `stage_changed_at IS NOT NULL` has already been confirmed,
+        // preserving "no stage_changed_at ⇒ never stale" exactly.
         return $query
             ->where(function (Builder $query) use ($terminalOutcomes) {
                 $query->whereNull('outcome')->orWhereNotIn('outcome', $terminalOutcomes);
             })
             ->whereNotNull('stage_changed_at')
-            ->where('stage_changed_at', '<=', $threshold);
+            ->whereRaw(
+                'GREATEST(stage_changed_at, COALESCE(last_client_activity_at, stage_changed_at)) <= ?',
+                [$threshold]
+            );
     }
 
     /**
