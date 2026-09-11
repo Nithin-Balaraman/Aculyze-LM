@@ -255,13 +255,31 @@ business question and is config-driven rather than hard-coded — see section
 *Verified by:* `tests/Feature/StaleProposalTest.php`.
 *Surfaced by:* `app/Filament/Widgets/StaleProposalsTable.php`.
 
-## 28. A Proposal's stale clock moves on stage OR outcome movement
+## 28. A Proposal's stale clock moves only on a genuine stage change
 
-Unlike a Lead, a Proposal's `stage_changed_at` is also reset by a change of
-final outcome. Editing notes or the proposal value must never reset it.
+**Corrected in Phase 4A-3.1 (locked Decision 18) — this section previously
+said outcome changes also reset the clock; that is no longer true.**
 
-*Enforced in:* `app/Models/Proposal.php` (`booted()`).
-*Verified by:* `tests/Feature/StageTimingTest.php`.
+A new Proposal initializes `stage_changed_at` on creation. After that, only
+a genuine change of `stage` resets it — `outcome` changing by itself, even
+the first time (e.g. a Proposal moving to Hold), does **not**. Editing notes
+or the proposal value must never reset it either, exactly as before.
+
+This was narrowed once client-response processing needed to distinguish "the
+Proposal's stage genuinely moved" from "the outcome changed as a side effect
+of a client response" — every existing runtime writer of `outcome` was
+verified to always change `stage` in the same write before this was adopted,
+so no real behavior changed for any current Proposal transition.
+
+Meaningful CLIENT ACTIVITY (as opposed to a stage change) is tracked
+separately via `proposals.last_client_activity_at` — a service-owned cache
+written only by the client-response service for specific response types
+(More Time; Other → Create Follow-Up), never for an arbitrary response and
+never by any form/board write. A Proposal's effective staleness reference is
+the later of `stage_changed_at` and `last_client_activity_at`.
+
+*Enforced in:* `app/Models/Proposal.php` (`booted()`, `isStale()`, `scopeStale()`).
+*Verified by:* `tests/Feature/StageTimingTest.php`, `tests/Feature/ProposalStageChangedAtTest.php`.
 
 ## 29. Reassignment changes responsibility, never history
 
@@ -355,10 +373,13 @@ Companion number to sections 24-27 for Proposal processing.
 ## 45. Stage timing applies across every module
 
 Sections 19, 22 and 27 are one rule applied three times: a stage clock moves
-only when the stage (or, for a Proposal, the outcome) itself changes, never
-on an unrelated edit.
+only when the stage itself changes, never on an unrelated edit. For a
+Proposal specifically, `outcome` changing alone is also an unrelated edit as
+far as `stage_changed_at` is concerned (corrected in section 28, Phase
+4A-3.1) — meaningful client activity that isn't a stage change is tracked
+separately via `last_client_activity_at`, not by reinterpreting this rule.
 
-*Verified by:* `tests/Feature/StageTimingTest.php`.
+*Verified by:* `tests/Feature/StageTimingTest.php`, `tests/Feature/ProposalStageChangedAtTest.php`.
 
 ## 46. Call routing reference
 
