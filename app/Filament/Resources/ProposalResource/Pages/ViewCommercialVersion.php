@@ -246,6 +246,14 @@ class ViewCommercialVersion extends ViewRecord
                                     ),
                             ]),
                     ]),
+                InfolistSection::make('Release & Send Evidence')
+                    ->description('Read-only historical evidence — no Release or Send action exists on this page (Phase 4A-3.3, locked Section E).')
+                    ->columns(3)
+                    ->schema([
+                        TextEntry::make('released_at')->label('Released At')->dateTime()->placeholder('—'),
+                        TextEntry::make('releasedBy.name')->label('Released By')->placeholder('—'),
+                        TextEntry::make('release_comment')->label('Release Comment')->placeholder('—')->columnSpanFull(),
+                    ]),
                 InfolistSection::make('Line Items')
                     ->description('Exactly the lines and tax components frozen on this Version.')
                     ->schema([

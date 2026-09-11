@@ -8,17 +8,25 @@ use App\Enums\ProposalTaxComponentType;
 use App\Enums\ProposalVersionLifecycle;
 use App\Filament\Resources\ProposalResource;
 use App\Models\ProposalPdfArtifact;
+use App\Models\ProposalSend;
 use App\Models\ProposalVersion;
 use App\Policies\ProposalPdfArtifactPolicy;
+use App\Policies\ProposalReleasePolicy;
+use App\Policies\ProposalSendPolicy;
 use App\Policies\ProposalVersionPolicy;
 use App\Services\ProposalPdfArtifactService;
+use App\Services\ProposalReleaseService;
+use App\Services\ProposalSendService;
 use App\Services\ProposalVersionDraftService;
 use App\Services\ProposalVersionWorkflowService;
 use Filament\Actions;
+use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
@@ -29,7 +37,9 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use LogicException;
 
 /**
@@ -62,6 +72,9 @@ class ManageCommercialVersion extends ViewRecord
     public ProposalVersion $currentVersion;
 
     public string $concurrencyToken;
+
+    /** Phase 4A-3.3, Section O: minted fresh each time the Send modal opens (mountUsing below), persisted across Livewire requests as ordinary component state so a genuine double-submit of the SAME open modal reuses the same key — a reopened modal (a fresh send later) always gets a new one. */
+    public string $sendIdempotencyKey = '';
 
     /** @var array<string, mixed>|null */
     public ?array $draftData = [];
@@ -120,6 +133,26 @@ class ManageCommercialVersion extends ViewRecord
     public function canAccessPdfSection(): bool
     {
         return app(ProposalPdfArtifactPolicy::class)->downloadPdf(auth()->user(), $this->currentVersion);
+    }
+
+    /** Phase 4A-3.3: whether THIS Version currently carries a valid (non-stale) Release. A Version with no Release at all is not "valid" here — callers needing to distinguish "none" from "stale" should check released_at separately. */
+    public function hasValidRelease(): bool
+    {
+        return $this->currentVersion->released_at !== null && ! $this->currentVersion->isReleaseStale();
+    }
+
+    /** @return \Illuminate\Support\Collection<int, ProposalSend> */
+    public function sendHistory(): \Illuminate\Support\Collection
+    {
+        return ProposalSend::query()
+            ->where('proposal_version_id', $this->currentVersion->getKey())
+            ->latest('sent_at')
+            ->get();
+    }
+
+    public function canViewSendHistory(): bool
+    {
+        return app(ProposalSendPolicy::class)->viewHistory(auth()->user(), $this->currentVersion);
     }
 
     private function fillDraftForm(): void
@@ -362,6 +395,54 @@ class ManageCommercialVersion extends ViewRecord
                             ->placeholder('—')
                             ->visible(fn () => filled($this->currentPdfArtifact()?->correction_reason)),
                     ]),
+                InfolistSection::make('Release & Client Sending')
+                    ->columns(3)
+                    ->schema([
+                        TextEntry::make('release_status')
+                            ->label('Release Status')
+                            ->badge()
+                            ->state(function () {
+                                if ($this->currentVersion->released_at === null) {
+                                    return 'Not Released';
+                                }
+
+                                return $this->currentVersion->isReleaseStale() ? 'Stale — PDF Corrected Since Release' : 'Released — Valid';
+                            })
+                            ->color(fn ($state) => match (true) {
+                                str_contains((string) $state, 'Valid') => 'success',
+                                str_contains((string) $state, 'Stale') => 'danger',
+                                default => 'gray',
+                            }),
+                        TextEntry::make('currentVersion.released_at')->label('Released At')->dateTime()->placeholder('—'),
+                        TextEntry::make('currentVersion.releasedBy.name')->label('Released By')->placeholder('—'),
+                        TextEntry::make('currentVersion.release_comment')->label('Release Comment')->placeholder('—')->columnSpanFull(),
+                    ]),
+                InfolistSection::make('Send History')
+                    ->visible(fn () => $this->canViewSendHistory())
+                    ->description('Every recorded manual send against this exact Version — permanent, read-only. "Marked as sent manually" — Aculyze-LM does not itself deliver email.')
+                    ->schema([
+                        RepeatableEntry::make('sendHistory')
+                            ->label('')
+                            ->columns(4)
+                            ->schema([
+                                TextEntry::make('method')->label('Method')->badge(),
+                                TextEntry::make('status')
+                                    ->label('Status')
+                                    ->badge()
+                                    ->formatStateUsing(fn ($state) => 'Marked as sent manually'),
+                                TextEntry::make('sent_at')->label('Sent At')->dateTime(),
+                                TextEntry::make('sentBy.name')->label('Sent By')->placeholder('—'),
+                                TextEntry::make('to_recipients')->label('To')->listWithLineBreaks()->columnSpanFull(),
+                                TextEntry::make('cc_recipients')->label('CC')->listWithLineBreaks()->placeholder('—')->columnSpanFull(),
+                                TextEntry::make('subject')->label('Subject')->placeholder('—'),
+                                TextEntry::make('notes')->label('Notes')->placeholder('—')->columnSpanFull(),
+                                TextEntry::make('pdfArtifact.checksum_sha256')->label('PDF Checksum')->formatStateUsing(fn ($state) => $state ? str($state)->limit(16, '…') : '—'),
+                                TextEntry::make('attachments')
+                                    ->label('Selected Attachments')
+                                    ->state(fn ($record) => $record->attachments->pluck('original_filename')->implode(', ') ?: '—')
+                                    ->columnSpanFull(),
+                            ]),
+                    ]),
                 InfolistSection::make('Version History')
                     ->description('Newest Version first. Every Version — current and historical — can be opened read-only.')
                     ->schema([
@@ -488,6 +569,64 @@ class ManageCommercialVersion extends ViewRecord
                     && $this->currentPdfArtifact() !== null
                     && app(ProposalPdfArtifactPolicy::class)->correctPdf($actor, $version))
                 ->action(fn (array $data) => $this->correctFinalPdfAction($data['correction_reason'])),
+
+            Actions\Action::make('releaseForSending')
+                ->label(fn () => $version->released_at !== null ? 'Re-Release for Client Sending' : 'Release for Client Sending')
+                ->icon('heroicon-o-paper-airplane')
+                ->color('primary')
+                ->requiresConfirmation()
+                ->modalDescription('This binds the current final PDF for client sending and (once valid) lets the assigned Employee download it and record a manual send. It is not a second commercial approval and does not change the Version\'s lifecycle.')
+                ->form([
+                    Textarea::make('release_comment')->label('Release Comment (optional)'),
+                ])
+                ->visible(fn () => in_array($version->lifecycle_status, [ProposalVersionLifecycle::Approved, ProposalVersionLifecycle::Sent], true)
+                    && ! $version->is_legacy_backfill
+                    && $this->currentPdfArtifact() !== null
+                    && app(ProposalReleasePolicy::class)->release($actor, $version))
+                ->action(fn (array $data) => $this->releaseForSendingAction($data['release_comment'] ?? null)),
+
+            Actions\Action::make('recordManualSend')
+                ->label('Record Manual Send')
+                ->icon('heroicon-o-envelope')
+                ->color('success')
+                ->modalDescription('This RECORDS a send that has already been performed manually outside Aculyze-LM — it does not itself send any email.')
+                ->mountUsing(function ($form) use ($version) {
+                    $this->sendIdempotencyKey = (string) Str::uuid();
+
+                    $form->fill([
+                        'to_recipients' => filled($version->proposal->prospect?->email) ? [$version->proposal->prospect->email] : [],
+                        'cc_recipients' => [],
+                        'sent_at' => now(),
+                    ]);
+                })
+                ->form([
+                    TagsInput::make('to_recipients')
+                        ->label('To')
+                        ->placeholder('Add recipient email and press Enter')
+                        ->required(),
+                    TagsInput::make('cc_recipients')
+                        ->label('CC')
+                        ->placeholder('Add recipient email and press Enter'),
+                    TextInput::make('subject')->label('Subject'),
+                    Textarea::make('notes')->label('Notes'),
+                    // Deliberately NOT ->seconds(false): the service enforces
+                    // sent_at >= released_at down to the second, and the
+                    // prefilled default is "now" — hiding seconds would let a
+                    // user submit moments after Release, within the same
+                    // minute, get silently truncated to :00 seconds, and
+                    // fail that check against a Release that (correctly)
+                    // carries real seconds.
+                    DateTimePicker::make('sent_at')->label('Sent At')->native(false)->required(),
+                    CheckboxList::make('selected_attachment_paths')
+                        ->label('Include Existing Proposal Attachments')
+                        ->options(fn () => $version->proposal->attachments())
+                        ->helperText('Only attachments already on this Proposal can be included — no new upload here.'),
+                ])
+                ->visible(fn () => in_array($version->lifecycle_status, [ProposalVersionLifecycle::Approved, ProposalVersionLifecycle::Sent], true)
+                    && ! $version->is_legacy_backfill
+                    && $this->hasValidRelease()
+                    && app(ProposalSendPolicy::class)->send($actor, $version))
+                ->action(fn (array $data) => $this->recordManualSendAction($data)),
         ];
     }
 
@@ -640,6 +779,49 @@ class ManageCommercialVersion extends ViewRecord
         } else {
             Notification::make()->title('PDF correction failed — the prior PDF remains current')->body($artifact->failure_reason)->danger()->send();
         }
+    }
+
+    public function releaseForSendingAction(?string $comment): void
+    {
+        try {
+            app(ProposalReleaseService::class)->release($this->currentVersion, auth()->user(), $comment);
+        } catch (LogicException $e) {
+            Notification::make()->title("Couldn't release for client sending")->body($e->getMessage())->danger()->send();
+
+            return;
+        }
+
+        $this->refreshCurrentVersion();
+
+        Notification::make()->title('Released for client sending')->success()->send();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function recordManualSendAction(array $data): void
+    {
+        try {
+            app(ProposalSendService::class)->recordManualSend(
+                $this->currentVersion,
+                auth()->user(),
+                $data['to_recipients'] ?? [],
+                $data['cc_recipients'] ?? [],
+                $data['subject'] ?? null,
+                $data['notes'] ?? null,
+                Carbon::parse($data['sent_at']),
+                $data['selected_attachment_paths'] ?? [],
+                $this->sendIdempotencyKey,
+            );
+        } catch (LogicException $e) {
+            Notification::make()->title("Couldn't record this manual send")->body($e->getMessage())->danger()->send();
+
+            return;
+        }
+
+        $this->refreshCurrentVersion();
+
+        Notification::make()->title('Manual send recorded')->success()->send();
     }
 
     /**

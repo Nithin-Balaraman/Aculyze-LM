@@ -14,6 +14,9 @@
         'versionsApproved' => 'Versions they approved',
         'versionsReturned' => 'Versions they returned',
         'pdfArtifactsGenerated' => 'Final PDFs they generated',
+        'versionsReleased' => 'Versions they Released for client sending',
+        'sendsAttempted' => 'Manual sends they attempted',
+        'sendsSent' => 'Manual sends they recorded as sent',
     ];
 @endphp
 

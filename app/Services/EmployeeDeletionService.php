@@ -40,7 +40,7 @@ class EmployeeDeletionService
      * three are permanent commercial evidence that blocks hard deletion
      * outright and can never be reassigned away.
      *
-     * @return array{prospects: int, callRecords: int, followUps: int, appointments: int, demos: int, leads: int, proposals: int, directReports: int, versionsSubmitted: int, versionsApproved: int, versionsReturned: int, pdfArtifactsGenerated: int}
+     * @return array{prospects: int, callRecords: int, followUps: int, appointments: int, demos: int, leads: int, proposals: int, directReports: int, versionsSubmitted: int, versionsApproved: int, versionsReturned: int, pdfArtifactsGenerated: int, versionsReleased: int, sendsAttempted: int, sendsSent: int}
      */
     public function dependencyBreakdown(User $employee): array
     {
@@ -59,6 +59,13 @@ class EmployeeDeletionService
             // Phase 4A-3.2: same permanent-evidence kind as the three
             // versions* counts above, never a replacement-absorbable count.
             'pdfArtifactsGenerated' => $employee->generatedProposalPdfArtifacts()->count(),
+            // Phase 4A-3.3, Section S: released_by/attempted_by/sent_by
+            // activate as the same kind of permanent commercial-actor
+            // evidence — recorded_by (ProposalClientResponse) remains
+            // 4A-3.4, not yet reachable.
+            'versionsReleased' => $employee->releasedProposalVersions()->count(),
+            'sendsAttempted' => $employee->attemptedProposalSends()->count(),
+            'sendsSent' => $employee->sentProposalSends()->count(),
         ];
     }
 
@@ -181,7 +188,14 @@ class EmployeeDeletionService
      * principle to `generated` (proposal_pdf_artifacts.generated_by) — who
      * actually generated/corrected a final PDF is exactly the same kind of
      * commercial-actor history, using the identical blocker mechanism
-     * rather than a parallel one.
+     * rather than a parallel one. Phase 4A-3.3, Section S activates three
+     * more of the same kind: `released` (who Released a Version for client
+     * sending) and `attempted`/`sent` (proposal_sends.attempted_by/
+     * sent_by — for a Manual send these are always the same actor and
+     * always succeed, but are still tracked as two distinct
+     * permanent-evidence fields, mirroring the schema exactly).
+     * `recorded_by` (ProposalClientResponse) remains 4A-3.4 and is
+     * deliberately not included yet.
      *
      * @return array<string, int>
      */
@@ -192,6 +206,9 @@ class EmployeeDeletionService
             'approved' => $employee->approvedProposalVersions()->count(),
             'returned' => $employee->returnedProposalVersions()->count(),
             'generated a final PDF' => $employee->generatedProposalPdfArtifacts()->count(),
+            'released a Version for client sending' => $employee->releasedProposalVersions()->count(),
+            'attempted a manual send' => $employee->attemptedProposalSends()->count(),
+            'recorded a manual send as sent' => $employee->sentProposalSends()->count(),
         ]);
     }
 
@@ -221,8 +238,8 @@ class EmployeeDeletionService
             ->implode(', ');
 
         throw new EmployeeDeletionFailedException(
-            "{$employee->name} can't be deleted: they are the recorded actor on Proposal commercial Version or PDF artifact history ({$breakdown}). ".
-            'Who submitted, approved or returned a commercial Version, or generated a final PDF for one, is permanent evidence and is never reassigned, blanked or rewritten, '.
+            "{$employee->name} can't be deleted: they are the recorded actor on Proposal commercial Version, PDF artifact, Release or Send history ({$breakdown}). ".
+            'Who submitted, approved or returned a commercial Version, generated a final PDF for one, Released it for client sending, or attempted/recorded a manual send, is permanent evidence and is never reassigned, blanked or rewritten, '.
             'so this employee cannot be removed. Nothing was changed.'
         );
     }

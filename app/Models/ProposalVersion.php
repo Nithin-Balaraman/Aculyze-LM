@@ -231,10 +231,24 @@ class ProposalVersion extends Model
         return $this->hasMany(ProposalClientResponse::class);
     }
 
-    /** The current primary successful artifact for this Version, if any (proposal_pdf_artifacts.primary_lock_key claims exactly this Version's id). */
+    /**
+     * The current primary successful artifact for this Version, if any.
+     * Phase 4A-3.3 bug fix: the original `whereColumn('primary_lock_key',
+     * 'proposal_versions.id')` referenced a table never actually joined
+     * into this relation's own query — a lazy or eager load of this
+     * relation raised "Unknown column 'proposal_versions.id'" the moment
+     * anything first actually invoked it (nothing did until 4A-3.3's
+     * isReleaseStale() calls it for real). The HasOne's own base
+     * constraint already restricts to `proposal_pdf_artifacts.proposal_
+     * version_id = <this Version's id>`, so all that is left to express is
+     * "and this is the row claiming the primary lock" — which
+     * `primary_lock_key` (the generated column: `proposal_version_id` when
+     * status=Success and superseded_at is null, else null) already encodes
+     * on its own; no cross-table comparison is needed at all.
+     */
     public function currentPrimaryArtifact(): HasOne
     {
-        return $this->hasOne(ProposalPdfArtifact::class)->whereColumn('primary_lock_key', 'proposal_versions.id');
+        return $this->hasOne(ProposalPdfArtifact::class)->whereNotNull('primary_lock_key');
     }
 
     /**

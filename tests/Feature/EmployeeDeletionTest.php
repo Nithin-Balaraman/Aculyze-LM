@@ -113,8 +113,10 @@ class EmployeeDeletionTest extends TestCase
 
         // Audit fix pass 1 added `demos` (F3) and the three permanent
         // ProposalVersion actor counts (F2/locked Decision D3). Phase
-        // 4A-3.2 added `pdfArtifactsGenerated`, the same permanent-evidence
-        // kind extended to proposal_pdf_artifacts.generated_by.
+        // 4A-3.2 added `pdfArtifactsGenerated`, and 4A-3.3 added
+        // `versionsReleased`/`sendsAttempted`/`sendsSent` — the same
+        // permanent-evidence kind extended to released_by/attempted_by/
+        // sent_by.
         $this->assertSame([
             'prospects' => 1,
             'callRecords' => 1,
@@ -128,6 +130,9 @@ class EmployeeDeletionTest extends TestCase
             'versionsApproved' => 0,
             'versionsReturned' => 0,
             'pdfArtifactsGenerated' => 0,
+            'versionsReleased' => 0,
+            'sendsAttempted' => 0,
+            'sendsSent' => 0,
         ], $breakdown);
     }
 
@@ -610,5 +615,145 @@ class EmployeeDeletionTest extends TestCase
         $this->expectExceptionMessage('generated a final PDF');
 
         $this->service()->reassignAndDelete($employee, $replacement);
+    }
+
+    /**
+     * Phase 4A-3.3, Section S: released_by/attempted_by/sent_by activate as
+     * the same kind of permanent commercial-actor evidence as generated_by
+     * above — never reassigned, never nulled, only ever blocking.
+     */
+    public function test_a_user_who_released_a_version_for_client_sending_cannot_be_deleted(): void
+    {
+        $employee = User::factory()->create();
+        $replacement = User::factory()->create(['organization_id' => $employee->organization_id]);
+
+        $prospect = Prospect::factory()->create(['assigned_to' => $employee->id, 'created_by' => $employee->id]);
+        $lead = Lead::create([
+            'prospect_id' => $prospect->id, 'assigned_to' => $employee->id, 'created_by' => $employee->id,
+            'stage' => 'validated', 'temperature' => 'hot', 'notes' => 'Fixture.',
+        ]);
+        $proposal = Proposal::create([
+            'lead_id' => $lead->id, 'prospect_id' => $prospect->id,
+            'assigned_to' => $employee->id, 'created_by' => $employee->id, 'stage' => 'being_prepared',
+        ]);
+        $version = \App\Models\ProposalVersion::factory()->create([
+            'proposal_id' => $proposal->id,
+            'lifecycle_status' => \App\Enums\ProposalVersionLifecycle::Approved,
+        ]);
+        $proposal->forceFill(['current_version_id' => $version->id])->save();
+
+        $artifact = \App\Models\ProposalPdfArtifact::create([
+            'proposal_version_id' => $version->id,
+            'status' => \App\Enums\ProposalPdfArtifactStatus::Success,
+            'template_version' => 'v1',
+            'checksum_sha256' => str_repeat('a', 64),
+            'storage_path' => 'proposal-pdfs/x.pdf',
+            'byte_size' => 1,
+            'generated_at' => now(),
+            'generated_by' => $replacement->id,
+        ]);
+
+        $version->forceFill([
+            'released_at' => now(),
+            'released_by' => $employee->id,
+            'released_pdf_artifact_id' => $artifact->id,
+        ])->save();
+
+        $this->expectException(EmployeeDeletionFailedException::class);
+        $this->expectExceptionMessage('released a Version for client sending');
+
+        $this->service()->reassignAndDelete($employee, $replacement);
+    }
+
+    public function test_a_user_who_attempted_a_manual_send_cannot_be_deleted(): void
+    {
+        $employee = User::factory()->create();
+        $replacement = User::factory()->create(['organization_id' => $employee->organization_id]);
+
+        [$proposal, $version, $artifact] = $this->releasedProposalFixture($employee, $replacement);
+
+        \App\Models\ProposalSend::create([
+            'proposal_id' => $proposal->id,
+            'proposal_version_id' => $version->id,
+            'pdf_artifact_id' => $artifact->id,
+            'method' => \App\Enums\ProposalSendMethod::Manual,
+            'status' => \App\Enums\ProposalSendStatus::Sent,
+            'to_recipients' => ['a@b.com'],
+            'attempted_at' => now(),
+            'attempted_by' => $employee->id,
+            'sent_at' => now(),
+            'sent_by' => $replacement->id,
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+        ]);
+
+        $this->expectException(EmployeeDeletionFailedException::class);
+        $this->expectExceptionMessage('attempted a manual send');
+
+        $this->service()->reassignAndDelete($employee, $replacement);
+    }
+
+    public function test_a_user_who_recorded_a_manual_send_as_sent_cannot_be_deleted(): void
+    {
+        $employee = User::factory()->create();
+        $replacement = User::factory()->create(['organization_id' => $employee->organization_id]);
+
+        [$proposal, $version, $artifact] = $this->releasedProposalFixture($employee, $replacement);
+
+        \App\Models\ProposalSend::create([
+            'proposal_id' => $proposal->id,
+            'proposal_version_id' => $version->id,
+            'pdf_artifact_id' => $artifact->id,
+            'method' => \App\Enums\ProposalSendMethod::Manual,
+            'status' => \App\Enums\ProposalSendStatus::Sent,
+            'to_recipients' => ['a@b.com'],
+            'attempted_at' => now(),
+            'attempted_by' => $replacement->id,
+            'sent_at' => now(),
+            'sent_by' => $employee->id,
+            'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+        ]);
+
+        $this->expectException(EmployeeDeletionFailedException::class);
+        $this->expectExceptionMessage('recorded a manual send as sent');
+
+        $this->service()->reassignAndDelete($employee, $replacement);
+    }
+
+    /** @return array{0: Proposal, 1: \App\Models\ProposalVersion, 2: \App\Models\ProposalPdfArtifact} */
+    private function releasedProposalFixture(User $employee, User $otherActor): array
+    {
+        $prospect = Prospect::factory()->create(['assigned_to' => $employee->id, 'created_by' => $employee->id]);
+        $lead = Lead::create([
+            'prospect_id' => $prospect->id, 'assigned_to' => $employee->id, 'created_by' => $employee->id,
+            'stage' => 'validated', 'temperature' => 'hot', 'notes' => 'Fixture.',
+        ]);
+        $proposal = Proposal::create([
+            'lead_id' => $lead->id, 'prospect_id' => $prospect->id,
+            'assigned_to' => $employee->id, 'created_by' => $employee->id, 'stage' => 'being_prepared',
+        ]);
+        $version = \App\Models\ProposalVersion::factory()->create([
+            'proposal_id' => $proposal->id,
+            'lifecycle_status' => \App\Enums\ProposalVersionLifecycle::Approved,
+        ]);
+        $proposal->forceFill(['current_version_id' => $version->id])->save();
+
+        $artifact = \App\Models\ProposalPdfArtifact::create([
+            'proposal_version_id' => $version->id,
+            'status' => \App\Enums\ProposalPdfArtifactStatus::Success,
+            'template_version' => 'v1',
+            'checksum_sha256' => str_repeat('a', 64),
+            'storage_path' => 'proposal-pdfs/x.pdf',
+            'byte_size' => 1,
+            'generated_at' => now(),
+            'generated_by' => $otherActor->id,
+        ]);
+
+        $version->forceFill([
+            'released_at' => now(),
+            'released_by' => $otherActor->id,
+            'released_pdf_artifact_id' => $artifact->id,
+        ])->save();
+
+        return [$proposal, $version, $artifact];
     }
 }
