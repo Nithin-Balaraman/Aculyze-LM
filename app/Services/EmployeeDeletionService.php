@@ -40,7 +40,7 @@ class EmployeeDeletionService
      * three are permanent commercial evidence that blocks hard deletion
      * outright and can never be reassigned away.
      *
-     * @return array{prospects: int, callRecords: int, followUps: int, appointments: int, demos: int, leads: int, proposals: int, directReports: int, versionsSubmitted: int, versionsApproved: int, versionsReturned: int}
+     * @return array{prospects: int, callRecords: int, followUps: int, appointments: int, demos: int, leads: int, proposals: int, directReports: int, versionsSubmitted: int, versionsApproved: int, versionsReturned: int, pdfArtifactsGenerated: int}
      */
     public function dependencyBreakdown(User $employee): array
     {
@@ -56,6 +56,9 @@ class EmployeeDeletionService
             'versionsSubmitted' => $employee->submittedProposalVersions()->count(),
             'versionsApproved' => $employee->approvedProposalVersions()->count(),
             'versionsReturned' => $employee->returnedProposalVersions()->count(),
+            // Phase 4A-3.2: same permanent-evidence kind as the three
+            // versions* counts above, never a replacement-absorbable count.
+            'pdfArtifactsGenerated' => $employee->generatedProposalPdfArtifacts()->count(),
         ];
     }
 
@@ -170,10 +173,15 @@ class EmployeeDeletionService
     }
 
     /**
-     * The three formal ProposalVersion actor references, filtered to those
-     * that actually exist. Locked Decision D3: submitted_by/approved_by/
-     * returned_by record who really performed a commercial action and are
-     * never reassigned, nulled or rewritten — so they can only ever block.
+     * The formal ProposalVersion/PDF-artifact actor references, filtered to
+     * those that actually exist. Locked Decision D3: submitted_by/
+     * approved_by/returned_by record who really performed a commercial
+     * action and are never reassigned, nulled or rewritten — so they can
+     * only ever block. Phase 4A-3.2 extends this same permanent-evidence
+     * principle to `generated` (proposal_pdf_artifacts.generated_by) — who
+     * actually generated/corrected a final PDF is exactly the same kind of
+     * commercial-actor history, using the identical blocker mechanism
+     * rather than a parallel one.
      *
      * @return array<string, int>
      */
@@ -183,6 +191,7 @@ class EmployeeDeletionService
             'submitted' => $employee->submittedProposalVersions()->count(),
             'approved' => $employee->approvedProposalVersions()->count(),
             'returned' => $employee->returnedProposalVersions()->count(),
+            'generated a final PDF' => $employee->generatedProposalPdfArtifacts()->count(),
         ]);
     }
 
@@ -212,8 +221,8 @@ class EmployeeDeletionService
             ->implode(', ');
 
         throw new EmployeeDeletionFailedException(
-            "{$employee->name} can't be deleted: they are the recorded actor on Proposal commercial Version history ({$breakdown}). ".
-            'Who submitted, approved or returned a commercial Version is permanent evidence and is never reassigned, blanked or rewritten, '.
+            "{$employee->name} can't be deleted: they are the recorded actor on Proposal commercial Version or PDF artifact history ({$breakdown}). ".
+            'Who submitted, approved or returned a commercial Version, or generated a final PDF for one, is permanent evidence and is never reassigned, blanked or rewritten, '.
             'so this employee cannot be removed. Nothing was changed.'
         );
     }

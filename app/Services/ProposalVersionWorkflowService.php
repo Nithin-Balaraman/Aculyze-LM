@@ -11,7 +11,9 @@ use App\Models\User;
 use App\Policies\ProposalVersionPolicy;
 use App\Support\Audit\AuditLogger;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use LogicException;
+use Throwable;
 
 /**
  * Phase 4A-2.2: the centralized, transactional ProposalVersion commercial
@@ -167,6 +169,38 @@ class ProposalVersionWorkflowService
                     after: ['proposal_number' => $proposal->proposal_number],
                 );
             }
+
+            // Phase 4A-3.2 (locked Decision 3): auto-attempt final PDF
+            // generation immediately AFTER this transaction commits —
+            // DB::afterCommit() is the safest repository-compatible
+            // mechanism available (no queue/persistent worker exists or is
+            // assumed anywhere in this app); it defers the callback until
+            // the OUTERMOST transaction actually commits, then runs it
+            // synchronously in this same request, so the just-allocated
+            // proposal_number is already visible to the renderer. Re-fetches
+            // the Version fresh by id rather than closing over $locked,
+            // since this callback fires after the transaction that
+            // populated it has already ended. Never lets a rendering/
+            // identity failure surface as an approve() failure — a Failed
+            // artifact row is recorded and swallowed here; the approval
+            // itself has already committed and must never be undone by
+            // this.
+            $versionKey = $locked->getKey();
+
+            DB::afterCommit(function () use ($versionKey, $actor) {
+                try {
+                    $freshVersion = ProposalVersion::query()->find($versionKey);
+
+                    if ($freshVersion !== null) {
+                        app(ProposalPdfArtifactService::class)->generateIfMissing($freshVersion, $actor);
+                    }
+                } catch (Throwable $e) {
+                    Log::error('Auto-generation of final Proposal PDF failed after approval commit', [
+                        'proposal_version_id' => $versionKey,
+                        'exception' => $e,
+                    ]);
+                }
+            });
         });
     }
 

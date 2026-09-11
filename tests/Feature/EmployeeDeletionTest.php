@@ -112,7 +112,9 @@ class EmployeeDeletionTest extends TestCase
         $breakdown = $this->service()->dependencyBreakdown($employee);
 
         // Audit fix pass 1 added `demos` (F3) and the three permanent
-        // ProposalVersion actor counts (F2/locked Decision D3).
+        // ProposalVersion actor counts (F2/locked Decision D3). Phase
+        // 4A-3.2 added `pdfArtifactsGenerated`, the same permanent-evidence
+        // kind extended to proposal_pdf_artifacts.generated_by.
         $this->assertSame([
             'prospects' => 1,
             'callRecords' => 1,
@@ -125,6 +127,7 @@ class EmployeeDeletionTest extends TestCase
             'versionsSubmitted' => 0,
             'versionsApproved' => 0,
             'versionsReturned' => 0,
+            'pdfArtifactsGenerated' => 0,
         ], $breakdown);
     }
 
@@ -563,5 +566,49 @@ class EmployeeDeletionTest extends TestCase
         $this->expectExceptionMessage('Choose who should take over their Call Records, assigned Proposals');
 
         $this->service()->reassignAndDelete($employee, null);
+    }
+
+    /**
+     * Phase 4A-3.2: proposal_pdf_artifacts.generated_by is the first of the
+     * five actor FKs identified in the 4A-3.1 report to go live — extends
+     * the exact same permanent-evidence blocker already covering
+     * submitted_by/approved_by/returned_by (locked Decision D3), never a
+     * parallel mechanism.
+     */
+    public function test_a_user_who_generated_a_final_pdf_cannot_be_deleted(): void
+    {
+        $employee = User::factory()->create();
+        $replacement = User::factory()->create(['organization_id' => $employee->organization_id]);
+
+        $prospect = Prospect::factory()->create(['assigned_to' => $employee->id, 'created_by' => $employee->id]);
+        $lead = Lead::create([
+            'prospect_id' => $prospect->id, 'assigned_to' => $employee->id, 'created_by' => $employee->id,
+            'stage' => 'validated', 'temperature' => 'hot', 'notes' => 'Fixture.',
+        ]);
+        $proposal = Proposal::create([
+            'lead_id' => $lead->id, 'prospect_id' => $prospect->id,
+            'assigned_to' => $employee->id, 'created_by' => $employee->id, 'stage' => 'being_prepared',
+        ]);
+        $version = \App\Models\ProposalVersion::factory()->create([
+            'proposal_id' => $proposal->id,
+            'lifecycle_status' => \App\Enums\ProposalVersionLifecycle::Approved,
+        ]);
+        $proposal->forceFill(['current_version_id' => $version->id])->save();
+
+        \App\Models\ProposalPdfArtifact::create([
+            'proposal_version_id' => $version->id,
+            'status' => \App\Enums\ProposalPdfArtifactStatus::Success,
+            'template_version' => 'v1',
+            'checksum_sha256' => str_repeat('a', 64),
+            'storage_path' => 'proposal-pdfs/x.pdf',
+            'byte_size' => 1,
+            'generated_at' => now(),
+            'generated_by' => $employee->id,
+        ]);
+
+        $this->expectException(EmployeeDeletionFailedException::class);
+        $this->expectExceptionMessage('generated a final PDF');
+
+        $this->service()->reassignAndDelete($employee, $replacement);
     }
 }

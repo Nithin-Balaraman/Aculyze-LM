@@ -46,4 +46,32 @@ return [
 
     'export_request_validity_days' => env('ACULYZE_EXPORT_REQUEST_VALIDITY_DAYS', 7),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Organization legal identity / letterhead fallback (Phase 4A-3.2)
+    |--------------------------------------------------------------------------
+    |
+    | Locked Decision 2: the final Proposal PDF's letterhead is read from
+    | `organizations.settings['identity']` first; this config array is only
+    | the FALLBACK used when an organization has not configured its own
+    | identity there (there is no identity-management UI in 4A-3 — see
+    | App\Support\Proposal\OrganizationIdentityResolver). legal_name,
+    | registered_address and gstin are mandatory before any final PDF can be
+    | generated (from either source); phone/email/website/logo_path are
+    | optional. Nothing here is guessed or defaulted to a fabricated value —
+    | every key below is null unless a real environment value is set, and
+    | generation fails clearly rather than inventing an identity.
+    |
+    */
+
+    'organization_identity' => [
+        'legal_name' => env('ACULYZE_ORG_LEGAL_NAME'),
+        'registered_address' => env('ACULYZE_ORG_REGISTERED_ADDRESS'),
+        'gstin' => env('ACULYZE_ORG_GSTIN'),
+        'phone' => env('ACULYZE_ORG_PHONE'),
+        'email' => env('ACULYZE_ORG_EMAIL'),
+        'website' => env('ACULYZE_ORG_WEBSITE'),
+        'logo_path' => env('ACULYZE_ORG_LOGO_PATH'),
+    ],
+
 ];

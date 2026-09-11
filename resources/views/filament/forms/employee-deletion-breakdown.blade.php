@@ -13,6 +13,7 @@
         'versionsSubmitted' => 'Versions they submitted',
         'versionsApproved' => 'Versions they approved',
         'versionsReturned' => 'Versions they returned',
+        'pdfArtifactsGenerated' => 'Final PDFs they generated',
     ];
 @endphp
 
