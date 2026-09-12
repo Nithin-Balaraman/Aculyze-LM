@@ -93,6 +93,26 @@ class ManageCommercialVersionPdfActionsTest extends TestCase
         $this->assertSame(1, ProposalPdfArtifact::query()->where('status', ProposalPdfArtifactStatus::Success)->count());
     }
 
+    public function test_final_pdf_section_renders_real_artifact_data_not_just_the_status_badge(): void
+    {
+        ['employee' => $employee, 'manager' => $manager] = $this->hierarchy();
+        $proposal = $this->approvedProposal($employee, $manager);
+
+        $this->actingAs($manager);
+        $component = Livewire::test(ManageCommercialVersion::class, ['record' => $proposal->getRouteKey()])
+            ->call('generateFinalPdfAction');
+
+        $artifact = ProposalPdfArtifact::query()->where('status', ProposalPdfArtifactStatus::Success)->sole();
+
+        // The "Successful" status badge alone would pass even if Generated
+        // By / Checksum silently failed to resolve — assert the real,
+        // per-artifact values render too.
+        $component
+            ->assertSee($manager->name)
+            ->assertSee((string) str($artifact->checksum_sha256)->limit(16, '…'))
+            ->assertSee($artifact->template_version);
+    }
+
     public function test_employee_never_sees_any_pdf_action_or_section(): void
     {
         ['employee' => $employee, 'manager' => $manager] = $this->hierarchy();
@@ -160,10 +180,18 @@ class ManageCommercialVersionPdfActionsTest extends TestCase
             ->call('generateFinalPdfAction');
 
         $version = $proposal->fresh()->currentVersion;
+        $artifact = $version->pdfArtifacts()->sole();
 
+        // Real per-row artifact data must actually render — not merely the
+        // section's own static description text or the dynamic-but-generic
+        // "Current Primary" state label — confirming the RepeatableEntry
+        // resolves each child's own bound record (see the class docblock's
+        // rendering bug-fix precedent for why this needs its own check).
         Livewire::test(ViewCommercialVersion::class, ['record' => $proposal->getRouteKey(), 'version' => $version->getKey()])
             ->assertSee('Final PDF Artifact History')
-            ->assertSee('Current Primary');
+            ->assertSee('Current Primary')
+            ->assertSee($manager->name)
+            ->assertSee($artifact->checksum_sha256);
     }
 
     public function test_historical_version_page_exposes_no_mutating_pdf_action(): void

@@ -504,13 +504,53 @@ rather than given numbers, so no future renumbering is implied.
   than silently overwriting.
 - **Self-approval is never allowed.** The Senior Manager who approves a
   Version cannot be the actor who submitted it.
-- **`PHASE4_OUTCOME_CUTOVER_GATE` is OPEN.** Legacy `Proposal.outcome` and
-  the new Version lifecycle coexist deliberately. See
-  `docs/PHASE4_OUTCOME_CUTOVER_GATE.md` for the closure checklist.
+- **`PHASE4_OUTCOME_CUTOVER_GATE` is CLOSED (Phase 4A-3.5).** `Proposal.stage`
+  and `Proposal.outcome` are now exclusively service-owned: the only writers
+  are `ProposalSendService` (first send moves `stage` to Sent) and
+  `ProposalClientResponseService` (Accepted/Revision Requested/More Time/
+  Rejected — the only writer of `outcome`, `winning_version_id`, and `value`).
+  Neither field is editable from the generic Proposal form or from
+  PipelineBoard drag-and-drop any more (both now show read-only
+  placeholders/refusal messages instead). A DB `CHECK` enforces
+  `outcome != 'won' OR winning_version_id IS NOT NULL`. See
+  `docs/PHASE4_OUTCOME_CUTOVER_GATE.md` for the full closure record — this
+  does **not** mean the two status systems (Proposal stage/outcome vs. the
+  Version's own `lifecycle_status`) were merged; they remain permanently
+  separate concepts (see section 25 above), each still shown labeled on its
+  own wherever both appear on screen.
+- **`Proposal.sent_at` is legacy (Phase 4A-3.6).** It predates the Version
+  workflow, has no legitimate runtime writer any more, and is read-only
+  everywhere it's surfaced (labeled "Sent At (Legacy)"). The authoritative
+  send record is `ProposalVersion.sent_at` (first successful send) and the
+  full `proposal_sends` history, both on the Commercial Version page. The
+  column itself is retained in the schema for historical/export visibility —
+  it was neither dropped nor backfilled from the new Send history.
+- **Phase 4A-3 is CLOSED as of Phase 4A-3.6.** Every sub-phase (4A-3.1
+  foundational schema, 4A-3.2 PDF, 4A-3.3 Release/Send, 4A-3.4 Client
+  Response/Billing handoff, 4A-3.5 outcome cutover, 4A-3.6 final polish/
+  regression/deployment prep) is implemented, tested, and regression-clean.
+  Production deployment itself has **not** been performed — see
+  `docs/PHASE4A3_PRODUCTION_DEPLOYMENT_RUNBOOK.md` for the runbook and its
+  Section 0/6 dompdf-vendor-deployment BLOCKER, which must be resolved with
+  real production access before that runbook can be executed.
+- **Explicitly deferred beyond Phase 4A-3** (none of this exists yet — do
+  not assume otherwise from any Phase 4A-3 document): the external LM↔Billing
+  API integration itself (`proposal_billing_handoffs` only ever reaches
+  `status = pending` today, nothing calls out), Billing API credential/token
+  generation, Billing webhooks, the PipelineBoard's final 6-lane redesign,
+  Phase 5 scheduled work, and Microsoft Graph/Outlook-based sending (manual
+  send recording is, and remains, the only send mechanism).
 
 ## Related documents
 
-- `docs/PHASE4_OUTCOME_CUTOVER_GATE.md` — the checklist Phase 4A-3 must
-  satisfy before the legacy outcome system can be retired.
+- `docs/PHASE4_OUTCOME_CUTOVER_GATE.md` — the closed cutover-gate record for
+  Phase 4A-3.5 (service-ownership of `Proposal.stage`/`outcome`).
+- `docs/PHASE4A3_PRODUCTION_DEPLOYMENT_RUNBOOK.md` — the consolidated
+  Phase 4A-3.1 through 4A-3.6 production deployment runbook (preparation
+  only — not executed).
+- `docs/PHASE4A3_CONSOLIDATED_SQL_COMPANION.sql`,
+  `docs/PHASE4A3_1_MANUAL_SQL_COMPANION.sql`,
+  `docs/PHASE4A3_5_MANUAL_SQL_COMPANION.sql` — the three-stage manual SQL/
+  preflight companion set the runbook applies in order.
 - `docs/OPEN_BUSINESS_DECISIONS.md` — decisions the business still owes,
   with the current behaviour and its known consequence for each.

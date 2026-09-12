@@ -28,9 +28,17 @@ class ProposalExporter extends ResourceExporter
         return $query;
     }
 
+    /**
+     * "Sent At (Legacy)" — Phase 4A-3.6: exports the legacy Proposal.sent_at
+     * field, which predates the commercial Version workflow and is no
+     * longer written by any runtime service. It is NOT the authoritative
+     * send record (that is ProposalVersion.sent_at / proposal_sends,
+     * visible on the Commercial Version page) — labeled explicitly so an
+     * exported spreadsheet cannot be mistaken for real send history.
+     */
     public function headers(): array
     {
-        return ['Company', 'Stage', 'Outcome', 'Value', 'Sent At', 'Assigned Employee', 'Created By', 'Stage Since', 'Created At'];
+        return ['Company', 'Stage', 'Outcome', 'Value', 'Sent At (Legacy)', 'Assigned Employee', 'Created By', 'Stage Since', 'Created At'];
     }
 
     public function mapRow(Model $record): array

@@ -83,9 +83,15 @@ class ManageCommercialVersionClientResponseActionsTest extends TestCase
         app(ProposalClientResponseService::class)->recordAccepted($version->fresh(), $manager, null, (string) Str::uuid());
 
         $this->actingAs($manager);
+        // "Won" alone is a small, easily-matched badge string — also assert
+        // the Winning Version and Value fields render this exact fixture's
+        // real data (V{$version->version_number}, the frozen grand_total),
+        // not just that the outcome badge itself flipped.
         Livewire::test(ManageCommercialVersion::class, ['record' => $proposal->getRouteKey()])
             ->assertSee('Client Response History')
-            ->assertSee('Won');
+            ->assertSee('Won')
+            ->assertSee("V{$version->version_number}")
+            ->assertSee(number_format((float) $version->grand_total, 2));
     }
 
     public function test_recorded_by_and_version_responded_to_shown_in_history(): void

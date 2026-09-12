@@ -135,10 +135,16 @@ class ManageCommercialVersionReleaseSendActionsTest extends TestCase
             ->assertSee('Release Status')
             ->assertSee('Not Released');
 
-        app(ProposalReleaseService::class)->release($version->fresh(), $manager);
+        app(ProposalReleaseService::class)->release($version->fresh(), $manager, 'Checked pricing twice before releasing.');
 
+        // "Released — Valid" is a small, genuinely dynamic status string,
+        // but assert the real Released By / Release Comment values too —
+        // confirming those TextEntries resolve this exact release's own
+        // data, not merely that the status computation flipped.
         Livewire::test(ManageCommercialVersion::class, ['record' => $proposal->getRouteKey()])
-            ->assertSee('Released — Valid');
+            ->assertSee('Released — Valid')
+            ->assertSee($manager->name)
+            ->assertSee('Checked pricing twice before releasing.');
     }
 
     public function test_manager_can_release_from_the_page(): void
@@ -181,13 +187,22 @@ class ManageCommercialVersionReleaseSendActionsTest extends TestCase
         $version = $proposal->fresh()->currentVersion;
         app(ProposalReleaseService::class)->release($version->fresh(), $manager);
 
-        app(ProposalSendService::class)->recordManualSend($version->fresh(['proposal']), $employee, ['a@b.com'], [], null, null, now(), [], $this->sendKey());
-        app(ProposalSendService::class)->recordManualSend($version->fresh(['proposal']), $employee, ['a@b.com'], [], null, null, now(), [], $this->sendKey());
+        app(ProposalSendService::class)->recordManualSend($version->fresh(['proposal']), $employee, ['first@b.com'], [], 'First send subject', null, now(), [], $this->sendKey());
+        app(ProposalSendService::class)->recordManualSend($version->fresh(['proposal']), $employee, ['second@b.com'], [], 'Second send subject', null, now(), [], $this->sendKey());
 
         $this->actingAs($manager);
-        Livewire::test(ManageCommercialVersion::class, ['record' => $proposal->getRouteKey()]);
+        $component = Livewire::test(ManageCommercialVersion::class, ['record' => $proposal->getRouteKey()]);
 
         $this->assertSame(2, \App\Models\ProposalSend::query()->where('proposal_version_id', $version->getKey())->count());
+
+        // Both real rows must actually render on the page, distinctly and
+        // simultaneously — not just exist in the database — confirming the
+        // RepeatableEntry is genuinely iterating every ProposalSend row
+        // rather than collapsing to (or only ever rendering) one.
+        $component->assertSee('first@b.com');
+        $component->assertSee('second@b.com');
+        $component->assertSee('First send subject');
+        $component->assertSee('Second send subject');
     }
 
     public function test_send_history_is_labelled_marked_as_sent_manually_never_delivered(): void

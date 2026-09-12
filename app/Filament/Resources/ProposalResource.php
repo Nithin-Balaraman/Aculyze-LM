@@ -151,7 +151,22 @@ class ProposalResource extends Resource
                         ->visible(fn (?Proposal $record) => $record !== null)
                         ->content(fn (?Proposal $record) => $record?->value !== null ? '₹'.number_format((float) $record->value) : '—')
                         ->helperText('Read-only. Set automatically from the winning commercial Version once Accepted.'),
-                    Forms\Components\DatePicker::make('sent_at'),
+                    // Phase 4A-3.6 cleanup: this is the LEGACY, pre-4A-3
+                    // send-date field — it predates the commercial Version
+                    // workflow and is no longer written by any runtime
+                    // service. The authoritative send truth is
+                    // ProposalVersion.sent_at (first successful send) and
+                    // the full proposal_sends history, both shown on the
+                    // Commercial Version page. Kept read-only here rather
+                    // than removed (retains DB compatibility/historical
+                    // visibility per the locked 4A-3.6 decision) so it can
+                    // no longer be manually edited to imply a send that
+                    // never happened through the real workflow.
+                    Forms\Components\Placeholder::make('sent_at_display')
+                        ->label('Sent At (Legacy)')
+                        ->visible(fn (?Proposal $record) => $record !== null && $record->sent_at !== null)
+                        ->content(fn (?Proposal $record) => $record?->sent_at?->format('d M Y'))
+                        ->helperText('Read-only legacy field, predates the commercial Version workflow. The authoritative send record is on the Commercial Version page.'),
                     // Required the moment the EXISTING record's outcome is
                     // already Won or Lost — outcome itself can no longer be
                     // set from this form (see outcome_display above), but an
@@ -386,12 +401,16 @@ class ProposalResource extends Resource
                 ->label('Company')
                 ->searchable()
                 ->sortable(),
-            // F6: the two status systems legitimately coexist while
-            // PHASE4_OUTCOME_CUTOVER_GATE is OPEN, so every screen names
-            // which one it is showing. These two are the LEGACY parent-
-            // Proposal state; the Commercial Version Status below is the
-            // Phase 4A-2 ProposalVersion lifecycle. Labels only — no
-            // outcome logic, no winning_version_id, no gate change.
+            // F6: the two status systems legitimately coexist permanently
+            // (not merely while a cutover gate was open) — Proposal
+            // stage/outcome and the commercial Version lifecycle answer two
+            // different questions and are not being merged — so every
+            // screen names which one it is showing. These two are the
+            // Proposal-level state (service-owned since the Phase 4A-3.5
+            // cutover — see PHASE4_OUTCOME_CUTOVER_GATE.md, now CLOSED);
+            // the Commercial Version Status below is the Phase 4A-2
+            // ProposalVersion lifecycle. Labels only — no outcome logic, no
+            // winning_version_id.
             Tables\Columns\TextColumn::make('stage')
                 ->label('Proposal Stage')
                 ->badge()
