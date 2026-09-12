@@ -142,6 +142,15 @@
                     <span class="truncate font-mono text-[10px] text-gray-400 dark:text-gray-500">{{ $card['meta'] }}</span>
                     @if ($card['isLost'])
                         <span class="ms-auto shrink-0 rounded bg-brand-coral/15 px-1 font-mono text-[9px] font-semibold text-brand-coral">LOST</span>
+                    @elseif ($card['isOverdue'] ?? false)
+                        {{-- Pipeline Board redesign, Section 5: reuses each
+                        model's own pre-existing isOverdue() (Appointment/
+                        Demo/FollowUp) — never shown for Lead/Proposal, which
+                        have no such concept (see AGENTS.md 23/27). LOST takes
+                        priority over OVERDUE, which takes priority over the
+                        Follow-Up summary button, when more than one could
+                        apply to the same card. --}}
+                        <span class="ms-auto shrink-0 rounded bg-brand-gold/15 px-1 font-mono text-[9px] font-semibold text-brand-gold">OVERDUE</span>
                     @elseif ($card['resource'] === 'follow_up')
                         {{-- Reuses the exact "Follow-Up History" summary modal
                         already on the Follow-Ups list page — same company-wide
@@ -155,6 +164,12 @@
                         >↻ SUMMARY</button>
                     @endif
                 </div>
+
+                @if ($card['assignedTo'] ?? null)
+                    <span class="truncate font-mono text-[9px] text-gray-400 dark:text-white/30">
+                        {{ $card['assignedTo'] }}
+                    </span>
+                @endif
             </a>
         @empty
             <div class="rounded-lg border border-dashed border-gray-200 py-2 text-center font-mono text-[9px] tracking-wide text-gray-300 dark:border-white/10 dark:text-white/20">

@@ -229,8 +229,9 @@ Proposal is still in progress. Neither is a substitute for the other.
 
 Phase 4A added a **third**, separate concept: Commercial Version Status, the
 lifecycle of an individual `ProposalVersion`. All three legitimately coexist
-while `PHASE4_OUTCOME_CUTOVER_GATE` is OPEN, so every Proposal screen labels
-which one it is showing — see `docs/PHASE4_OUTCOME_CUTOVER_GATE.md`.
+permanently — this did not depend on `PHASE4_OUTCOME_CUTOVER_GATE`, which is
+now CLOSED (Phase 4A-3.5) — so every Proposal screen labels which one it is
+showing — see `docs/PHASE4_OUTCOME_CUTOVER_GATE.md`.
 
 *Enforced in:* `app/Enums/ProposalStage.php`, `app/Enums/ProposalOutcome.php`,
 `app/Filament/Resources/ProposalResource.php`.
@@ -537,9 +538,80 @@ rather than given numbers, so no future renumbering is implied.
   not assume otherwise from any Phase 4A-3 document): the external LM↔Billing
   API integration itself (`proposal_billing_handoffs` only ever reaches
   `status = pending` today, nothing calls out), Billing API credential/token
-  generation, Billing webhooks, the PipelineBoard's final 6-lane redesign,
-  Phase 5 scheduled work, and Microsoft Graph/Outlook-based sending (manual
-  send recording is, and remains, the only send mechanism).
+  generation, Billing webhooks, Phase 5 scheduled work, and Microsoft
+  Graph/Outlook-based sending (manual send recording is, and remains, the
+  only send mechanism).
+
+## Pipeline Board redesign (six-lane board)
+
+`App\Filament\Pages\PipelineBoard` is the main visual working surface for the
+active sales pipeline. This section records the redesign's own rules —
+newer than the numbered sections above, recorded here for the same reason as
+the Phase 4A additions above.
+
+- **Exactly six lanes, in a fixed order**: Calls | Follow-ups | Appointments
+  | Leads | Demo | Proposal. There is no seventh "Proposal Sent" lane —
+  Proposal's internal stages (Being Prepared/Sent/Accepted/Rejected) are
+  shown as sub-boxes and card badges within the one Proposal lane, not as
+  separate lanes. This is a presentation/UX reorganization only — **no new
+  business stage, status, or enum case was introduced** by this redesign;
+  every lane maps onto the same `LeadStage`/`AppointmentStage`/
+  `ProposalStage`/`FollowUpStatus`/`DemoStatus` values documented elsewhere
+  in this file.
+- **A drag never immediately mutates state.** Every drag — same-lane or
+  cross-lane — is checked for eligibility first (`isDropEligible()`/
+  `isCrossDropEligible()`); an invalid target shows a business-friendly
+  refusal message inline (`unsupportedDropReason()`/
+  `unsupportedCrossDropReason()`), never a raw exception. A valid drag opens
+  a destination-specific confirmation modal (or, for a trivial same-lane
+  move with no extra data needed, transacts directly); the card only moves
+  visually after the server round-trip actually succeeds. Cancelling, or a
+  failure inside the transaction, always leaves the source completely
+  unchanged and creates no partial downstream record.
+- **Destination-specific modals, not one generic modal.** Each cross-lane
+  destination gets its own purpose-built field set (`stageFields()`/
+  `creationFields()`/`callLogFormSchema()`), asking only for the specific
+  data that destination genuinely needs and pre-filling what's already known
+  from the source card. A Call card is the one exception that creates no
+  destination directly at all — see below.
+- **Proposal can never be a cross-drop SOURCE, and its same-lane drag is
+  unconditionally refused.** Since the Phase 4A-3.5 outcome cutover,
+  `Proposal.stage`/`Proposal.outcome` are exclusively service-owned
+  (`ProposalSendService`, `ProposalClientResponseService` — see the section
+  above). **The board is not, and must never become, the source of truth for
+  a Proposal's outcome.** A Proposal card is display/open-only from the
+  board; the only approved way a new Proposal is created from the board is
+  via the controlled Lead→Proposal cross-drop creation path, always landing
+  at the initial Being Prepared stage.
+- **Demo is never a cross-drop SOURCE either** — only ever a destination
+  (from a Lead). Demo's own outcome-driven forward moves
+  (→Proposal/Follow-Up/Lead-clarification) happen exclusively through
+  `DemoResource`'s "Record Outcome" action
+  (`WorkflowTransitionService::transitionDemoOutcome()`), which enforces a
+  full outcome→next-action determinism table a raw board drag cannot safely
+  reproduce.
+- **An Appointment or Follow-up card cannot cross-drop directly into Demo or
+  Proposal.** Both destinations need a reference to an *existing* Lead,
+  which an Appointment/Follow-up card does not itself carry. The approved
+  path is `AppointmentOutcome::DemoRequired`/`ProposalRequired` via
+  `AppointmentResource`'s own "Record Outcome" action, which asks for the
+  specific Lead to attach to — the same reasoning as the Demo-source rule
+  above.
+- **A Call card creates no destination type directly.** Dragging a Call card
+  logs a brand-new Call Record for the same Prospect through the same
+  `CallRecordObserver` → `CallRoutingService` path a fresh "Log a Call"
+  goes through; the outcome picked in the modal decides what (if anything)
+  is created downstream. The dragged Call Record itself is never mutated.
+- **Cards show Assigned Employee and, where applicable, an Overdue badge.**
+  Both reuse pre-existing, previously-unsurfaced model data
+  (`assignedEmployee()`/`responsibleEmployee()`/`caller()` relations,
+  `isOverdue()` on Appointment/Demo/FollowUp) — no new business logic. Lead
+  and Proposal cards never carry an Overdue badge, consistent with sections
+  23/27 above (neither becomes "overdue" merely because time passes).
+- **Hierarchy and tenant isolation are inherited for free.** Every lane
+  query reuses each Resource's own already-`visibleTo()`-scoped
+  `getEloquentQuery()`, or calls `Model::query()->visibleTo()` directly —
+  there is no board-specific authorization logic to keep in sync.
 
 ## Related documents
 

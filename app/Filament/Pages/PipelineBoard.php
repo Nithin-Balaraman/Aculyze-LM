@@ -42,8 +42,6 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
-use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 /**
  * Pipeline Board: a drag-and-drop visual view of the sales pipeline,
@@ -1083,7 +1081,18 @@ class PipelineBoard extends Page implements HasActions, HasForms
         return match ($resource) {
             'appointment' => $this->appointmentStageFields($stage, $record, $prefix),
             'lead' => $this->leadStageFields($stage, $record, $prefix),
-            'proposal' => $this->proposalStageFields($stage, $record, $prefix),
+            // Phase 4A-3.5 cutover (Decision 17) + Pipeline Board redesign
+            // dead-code audit: a Proposal's only reachable stage through
+            // this dialog is BeingPrepared with no record yet (see
+            // isDropEligible()/crossDropSupported() — same-lane is refused
+            // unconditionally, and Proposal can never be a cross-drop
+            // source; the only surviving destination path is a brand-new
+            // Proposal, always at BeingPrepared, always $record === null).
+            // No stage-specific field or outcome-reset prompt can ever
+            // apply there, so this is unconditionally empty rather than a
+            // dispatcher into per-stage branches (Sent/Accepted/Rejected)
+            // that provably can never run.
+            'proposal' => [],
             'follow_up' => $this->followUpStageFields($stage, $record, $prefix, $destResource),
             default => [],
         };
@@ -1174,136 +1183,6 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 ->rows(3)
                 ->required()
                 ->default($record?->notes),
-        ];
-    }
-
-    /**
-     * @return array<int, Forms\Components\Component>
-     */
-    private function proposalStageFields(?string $stage, ?Proposal $record, string $prefix): array
-    {
-        $resetFields = $this->proposalOutcomeResetFields($stage, $record, $prefix);
-
-        if ($stage === ProposalStage::Sent->value) {
-            // Same fields/config as ProposalResource::form()'s own value/
-            // sent_at/attachment_paths — neither value nor sent_at is
-            // required there either, so this dialog mirrors that exactly
-            // rather than introducing a stricter rule the resource's own
-            // form doesn't have. attachment_paths is required the moment
-            // the stage is Sent, same disk/visibility/validation (any file
-            // type, not just PDF — see ProposalResource::formSchema()'s
-            // own field for why), so this dialog can never accept
-            // something that Proposal's own Edit form would reject.
-            return array_merge($resetFields, [
-                Forms\Components\TextInput::make("{$prefix}value")
-                    ->label('Proposal Value (₹)')
-                    ->numeric()
-                    ->prefix('₹')
-                    ->default($record?->value),
-                Forms\Components\DatePicker::make("{$prefix}sent_at")
-                    ->default($record?->sent_at),
-                Forms\Components\FileUpload::make("{$prefix}attachment_paths")
-                    ->label('Attachments')
-                    ->multiple()
-                    ->storeFileNamesIn("{$prefix}attachment_names")
-                    // attachment_names is a virtual companion path (see
-                    // storeFileNamesIn() above) with no real Component of
-                    // its own to seed via ->default() the way every other
-                    // field here does directly on itself. This dialog has
-                    // no ->fillForm() to pull it from a record's own
-                    // attributesToArray() the way a real EditRecord page
-                    // would (and deliberately doesn't gain one just for
-                    // this: Actions\Concerns\CanBeMounted::fillForm()
-                    // replaces the WHOLE action's mount behavior with
-                    // "$form->fill($data)", which sets the form's ENTIRE
-                    // state to exactly that array — confirmed directly by
-                    // reading the trait — so it would silently blank out
-                    // every OTHER field's own ->default() in this same
-                    // dialog, not just seed this one). ->afterStateHydrated()
-                    // instead runs right after THIS field's own state
-                    // hydrates (default or otherwise), so it only touches
-                    // this one companion path. Without it, re-entering
-                    // Proposal's Sent stage on a record that already has
-                    // attachments (e.g. bounced back to another stage and
-                    // dragged to Sent again) would dehydrate a blank
-                    // attachment_names, silently wiping the display names
-                    // of files nobody touched in this dialog.
-                    ->afterStateHydrated(fn (Forms\Set $set) => $set(
-                        "{$prefix}attachment_names",
-                        $record?->attachment_names ?? [],
-                    ))
-                    ->disk('local')
-                    ->directory('proposal-attachments')
-                    ->visibility('private')
-                    ->maxSize(10240)
-                    ->previewable(false)
-                    ->default($record?->attachment_paths ?? [])
-                    ->required()
-                    ->deleteUploadedFileUsing(function (string|TemporaryUploadedFile $file): void {
-                        if (is_string($file)) {
-                            Storage::disk('local')->delete($file);
-                        }
-                    }),
-            ]);
-        }
-
-        // Confirmed: dragging all the way to Accepted/Rejected also sets the
-        // Final Outcome in this same action (Won/Lost respectively) rather
-        // than leaving that as a separate manual step — and since Won/Lost
-        // both require Notes per Proposal's own model guard
-        // (Proposal::booted()), this dialog asks for it here too.
-        if (in_array($stage, [ProposalStage::CustomerAccepted->value, ProposalStage::CustomerRejected->value], true)) {
-            $outcomeLabel = $stage === ProposalStage::CustomerAccepted->value ? 'Won' : 'Lost';
-
-            return [
-                Forms\Components\Placeholder::make("{$prefix}outcome_preview")
-                    ->label('Final Outcome')
-                    ->content($outcomeLabel),
-                Forms\Components\Textarea::make("{$prefix}notes")
-                    ->label('Notes')
-                    ->rows(3)
-                    ->required()
-                    ->default($record?->notes)
-                    ->helperText("Required — Final Outcome {$outcomeLabel} always needs Notes."),
-            ];
-        }
-
-        // Being Prepared with no outcome to reset: no fields at all, same
-        // as before.
-        return $resetFields;
-    }
-
-    /**
-     * Moving backward out of a decided Final Outcome (Won/Lost) into a
-     * non-terminal stage doesn't silently drop that decision — outcome and
-     * stage are independent Proposal columns with no automatic sync
-     * anywhere in the app (ProposalResource's own Edit form treats Final
-     * Outcome as a plain, independently-editable Select the human manages
-     * themselves), so the rep must explicitly confirm clearing it via this
-     * required, ->accepted() checkbox. Once Filament's own validation lets
-     * the submission through at all, dropProposal() knows the confirmation
-     * already happened and clears `outcome` unconditionally.
-     *
-     * @return array<int, Forms\Components\Component>
-     */
-    private function proposalOutcomeResetFields(?string $stage, ?Proposal $record, string $prefix): array
-    {
-        if (! in_array($stage, [ProposalStage::BeingPrepared->value, ProposalStage::Sent->value], true)) {
-            return [];
-        }
-
-        if ($record?->outcome === null) {
-            return [];
-        }
-
-        return [
-            Forms\Components\Placeholder::make("{$prefix}outcome_reset_notice")
-                ->label('Final Outcome will be cleared')
-                ->content("Currently {$record->outcome->getLabel()} — moving this Proposal back means it's no longer decided."),
-            Forms\Components\Checkbox::make("{$prefix}confirm_outcome_reset")
-                ->label('Yes, clear the Final Outcome and move this Proposal back')
-                ->required()
-                ->accepted(),
         ];
     }
 
@@ -1926,15 +1805,21 @@ class PipelineBoard extends Page implements HasActions, HasForms
             // is never set at creation any more — Accepted/Rejected are
             // exclusively ProposalClientResponseService's job, and a brand
             // new Proposal created this way is always still in progress.
+            // Pipeline Board redesign dead-code audit: this dialog asks for
+            // no Proposal-specific fields at all (creationFields()'s and
+            // stageFields()'s 'proposal' branches are both empty — see
+            // crossDropFormSchema()'s own docblock) since crossDropSupported()
+            // above already guarantees the only reachable $destStage is
+            // BeingPrepared. A prior version of this line also passed
+            // 'attachment_paths'/'attachment_names'/'value'/'sent_at'/
+            // 'notes' straight through from $data — always null/empty since
+            // no live modal field ever populated any of those destination_
+            // keys — mirroring the same dead-key cleanup already done for
+            // CreateProposal.php in Phase 4A-3.6.
             'proposal' => $source instanceof Lead ? app(ProposalCreationService::class)->createForLead($source, [
                 'assigned_to' => $assignedTo,
                 'created_by' => auth()->id(),
                 'stage' => $destStage,
-                'attachment_paths' => $data['destination_attachment_paths'] ?? [],
-                'attachment_names' => $data['destination_attachment_names'] ?? [],
-                'value' => $data['destination_value'] ?? null,
-                'sent_at' => $data['destination_sent_at'] ?? null,
-                'notes' => $data['destination_notes'] ?? null,
             ]) : null,
             // Phase 3: routed through the same centralized
             // WorkflowTransitionService::transitionToDemo() every other
@@ -2270,7 +2155,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
     private function callLane(): array
     {
         $calls = $this->scopeToPeriod(
-            CallRecordResource::getEloquentQuery()->with('prospect'),
+            CallRecordResource::getEloquentQuery()->with(['prospect', 'caller']),
             'called_at',
         )
             ->latest('called_at')
@@ -2288,6 +2173,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                         prospect: $call->prospect,
                         meta: $call->outcome->getLabel().' · '.$call->called_at->diffForHumans(),
                         url: CallRecordResource::getUrl('view', ['record' => $call]),
+                        assignedTo: $call->caller?->name,
                     ))->all(),
                 ],
             ],
@@ -2297,7 +2183,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
     private function followUpLane(): array
     {
         $followUps = $this->scopeToPeriod(
-            FollowUpResource::getEloquentQuery()->with('prospect'),
+            FollowUpResource::getEloquentQuery()->with(['prospect', 'responsibleEmployee']),
             'created_at',
         )
             ->latest('follow_up_at')
@@ -2319,6 +2205,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
                     prospect: $followUp->prospect,
                     meta: $followUp->reason.($followUp->follow_up_at ? ' · '.$followUp->follow_up_at->format('d M, h:i A') : ''),
                     url: FollowUpResource::getUrl('view', ['record' => $followUp]),
+                    assignedTo: $followUp->responsibleEmployee?->name,
+                    isOverdue: $followUp->isOverdue(),
                 ));
 
                 return [
@@ -2341,7 +2229,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
     private function demoLane(): array
     {
         $demos = $this->scopeToPeriod(
-            Demo::query()->visibleTo(auth()->user())->with('prospect'),
+            Demo::query()->visibleTo(auth()->user())->with(['prospect', 'assignedEmployee']),
             'status_changed_at',
         )
             ->latest('demo_at')
@@ -2365,6 +2253,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
                     meta: $demo->demo_at?->format('d M, h:i A').' · '.$demo->mode->getLabel(),
                     url: DemoResource::getUrl('view', ['record' => $demo]),
                     outcome: $demo->outcome?->value,
+                    assignedTo: $demo->assignedEmployee?->name,
+                    isOverdue: $demo->isOverdue(),
                 ));
 
                 return [
@@ -2381,7 +2271,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
         return $this->stageBasedLane(
             label: 'Appointment',
             records: $this->scopeToPeriod(
-                AppointmentResource::getEloquentQuery()->with('prospect')->excludingHistoricalStatus(),
+                AppointmentResource::getEloquentQuery()->with(['prospect', 'assignedEmployee'])->excludingHistoricalStatus(),
                 'stage_changed_at',
             )->latest('appointment_at')->get(),
             cases: AppointmentStage::cases(),
@@ -2390,6 +2280,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
             isLost: fn (Appointment $appointment) => $appointment->is_lost,
             resourceKey: 'appointment',
             urlFor: fn (Appointment $appointment) => AppointmentResource::getUrl('view', ['record' => $appointment]),
+            assignedToOf: fn (Appointment $appointment) => $appointment->assignedEmployee?->name,
+            isOverdueOf: fn (Appointment $appointment) => $appointment->isOverdue(),
         );
     }
 
@@ -2398,7 +2290,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
         $lane = $this->stageBasedLane(
             label: 'Lead',
             records: $this->scopeToPeriod(
-                LeadResource::getEloquentQuery()->with('prospect'),
+                LeadResource::getEloquentQuery()->with(['prospect', 'assignedEmployee']),
                 'stage_changed_at',
             )->latest('created_at')->get(),
             cases: LeadStage::cases(),
@@ -2407,6 +2299,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             isLost: fn (Lead $lead) => $lead->is_lost,
             resourceKey: 'lead',
             urlFor: fn (Lead $lead) => LeadResource::getUrl('view', ['record' => $lead]),
+            assignedToOf: fn (Lead $lead) => $lead->assignedEmployee?->name,
         );
 
         return $this->extractLostBox($lane);
@@ -2456,7 +2349,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
         return $this->stageBasedLane(
             label: 'Proposal',
             records: $this->scopeToPeriod(
-                ProposalResource::getEloquentQuery()->with(['prospect', 'currentVersion']),
+                ProposalResource::getEloquentQuery()->with(['prospect', 'currentVersion', 'assignedEmployee']),
                 'stage_changed_at',
             )->latest('created_at')->get(),
             cases: ProposalStage::cases(),
@@ -2469,6 +2362,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             versionStatusOf: fn (Proposal $proposal) => $proposal->currentVersion
                 ? 'V'.$proposal->currentVersion->version_number.' '.$proposal->currentVersion->lifecycle_status->getLabel()
                 : null,
+            assignedToOf: fn (Proposal $proposal) => $proposal->assignedEmployee?->name,
         );
     }
 
@@ -2489,6 +2383,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * @param  \Closure(TModel): string  $urlFor
      * @param  \Closure(TModel): (?string)  $outcomeOf
      * @param  \Closure(TModel): (?string)  $versionStatusOf
+     * @param  \Closure(TModel): (?string)  $assignedToOf
+     * @param  \Closure(TModel): bool  $isOverdueOf
      */
     private function stageBasedLane(
         string $label,
@@ -2501,10 +2397,12 @@ class PipelineBoard extends Page implements HasActions, HasForms
         \Closure $urlFor,
         ?\Closure $outcomeOf = null,
         ?\Closure $versionStatusOf = null,
+        ?\Closure $assignedToOf = null,
+        ?\Closure $isOverdueOf = null,
     ): array {
         $grouped = $records->groupBy(fn ($record) => $stageOf($record)->value);
 
-        $stages = collect($cases)->mapWithKeys(function ($case) use ($grouped, $resourceKey, $meta, $isLost, $urlFor, $outcomeOf, $versionStatusOf) {
+        $stages = collect($cases)->mapWithKeys(function ($case) use ($grouped, $resourceKey, $meta, $isLost, $urlFor, $outcomeOf, $versionStatusOf, $assignedToOf, $isOverdueOf) {
             $cards = ($grouped[$case->value] ?? collect())->map(fn ($record) => $this->card(
                 resource: $resourceKey,
                 id: $record->id,
@@ -2514,6 +2412,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 isLost: $isLost($record),
                 outcome: $outcomeOf ? $outcomeOf($record) : null,
                 versionStatus: $versionStatusOf ? $versionStatusOf($record) : null,
+                assignedTo: $assignedToOf ? $assignedToOf($record) : null,
+                isOverdue: $isOverdueOf ? $isOverdueOf($record) : false,
             ));
 
             return [$case->value => [
@@ -2546,6 +2446,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
         bool $isLost = false,
         ?string $outcome = null,
         ?string $versionStatus = null,
+        ?string $assignedTo = null,
+        bool $isOverdue = false,
     ): array {
         return [
             'resource' => $resource,
@@ -2561,9 +2463,24 @@ class PipelineBoard extends Page implements HasActions, HasForms
             // itself is deliberately NOT redesigned — grouping still keys
             // off legacy stage exactly as before, and nothing here is
             // draggable, clickable or writable. It exists only so the two
-            // coexisting status systems are distinguishable at a glance
-            // while PHASE4_OUTCOME_CUTOVER_GATE is OPEN.
+            // coexisting status systems are distinguishable at a glance.
+            // Phase 4A-3.5 cutover (Decision 17) closed
+            // PHASE4_OUTCOME_CUTOVER_GATE permanently — this coexists with
+            // Proposal.stage/outcome for good, not merely while a gate was
+            // open.
             'versionStatus' => $versionStatus,
+            // Pipeline Board redesign, Section 5 (Card Design): the
+            // assigned Employee's name, where the lane's own record has one
+            // (Appointment/Lead/Proposal via assignedEmployee(), Follow-up
+            // via responsibleEmployee(), Call via caller()) — every lane
+            // wires this in below.
+            'assignedTo' => $assignedTo,
+            // Reuses each model's own pre-existing isOverdue() (Appointment/
+            // Demo/FollowUp — Phase 2) — never true for Lead/Proposal, which
+            // deliberately have no such concept (see AGENTS.md sections
+            // 23/27: neither becomes "overdue" merely because time passes;
+            // staleness is a separate, already-differently-surfaced idea).
+            'isOverdue' => $isOverdue,
         ];
     }
 

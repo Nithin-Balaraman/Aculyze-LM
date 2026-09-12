@@ -53,7 +53,7 @@
 <x-filament-panels::page>
     <div class="flex flex-wrap items-center justify-between gap-3">
         <p class="text-sm text-gray-500 dark:text-gray-400">
-            Every Call, Follow-up, Appointment, Lead, and Proposal you can see, grouped into its real stage. Drag a card within its own lane to move it, or into another lane to create a linked record there.
+            Every Call, Follow-up, Appointment, Lead, Demo, and Proposal you can see, grouped into its real stage. Drag a card within its own lane to move it, or into another lane to create a linked record there.
         </p>
 
         {{-- Phase 6: filters which cards appear across every lane at once,
