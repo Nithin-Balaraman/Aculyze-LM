@@ -128,7 +128,11 @@ class ProposalClientResponseOtherTest extends TestCase
         ['employee' => $employee] = $this->hierarchy();
         [, $version] = $this->sentProposal($employee);
 
-        $this->expectException(\TypeError::class);
+        // Hardening pass: a missing/invalid follow_up_at must fail through
+        // the service's own controlled business validation (a catchable
+        // LogicException), never a raw uncatchable PHP TypeError.
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('A valid follow-up date/time is required.');
 
         app(ProposalClientResponseService::class)->recordOtherCreateFollowUp($version, $employee, null, 'Reason', null, null, null, $this->key());
     }

@@ -1063,7 +1063,7 @@ class ManageCommercialVersion extends ViewRecord
                 ProposalClientResponseType::MoreTime => $service->recordMoreTime(
                     $version,
                     $actor,
-                    Carbon::parse($data['more_time_follow_up_at']),
+                    $data['more_time_follow_up_at'] ?? null,
                     $data['more_time_reason'],
                     $data['more_time_notes'] ?? null,
                     $data['more_time_follow_up_notes'] ?? null,
@@ -1080,7 +1080,7 @@ class ManageCommercialVersion extends ViewRecord
                     ProposalClientResponseNextAction::CreateFollowUp => $service->recordOtherCreateFollowUp(
                         $version,
                         $actor,
-                        Carbon::parse($data['other_follow_up_follow_up_at']),
+                        $data['other_follow_up_follow_up_at'] ?? null,
                         $data['other_follow_up_reason'],
                         $data['other_follow_up_notes'] ?? null,
                         $data['other_follow_up_notes'] ?? null,

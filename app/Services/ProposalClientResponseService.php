@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Policies\ProposalClientResponsePolicy;
 use App\Support\Audit\AuditLogger;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 
@@ -212,13 +213,15 @@ class ProposalClientResponseService
     public function recordMoreTime(
         ProposalVersion $version,
         User $actor,
-        CarbonInterface $followUpAt,
+        CarbonInterface|string|null $followUpAt,
         string $reason,
         ?string $notes,
         ?string $followUpNotes,
         ?ContactMode $contactMode,
         string $idempotencyKey,
     ): ProposalClientResponse {
+        $followUpAt = $this->requireValidFollowUpAt($followUpAt);
+
         if (blank($reason)) {
             throw new LogicException('A reason is required to record More Time / Decision Pending.');
         }
@@ -406,13 +409,15 @@ class ProposalClientResponseService
     public function recordOtherCreateFollowUp(
         ProposalVersion $version,
         User $actor,
-        CarbonInterface $followUpAt,
+        CarbonInterface|string|null $followUpAt,
         string $reason,
         ?string $notes,
         ?string $followUpNotes,
         ?ContactMode $contactMode,
         string $idempotencyKey,
     ): ProposalClientResponse {
+        $followUpAt = $this->requireValidFollowUpAt($followUpAt);
+
         if (blank($reason)) {
             throw new LogicException('A reason is required to record Other — Create Follow-Up.');
         }
@@ -521,6 +526,30 @@ class ProposalClientResponseService
     {
         if (! $proposal->hasMeaningfulNotes()) {
             $proposal->notes = $fallbackNote;
+        }
+    }
+
+    /**
+     * Loosened call-sites (More Time / Other-Create Follow-Up) accept a raw
+     * CarbonInterface|string|null so a missing/malformed follow_up_at can
+     * reach controlled business validation instead of failing as an
+     * uncatchable PHP TypeError. Normalizes/parses exactly once; the
+     * returned CarbonInterface is reused for the rest of the call.
+     */
+    private function requireValidFollowUpAt(mixed $followUpAt): CarbonInterface
+    {
+        if ($followUpAt instanceof CarbonInterface) {
+            return $followUpAt;
+        }
+
+        if (! is_string($followUpAt) || trim($followUpAt) === '') {
+            throw new LogicException('A valid follow-up date/time is required.');
+        }
+
+        try {
+            return Carbon::parse($followUpAt);
+        } catch (\Throwable) {
+            throw new LogicException('A valid follow-up date/time is required.');
         }
     }
 
