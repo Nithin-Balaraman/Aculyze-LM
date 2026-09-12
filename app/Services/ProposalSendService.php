@@ -63,7 +63,8 @@ class ProposalSendService
         $existing = ProposalSend::query()->where('idempotency_key', $idempotencyKey)->first();
 
         if ($existing !== null) {
-            $this->assertSamePayload($existing, $proposal, $version, $toRecipients, $ccRecipients, $subject, $notes, $sentAt, $selectedAttachmentPaths);
+            $incomingIdentity = $this->liveAttachmentIdentity($proposal, $selectedAttachmentPaths);
+            $this->assertSamePayload($existing, $version, $toRecipients, $ccRecipients, $subject, $notes, $sentAt, $incomingIdentity);
 
             return $existing;
         }
@@ -84,7 +85,13 @@ class ProposalSendService
             $raceExisting = ProposalSend::query()->where('idempotency_key', $idempotencyKey)->first();
 
             if ($raceExisting !== null) {
-                $this->assertSamePayload($raceExisting, $lockedProposal, $lockedVersion, $toRecipients, $ccRecipients, $subject, $notes, $sentAt, array_keys($archivedAttachments));
+                // Reuse the checksums this call already computed while
+                // archiving (Section N: PREP happened before this lock)
+                // rather than re-reading the same bytes from disk again.
+                $incomingIdentity = $this->canonicalIdentity(
+                    collect($archivedAttachments)->map(fn (array $meta) => [$meta['originalFilename'], $meta['checksum']])->all()
+                );
+                $this->assertSamePayload($raceExisting, $lockedVersion, $toRecipients, $ccRecipients, $subject, $notes, $sentAt, $incomingIdentity);
 
                 return $raceExisting;
             }
@@ -260,28 +267,34 @@ class ProposalSendService
      * without a STOP), so this compares the incoming call's own arguments
      * against the already-persisted row's material fields directly.
      *
+     * Hardening pass: attachment identity is compared as (original_filename,
+     * checksum_sha256) PAIRS, not filename alone — a filename-only
+     * comparison could not distinguish a replay against a since-swapped
+     * Proposal attachment (same name, different bytes) from a genuine
+     * repeat of the same operation. The comparison is a canonical,
+     * order-independent, duplicate-preserving multiset (see
+     * canonicalIdentity()), so selecting the same attachments in a
+     * different order never causes a false conflict, and two distinct
+     * manifest rows that legitimately share both filename and checksum are
+     * still correctly matched one-for-one rather than collapsed.
+     *
      * @param  array<int, string>  $toRecipients
      * @param  array<int, string>  $ccRecipients
-     * @param  array<int, string>  $selectedAttachmentPaths
+     * @param  array<int, string>  $incomingAttachmentIdentity  Canonicalized via canonicalIdentity().
      */
     private function assertSamePayload(
         ProposalSend $existing,
-        Proposal $proposal,
         ProposalVersion $version,
         array $toRecipients,
         array $ccRecipients,
         ?string $subject,
         ?string $notes,
         CarbonInterface $sentAt,
-        array $selectedAttachmentPaths,
+        array $incomingAttachmentIdentity,
     ): void {
-        $expectedFilenames = collect($selectedAttachmentPaths)
-            ->map(fn (string $path) => $proposal->attachments()[$path] ?? basename($path))
-            ->sort()
-            ->values()
-            ->all();
-
-        $existingFilenames = $existing->attachments()->pluck('original_filename')->sort()->values()->all();
+        $existingIdentity = $this->canonicalIdentity(
+            $existing->attachments()->get()->map(fn ($manifest) => [$manifest->original_filename, $manifest->checksum_sha256])->all()
+        );
 
         // sent_at is compared at whole-SECOND precision, not exact
         // microsecond equality: the `proposal_sends.sent_at` column stores
@@ -295,7 +308,7 @@ class ProposalSendService
             && $existing->notes === $notes
             && $existing->sent_at !== null
             && $existing->sent_at->timestamp === $sentAt->timestamp
-            && $expectedFilenames === $existingFilenames;
+            && $incomingAttachmentIdentity === $existingIdentity;
 
         if (! $materiallyIdentical) {
             throw new LogicException(
@@ -313,6 +326,64 @@ class ProposalSendService
         return collect($recipients)
             ->map(fn ($email) => is_string($email) ? trim($email) : $email)
             ->filter(fn ($email) => filled($email))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Reads the CURRENT live bytes of each selected Proposal attachment
+     * path and derives its (filename, checksum) identity pair — used only
+     * for the pre-lock idempotency replay check (before anything has been
+     * archived yet in this call), so a replay against a since-swapped
+     * attachment (same filename, different bytes) is detected from the
+     * attachment's real current content, not merely its name.
+     *
+     * @param  array<int, string>  $selectedAttachmentPaths
+     * @return array<int, string> Canonicalized via canonicalIdentity().
+     */
+    private function liveAttachmentIdentity(Proposal $proposal, array $selectedAttachmentPaths): array
+    {
+        if ($selectedAttachmentPaths === []) {
+            return [];
+        }
+
+        $validAttachments = $proposal->attachments();
+        $disk = Storage::disk('local');
+
+        $pairs = collect($selectedAttachmentPaths)
+            ->map(function (string $path) use ($validAttachments, $disk, $proposal) {
+                if (! array_key_exists($path, $validAttachments)) {
+                    throw new LogicException("'{$path}' is not a current attachment on Proposal #{$proposal->getKey()}.");
+                }
+
+                if (! $disk->exists($path)) {
+                    throw new LogicException("Attachment '{$path}' could not be read from private storage.");
+                }
+
+                return [$validAttachments[$path], hash('sha256', $disk->get($path))];
+            })
+            ->all();
+
+        return $this->canonicalIdentity($pairs);
+    }
+
+    /**
+     * Turns a list of [filename, checksum] pairs into a canonical,
+     * order-independent identity list for comparison: sorting the combined
+     * "filename|checksum" strings makes selection ORDER irrelevant while
+     * still preserving DUPLICATES (a multiset, not a set) — two distinct
+     * manifest rows that legitimately share the same filename and checksum
+     * must still both be accounted for on each side of the comparison,
+     * never collapsed into one.
+     *
+     * @param  array<int, array{0: string, 1: string}>  $filenameChecksumPairs
+     * @return array<int, string>
+     */
+    private function canonicalIdentity(array $filenameChecksumPairs): array
+    {
+        return collect($filenameChecksumPairs)
+            ->map(fn (array $pair) => $pair[0].'|'.$pair[1])
+            ->sort()
             ->values()
             ->all();
     }
