@@ -26,6 +26,7 @@ use App\Services\ProposalReleaseService;
 use App\Services\ProposalSendService;
 use App\Services\ProposalVersionDraftService;
 use App\Services\ProposalVersionWorkflowService;
+use App\Support\Filament\SectionTabs;
 use Filament\Actions;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\DateTimePicker;
@@ -40,6 +41,7 @@ use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\Section as InfolistSection;
+use Filament\Infolists\Components\Tabs\Tab;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
 use Filament\Notifications\Notification;
@@ -343,12 +345,43 @@ class ManageCommercialVersion extends ViewRecord
      * By, Legacy) escaped that resolution and rendered, which is exactly
      * what the manual smoke test observed.
      */
+    /**
+     * Phase 4A-3.7 (UI/navigation pass only — no business-logic change):
+     * this page's 7 sections used to render stacked one after another,
+     * making the page very long to scroll through. Each section's own
+     * content, visibility condition, and description are carried into a
+     * Tab UNCHANGED — see SectionTabs's own docblock for why the tab-level
+     * ->visible() below is safe to add (mirrors, never replaces, each
+     * section's existing authorization) and why a hidden tab can never be
+     * forced open via the URL. Header actions (Save Draft, Submit, Approve,
+     * Generate/Download/Correct PDF, Release, Record Manual Send, Record
+     * Client Response) live in getHeaderActions() below, entirely outside
+     * this infolist, so switching tabs never affects their availability.
+     */
     public function infolist(Infolist $infolist): Infolist
     {
         return $infolist
             ->record($this->record)
             ->schema([
-                InfolistSection::make('Commercial Version Summary')
+                SectionTabs::make('commercial-version', [
+                    Tab::make('Summary')->schema([$this->summarySection()]),
+                    Tab::make('Outcome')->schema([$this->outcomeSection()]),
+                    Tab::make('PDF')
+                        ->visible(fn () => $this->canAccessPdfSection())
+                        ->schema([$this->pdfSection()]),
+                    Tab::make('Release')->schema([$this->releaseSection()]),
+                    Tab::make('Send History')
+                        ->visible(fn () => $this->canViewSendHistory())
+                        ->schema([$this->sendHistorySection()]),
+                    Tab::make('Client Response')->schema([$this->clientResponseSection()]),
+                    Tab::make('Version History')->schema([$this->versionHistorySection()]),
+                ]),
+            ]);
+    }
+
+    private function summarySection(): InfolistSection
+    {
+        return InfolistSection::make('Commercial Version Summary')
                     ->columns(3)
                     ->schema([
                         TextEntry::make('currentVersion.version_number')->label('Version'),
@@ -385,8 +418,12 @@ class ManageCommercialVersion extends ViewRecord
                         TextEntry::make('currentVersion.return_reason')->label('Return Reason')->placeholder('—'),
                         TextEntry::make('currentVersion.sent_at')->label('Sent At')->date()->placeholder('—'),
                         TextEntry::make('currentVersion.superseded_at')->label('Superseded At')->dateTime()->placeholder('—'),
-                    ]),
-                InfolistSection::make('Proposal Outcome')
+                    ]);
+    }
+
+    private function outcomeSection(): InfolistSection
+    {
+        return InfolistSection::make('Proposal Outcome')
                     ->description('Service-owned — set only by recording an exact client response (Phase 4A-3.4). Never directly editable here.')
                     ->columns(3)
                     ->schema([
@@ -404,8 +441,12 @@ class ManageCommercialVersion extends ViewRecord
                             ->money('INR')
                             ->placeholder('—')
                             ->visible(fn () => $this->record->outcome === ProposalOutcome::Won),
-                    ]),
-                InfolistSection::make('Final PDF')
+                    ]);
+    }
+
+    private function pdfSection(): InfolistSection
+    {
+        return InfolistSection::make('Final PDF')
                     ->visible(fn () => $this->canAccessPdfSection())
                     ->columns(3)
                     ->schema([
@@ -455,8 +496,12 @@ class ManageCommercialVersion extends ViewRecord
                             ->state(fn () => $this->currentPdfArtifact()?->correction_reason)
                             ->placeholder('—')
                             ->visible(fn () => filled($this->currentPdfArtifact()?->correction_reason)),
-                    ]),
-                InfolistSection::make('Release & Client Sending')
+                    ]);
+    }
+
+    private function releaseSection(): InfolistSection
+    {
+        return InfolistSection::make('Release & Client Sending')
                     ->columns(3)
                     ->schema([
                         TextEntry::make('release_status')
@@ -477,8 +522,12 @@ class ManageCommercialVersion extends ViewRecord
                         TextEntry::make('currentVersion.released_at')->label('Released At')->dateTime()->placeholder('—'),
                         TextEntry::make('currentVersion.releasedBy.name')->label('Released By')->placeholder('—'),
                         TextEntry::make('currentVersion.release_comment')->label('Release Comment')->placeholder('—')->columnSpanFull(),
-                    ]),
-                InfolistSection::make('Send History')
+                    ]);
+    }
+
+    private function sendHistorySection(): InfolistSection
+    {
+        return InfolistSection::make('Send History')
                     ->visible(fn () => $this->canViewSendHistory())
                     ->description('Every recorded manual send against this exact Version — permanent, read-only. "Marked as sent manually" — Aculyze-LM does not itself deliver email.')
                     ->schema([
@@ -520,8 +569,12 @@ class ManageCommercialVersion extends ViewRecord
                                     ->state(fn ($record) => $record->attachments->pluck('original_filename')->implode(', ') ?: '—')
                                     ->columnSpanFull(),
                             ]),
-                    ]),
-                InfolistSection::make('Client Response History')
+                    ]);
+    }
+
+    private function clientResponseSection(): InfolistSection
+    {
+        return InfolistSection::make('Client Response History')
                     ->description('Every recorded customer response against any Sent Version of this Proposal — permanent, read-only, append-only.')
                     ->schema([
                         RepeatableEntry::make('clientResponseHistory')
@@ -552,8 +605,12 @@ class ManageCommercialVersion extends ViewRecord
                                     ->placeholder('—')
                                     ->state(fn ($record) => $record->followUp?->follow_up_at),
                             ]),
-                    ]),
-                InfolistSection::make('Version History')
+                    ]);
+    }
+
+    private function versionHistorySection(): InfolistSection
+    {
+        return InfolistSection::make('Version History')
                     ->description('Newest Version first. Every Version — current and historical — can be opened read-only.')
                     ->schema([
                         RepeatableEntry::make('versionsNewestFirst')
@@ -590,8 +647,7 @@ class ManageCommercialVersion extends ViewRecord
                                         'version' => $record->getKey(),
                                     ])),
                             ]),
-                    ]),
-            ]);
+                    ]);
     }
 
     protected function getHeaderActions(): array

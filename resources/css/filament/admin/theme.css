@@ -744,3 +744,19 @@
         transform: none;
     }
 }
+
+/* Section-navigation tabs (App\Support\Filament\SectionTabs) — the
+   "switch between long page sections" pattern, e.g. Commercial Version's
+   Summary/Outcome/PDF/Release/Send History/Client Response/Version
+   History. Scoped to the `fi-section-tabs` hook class the helper always
+   adds, never to bare `.fi-tabs`, so an unrelated future Tabs usage (a
+   List page's own Pending/History switcher, say) is never affected by
+   this. The topbar itself is `.fi-topbar` at `sticky top-0 z-20 h-16`
+   (see vendor/filament/filament's own topbar partial) — this sits right
+   below it, `top: 4rem` (the topbar's own height) and a lower z-index, so
+   scrolling never lets this nav bar cover the topbar. */
+.fi-section-tabs .fi-tabs {
+    position: sticky;
+    top: 4rem;
+    z-index: 10;
+}
