@@ -550,14 +550,18 @@ newer than the numbered sections above, recorded here for the same reason as
 the Phase 4A additions above.
 
 - **Exactly six lanes, in a fixed order**: Calls | Follow-ups | Appointments
-  | Leads | Demo | Proposal. There is no seventh "Proposal Sent" lane —
-  Proposal's internal stages (Being Prepared/Sent/Accepted/Rejected) are
-  shown as sub-boxes and card badges within the one Proposal lane, not as
-  separate lanes. This is a presentation/UX reorganization only — **no new
-  business stage, status, or enum case was introduced** by this redesign;
-  every lane maps onto the same `LeadStage`/`AppointmentStage`/
-  `ProposalStage`/`FollowUpStatus`/`DemoStatus` values documented elsewhere
-  in this file.
+  | Leads | Demo | Proposal. There is no seventh "Proposal Sent" lane, and
+  (visual redesign, presentation-only) **no lane is ever a stack of nested
+  per-stage/status boxes** — each lane is one flat, plain Kanban column, and
+  every record's own internal stage/status is a small badge on its own
+  card only (`card()`'s `stageLabel`, computed by `stageBasedLane()`/
+  `followUpLane()`/`demoLane()`), never a separate visual container.
+  `getLanes()` itself reflects this: every lane is `['label' => ...,
+  'cards' => [...]]`, never a `stages` key. This is a presentation/UX
+  reorganization only — **no new business stage, status, or enum case was
+  introduced** by either redesign; every lane maps onto the same
+  `LeadStage`/`AppointmentStage`/`ProposalStage`/`FollowUpStatus`/
+  `DemoStatus` values documented elsewhere in this file.
 - **A drag never immediately mutates state.** Every drag — same-lane or
   cross-lane — is checked for eligibility first (`isDropEligible()`/
   `isCrossDropEligible()`); an invalid target shows a business-friendly
@@ -574,6 +578,21 @@ the Phase 4A additions above.
   data that destination genuinely needs and pre-filling what's already known
   from the source card. A Call card is the one exception that creates no
   destination directly at all — see below.
+- **The drop target is the lane, never a specific stage box** (visual
+  redesign). A same-lane drop carries no preset destination any more;
+  `dropCandidateStages()` computes the record's currently-valid
+  destinations by reusing `isDropEligible()`'s own per-stage rule
+  unchanged (never a new one), and the resulting modal shows a "Move to"
+  picker only when there is a genuine choice — skipped entirely for a
+  foregone single option, and never shown at all for Proposal, whose
+  same-lane drag stays unconditionally refused. A cross-lane drop is
+  similar: the client no longer supplies a destination stage either —
+  `resolveDestStage()`/`canonicalCrossDropStage()` resolve each
+  destination's one canonical creation stage, and (hardening pass)
+  Appointment/Lead cross-drop creation is now restricted to that one
+  canonical stage too, closing a prior gap where dropping onto an old
+  stage box could fabricate an already-terminal record with no real
+  outcome behind it.
 - **Proposal can never be a cross-drop SOURCE, and its same-lane drag is
   unconditionally refused.** Since the Phase 4A-3.5 outcome cutover,
   `Proposal.stage`/`Proposal.outcome` are exclusively service-owned

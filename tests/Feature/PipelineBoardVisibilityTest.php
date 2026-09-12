@@ -45,6 +45,20 @@ class PipelineBoardVisibilityTest extends TestCase
         return Livewire::test(PipelineBoard::class)->instance()->getLanes();
     }
 
+    /**
+     * Pipeline Board visual redesign: getLanes() now returns one flat
+     * `cards` list per lane (no nested per-stage grouping) — the record's
+     * own stage/status is a `stageValue` field on the card itself instead.
+     * This reproduces the old per-stage-box lookup on top of the new flat
+     * shape, so every assertion below keeps its original intent.
+     */
+    private function cardIdsAtStage(array $lanes, string $laneKey, string $stageValue): \Illuminate\Support\Collection
+    {
+        return collect($lanes[$laneKey]['cards'])
+            ->where('stageValue', $stageValue)
+            ->pluck('id');
+    }
+
     public function test_rescheduled_appointment_is_excluded_from_its_active_stage_box_and_replacement_is_shown(): void
     {
         $org = Organization::factory()->create();
@@ -65,7 +79,7 @@ class PipelineBoardVisibilityTest extends TestCase
 
             $replacement = app(RescheduleService::class)->reschedule($original, ['appointment_at' => now()->addDays(5)]);
 
-            $cardIds = collect($this->boardLanes()['appointment']['stages']['appointment_made']['cards'])->pluck('id');
+            $cardIds = $this->cardIdsAtStage($this->boardLanes(), 'appointment', 'appointment_made');
 
             $this->assertNotContains($original->id, $cardIds, 'Rescheduled Appointment must not appear as an active card.');
             $this->assertContains($replacement->id, $cardIds, 'The replacement Appointment must appear as the active card.');
@@ -104,7 +118,7 @@ class PipelineBoardVisibilityTest extends TestCase
                 ]
             );
 
-            $cardIds = collect($this->boardLanes()['appointment']['stages']['appointment_made']['cards'])->pluck('id');
+            $cardIds = $this->cardIdsAtStage($this->boardLanes(), 'appointment', 'appointment_made');
 
             $this->assertNotContains($original->id, $cardIds, 'A Completed-via-outcome Appointment (stage unchanged) must not appear as an active card.');
             $this->assertSame(AppointmentStage::AppointmentMade, $original->fresh()->stage);
@@ -130,17 +144,18 @@ class PipelineBoardVisibilityTest extends TestCase
 
             $replacement = app(RescheduleService::class)->reschedule($original, ['follow_up_at' => now()->addDays(3)]);
 
-            $pendingCardIds = collect($this->boardLanes()['follow_up']['stages']['pending']['cards'])->pluck('id');
+            $lanes = $this->boardLanes();
+            $pendingCardIds = $this->cardIdsAtStage($lanes, 'follow_up', 'pending');
 
             $this->assertNotContains($original->id, $pendingCardIds, 'Rescheduled Follow-Up must not appear as an active Pending card.');
             $this->assertContains($replacement->id, $pendingCardIds, 'The replacement Follow-Up must appear as the active Pending card.');
 
-            // The rescheduled status value doesn't even have a stage box
-            // in the Follow-up lane's fixed 3-key map (Pending/Completed/
-            // Cancelled) — confirm it doesn't silently appear under either
-            // of the other two boxes either.
-            $completedCardIds = collect($this->boardLanes()['follow_up']['stages']['completed']['cards'])->pluck('id');
-            $cancelledCardIds = collect($this->boardLanes()['follow_up']['stages']['cancelled']['cards'])->pluck('id');
+            // The rescheduled status value doesn't map to any of the
+            // Follow-up lane's own 3 real statuses (Pending/Completed/
+            // Cancelled) — confirm it doesn't silently appear tagged as
+            // either of the other two either.
+            $completedCardIds = $this->cardIdsAtStage($lanes, 'follow_up', 'completed');
+            $cancelledCardIds = $this->cardIdsAtStage($lanes, 'follow_up', 'cancelled');
             $this->assertNotContains($original->id, $completedCardIds);
             $this->assertNotContains($original->id, $cancelledCardIds);
 
@@ -200,8 +215,8 @@ class PipelineBoardVisibilityTest extends TestCase
             $rescheduledFrom = app(RescheduleService::class)->reschedule($active, ['demo_at' => now()->addDays(5)]);
 
             $lanes = $this->boardLanes();
-            $scheduledCardIds = collect($lanes['demo']['stages']['scheduled']['cards'])->pluck('id');
-            $rescheduledCardIds = collect($lanes['demo']['stages']['rescheduled']['cards'])->pluck('id');
+            $scheduledCardIds = $this->cardIdsAtStage($lanes, 'demo', 'scheduled');
+            $rescheduledCardIds = $this->cardIdsAtStage($lanes, 'demo', 'rescheduled');
 
             $this->assertNotContains($active->id, $scheduledCardIds, 'Rescheduled Demo must not appear as an active Scheduled card.');
             $this->assertContains($rescheduledFrom->id, $scheduledCardIds, 'The replacement Demo must appear as the active Scheduled card.');

@@ -30,18 +30,16 @@ class PipelineBoardHierarchyAndTenantVisibilityTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * Pipeline Board visual redesign: getLanes() now returns one flat
+     * `cards` list per lane (no nested per-stage grouping) — see
+     * PipelineBoard::stageBasedLane().
+     */
     private function leadIdsOnBoard(): array
     {
         $lanes = app(PipelineBoard::class)->getLanes();
-        $ids = [];
 
-        foreach ($lanes['lead']['stages'] as $stage) {
-            foreach ($stage['cards'] as $card) {
-                $ids[] = $card['id'];
-            }
-        }
-
-        return $ids;
+        return collect($lanes['lead']['cards'])->pluck('id')->all();
     }
 
     public function test_an_employee_sees_only_their_own_leads_on_the_board(): void

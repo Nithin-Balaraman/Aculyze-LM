@@ -30,13 +30,16 @@ class PipelineBoardCardPresentationTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * Pipeline Board visual redesign: getLanes() now returns one flat
+     * `cards` list per lane (no nested per-stage grouping) — see
+     * PipelineBoard::stageBasedLane()/followUpLane()/demoLane().
+     */
     private function findCard(array $lanes, string $laneKey, int $id): ?array
     {
-        foreach ($lanes[$laneKey]['stages'] as $stage) {
-            foreach ($stage['cards'] as $card) {
-                if ($card['id'] === $id) {
-                    return $card;
-                }
+        foreach ($lanes[$laneKey]['cards'] as $card) {
+            if ($card['id'] === $id) {
+                return $card;
             }
         }
 

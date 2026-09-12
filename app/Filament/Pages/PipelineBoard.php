@@ -276,19 +276,38 @@ class PipelineBoard extends Page implements HasActions, HasForms
         return Actions\Action::make('drop')
             ->modalHeading(fn (array $arguments) => $this->dropModalHeading($arguments))
             ->modalSubmitActionLabel('Confirm move')
-            ->modalSubmitAction(fn (array $arguments) => $this->isDropEligible($arguments) ? null : false)
-            ->modalCancelActionLabel(fn (array $arguments) => $this->isDropEligible($arguments) ? 'Cancel' : 'Close')
+            ->modalSubmitAction(fn (array $arguments) => $this->isAnyDropEligible($arguments) ? null : false)
+            ->modalCancelActionLabel(fn (array $arguments) => $this->isAnyDropEligible($arguments) ? 'Cancel' : 'Close')
             ->form(fn (array $arguments) => $this->dropFormSchema($arguments))
             ->action(function (array $data, array $arguments) {
+                // Pipeline Board visual redesign: the flattened board's
+                // mountAction('drop', {resource, id}) call carries no
+                // preset stage any more — whichever destination the
+                // dropFormSchema() picker resolved to (or the sole
+                // candidate, auto-filled via a hidden field when there was
+                // only one) travels back as $data['stage']. Folded into
+                // $arguments here so performDrop()/dropAppointment()/
+                // dropLead()/dropFollowUp() — and every existing test that
+                // calls them directly with an explicit stage already in
+                // $arguments — need no changes at all.
+                if (! array_key_exists('stage', $arguments) || $arguments['stage'] === null || $arguments['stage'] === '') {
+                    $arguments['stage'] = $data['stage'] ?? null;
+                }
+
+                unset($data['stage']);
+
                 $this->performDrop($arguments, $data);
             });
     }
 
     /**
      * The cross-lane counterpart — dispatched via mountAction('crossDrop',
-     * ['sourceResource' => ..., 'sourceId' => ..., 'destResource' => ...,
-     * 'destStage' => ...]). See the class docblock for the two-write shape
-     * and the Proposal-destination restriction.
+     * ['sourceResource' => ..., 'sourceId' => ..., 'destResource' => ...]).
+     * See the class docblock for the two-write shape and the Proposal-
+     * destination restriction. Pipeline Board visual redesign: `destStage`
+     * is no longer supplied by the client (the flattened board's drop zone
+     * is the whole lane) — resolveDestStage()/canonicalCrossDropStage()
+     * fill in each destination's one canonical creation stage.
      */
     public function crossDropAction(): Actions\Action
     {
@@ -299,6 +318,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
             ->modalCancelActionLabel(fn (array $arguments) => $this->isCrossDropEligible($arguments) ? 'Cancel' : 'Close')
             ->form(fn (array $arguments) => $this->crossDropFormSchema($arguments))
             ->action(function (array $data, array $arguments) {
+                $arguments['destStage'] = $this->resolveDestStage($arguments);
+
                 $this->performCrossDrop($arguments, $data);
             });
     }
@@ -872,9 +893,22 @@ class PipelineBoard extends Page implements HasActions, HasForms
     private function dropModalHeading(array $arguments): string
     {
         $record = $this->resolveDropRecord($arguments);
-        $label = $this->targetStageLabel($arguments['resource'] ?? null, (string) ($arguments['stage'] ?? ''));
+        $company = $record?->prospect?->company_name ?? 'Company';
 
-        return ($record?->prospect?->company_name ?? 'Company').' → '.$label;
+        // An explicit stage means a direct/legacy caller already knows the
+        // exact destination — show it verbatim, unchanged from before.
+        if (array_key_exists('stage', $arguments) && $arguments['stage'] !== null && $arguments['stage'] !== '') {
+            $label = $this->targetStageLabel($arguments['resource'] ?? null, (string) $arguments['stage']);
+
+            return "{$company} → {$label}";
+        }
+
+        // Pipeline Board visual redesign: the flattened board drops onto
+        // the lane itself, not a specific stage box — the dialog's own
+        // stage picker (see dropFormSchema()) resolves which stage this
+        // becomes, so the heading names the resource being moved, not yet
+        // a specific destination.
+        return "{$company} → Move ".$this->resourceLabel($arguments['resource'] ?? '');
     }
 
     private function crossDropModalHeading(array $arguments): string
@@ -896,7 +930,37 @@ class PipelineBoard extends Page implements HasActions, HasForms
      */
     private function dropFormSchema(array $arguments): array
     {
-        if (! $this->isDropEligible($arguments)) {
+        // An explicit stage means a direct/legacy caller already picked
+        // the exact destination (every existing reflection test invokes
+        // performDrop()/dropFormSchema() this way) — unchanged single-
+        // stage path, still gated by the exact same isDropEligible() rule.
+        if (array_key_exists('stage', $arguments) && $arguments['stage'] !== null && $arguments['stage'] !== '') {
+            if (! $this->isDropEligible($arguments)) {
+                return [
+                    Forms\Components\Placeholder::make('unsupported')
+                        ->label('Not available')
+                        ->content($this->unsupportedDropReason($arguments)),
+                ];
+            }
+
+            $resource = $arguments['resource'] ?? null;
+            $record = $this->resolveDropRecord($arguments);
+
+            return $this->stageFields($resource, (string) $arguments['stage'], '', $record);
+        }
+
+        // Pipeline Board visual redesign: the flattened board's single
+        // per-lane drop zone carries no preset stage — this dialog asks
+        // which of the record's currently-valid destinations to move to,
+        // reusing the exact same isDropEligible() rule per candidate
+        // (never a new one), and skips the picker entirely when there is
+        // only one real destination (per the redesign's own instruction
+        // not to show a choice that isn't one).
+        $resource = $arguments['resource'] ?? null;
+        $record = $this->resolveDropRecord($arguments);
+        $candidates = $this->dropCandidateStages($arguments, $record);
+
+        if ($candidates === []) {
             return [
                 Forms\Components\Placeholder::make('unsupported')
                     ->label('Not available')
@@ -904,11 +968,77 @@ class PipelineBoard extends Page implements HasActions, HasForms
             ];
         }
 
-        $resource = $arguments['resource'] ?? null;
-        $stage = (string) ($arguments['stage'] ?? '');
-        $record = $this->resolveDropRecord($arguments);
+        if (count($candidates) === 1) {
+            $onlyStage = array_key_first($candidates);
 
-        return $this->stageFields($resource, $stage, '', $record);
+            return [
+                Forms\Components\Hidden::make('stage')->default($onlyStage),
+                Forms\Components\Placeholder::make('stage_preview')
+                    ->label('Move to')
+                    ->content($candidates[$onlyStage]),
+                ...$this->stageFields($resource, $onlyStage, '', $record),
+            ];
+        }
+
+        return [
+            Forms\Components\Select::make('stage')
+                ->label('Move to')
+                ->options($candidates)
+                ->required()
+                ->live(),
+            Forms\Components\Group::make()
+                ->schema(fn (Forms\Get $get) => $get('stage')
+                    ? $this->stageFields($resource, (string) $get('stage'), '', $record)
+                    : []),
+        ];
+    }
+
+    /**
+     * Pipeline Board visual redesign: the valid same-lane destinations for
+     * THIS record right now, as [value => label] for the dialog's stage
+     * picker — computed by reusing isDropEligible()'s own per-stage rule
+     * unchanged (never a new one) against every stage the resource's lane
+     * used to render as a separate box, minus whichever stage the record
+     * already sits at (a no-op, not a real destination). Empty for
+     * Proposal (isDropEligible() refuses it unconditionally, so same-lane
+     * drag stays fully blocked, matching the redesign's own instruction
+     * that no stage picker may bypass the Proposal workflow) and for any
+     * other resource with no eligible destination left.
+     *
+     * @return array<string, string>
+     */
+    private function dropCandidateStages(array $arguments, ?Model $record): array
+    {
+        $resource = $arguments['resource'] ?? null;
+
+        $allStages = match ($resource) {
+            'appointment' => collect(AppointmentStage::cases())->map(fn ($case) => $case->value),
+            // Lead's "lost" is a board-only pseudo-stage (see dropLead()) —
+            // included alongside its real LeadStage cases exactly as it
+            // was always independently reachable before.
+            'lead' => collect(LeadStage::cases())->map(fn ($case) => $case->value)->push('lost'),
+            // Rescheduled is a real FollowUpStatus case, but was never one
+            // of the lane's own stage boxes (see followUpLane()'s own
+            // fixed 3-key map before the redesign) — a Rescheduled
+            // Follow-Up is a superseded, off-the-active-board record (its
+            // replacement is what's actually visible), never a same-lane
+            // drag destination.
+            'follow_up' => collect([FollowUpStatus::Pending->value, FollowUpStatus::Completed->value, FollowUpStatus::Cancelled->value]),
+            default => collect(),
+        };
+
+        $currentStage = match (true) {
+            $record instanceof Appointment => $record->stage->value,
+            $record instanceof Lead => $record->stage->value,
+            $record instanceof FollowUp => $record->status->value,
+            default => null,
+        };
+
+        return $allStages
+            ->reject(fn (string $stage) => $stage === $currentStage)
+            ->filter(fn (string $stage) => $this->isDropEligible(['resource' => $resource, 'id' => $arguments['id'] ?? null, 'stage' => $stage]))
+            ->mapWithKeys(fn (string $stage) => [$stage => $this->targetStageLabel($resource, $stage)])
+            ->all();
     }
 
     /**
@@ -921,6 +1051,15 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * uses for its own blocked cases, rather than silently reviving it or
      * failing quietly while still claiming success.
      */
+    private function isAnyDropEligible(array $arguments): bool
+    {
+        if (array_key_exists('stage', $arguments) && $arguments['stage'] !== null && $arguments['stage'] !== '') {
+            return $this->isDropEligible($arguments);
+        }
+
+        return $this->dropCandidateStages($arguments, $this->resolveDropRecord($arguments)) !== [];
+    }
+
     private function isDropEligible(array $arguments): bool
     {
         $resource = $arguments['resource'] ?? null;
@@ -1000,8 +1139,41 @@ class PipelineBoard extends Page implements HasActions, HasForms
             $arguments['sourceResource'] ?? null,
             $arguments['destResource'] ?? null,
             $source,
-            (string) ($arguments['destStage'] ?? '')
+            $this->resolveDestStage($arguments)
         );
+    }
+
+    /**
+     * Pipeline Board visual redesign: the flattened board's cross-lane drop
+     * zone is the whole lane, not a specific stage box, so the client no
+     * longer supplies `destStage` at all — every destination already has
+     * exactly one canonical creation stage (Follow-up/Demo always did;
+     * Appointment/Lead are now restricted to theirs too, see
+     * crossDropSupported()'s own comment), so there is never a real choice
+     * to ask for. An explicit `destStage` (existing reflection tests, or
+     * any other direct/legacy caller) always wins unchanged.
+     */
+    private function resolveDestStage(array $arguments): string
+    {
+        $destStage = (string) ($arguments['destStage'] ?? '');
+
+        if ($destStage !== '') {
+            return $destStage;
+        }
+
+        return $this->canonicalCrossDropStage((string) ($arguments['destResource'] ?? '')) ?? '';
+    }
+
+    private function canonicalCrossDropStage(string $destResource): ?string
+    {
+        return match ($destResource) {
+            'follow_up' => FollowUpStatus::Pending->value,
+            'appointment' => AppointmentStage::AppointmentMade->value,
+            'lead' => LeadStage::RequirementCollection->value,
+            'demo' => DemoStatus::Scheduled->value,
+            'proposal' => ProposalStage::BeingPrepared->value,
+            default => null,
+        };
     }
 
     /**
@@ -1011,7 +1183,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
     {
         $sourceResource = $arguments['sourceResource'] ?? null;
         $destResource = $arguments['destResource'] ?? null;
-        $destStage = (string) ($arguments['destStage'] ?? '');
+        $destStage = $this->resolveDestStage($arguments);
         $source = $this->resolveDropRecord(['resource' => $sourceResource, 'id' => $arguments['sourceId'] ?? null]);
 
         if (! $this->crossDropSupported($sourceResource, $destResource, $source, $destStage)) {
@@ -1923,6 +2095,24 @@ class PipelineBoard extends Page implements HasActions, HasForms
             return false;
         }
 
+        // Pipeline Board visual redesign (hardening pass): a cross-drop
+        // creating a brand-new Appointment/Lead may only ever land at its
+        // one canonical starting stage — never a terminal/advanced one
+        // (Succeeded, Validated, ...) just because the old nested-box UI
+        // happened to let you drop onto that specific box. Mirrors the
+        // same "no fabricated terminal record" guard Proposal/Demo already
+        // enforce below — before this, nothing here constrained
+        // Appointment/Lead's destStage at all, which is what let a stray
+        // drop onto e.g. Appointment's "Succeeded" box fabricate an
+        // already-Completed Appointment with no real outcome behind it.
+        if ($destResource === 'appointment' && $destStage !== AppointmentStage::AppointmentMade->value) {
+            return false;
+        }
+
+        if ($destResource === 'lead' && $destStage !== LeadStage::RequirementCollection->value) {
+            return false;
+        }
+
         if ($destResource === 'proposal') {
             // Phase 3: also recognizes normalized LeadStatus::ProposalRequired
             // — see LeadResource's "Create Proposal" row action for the same
@@ -1991,6 +2181,14 @@ class PipelineBoard extends Page implements HasActions, HasForms
     {
         if ($destResource === 'lead' && $destStage === 'lost') {
             return 'A new Lead can\'t be created directly as Lost — drag an existing Lead card into this box instead.';
+        }
+
+        if ($destResource === 'appointment' && $destStage !== AppointmentStage::AppointmentMade->value) {
+            return 'A new Appointment must start at Appointment Made — a later stage needs a real outcome behind it, recorded through the Appointment\'s own Record Outcome action.';
+        }
+
+        if ($destResource === 'lead' && $destStage !== LeadStage::RequirementCollection->value) {
+            return 'A new Lead must start at Requirement Collection — open it directly to move it further once created.';
         }
 
         // Phase 4A-3.5 cutover (Decision 17): checked before the
@@ -2163,23 +2361,25 @@ class PipelineBoard extends Page implements HasActions, HasForms
 
         return [
             'label' => 'Call',
-            'stages' => [
-                'logged' => [
-                    'label' => 'Outcome Logged',
-                    'terminal' => false,
-                    'cards' => $calls->map(fn (CallRecord $call) => $this->card(
-                        resource: 'call',
-                        id: $call->id,
-                        prospect: $call->prospect,
-                        meta: $call->outcome->getLabel().' · '.$call->called_at->diffForHumans(),
-                        url: CallRecordResource::getUrl('view', ['record' => $call]),
-                        assignedTo: $call->caller?->name,
-                    ))->all(),
-                ],
-            ],
+            'cards' => $calls->map(fn (CallRecord $call) => $this->card(
+                resource: 'call',
+                id: $call->id,
+                prospect: $call->prospect,
+                meta: $call->outcome->getLabel().' · '.$call->called_at->diffForHumans(),
+                url: CallRecordResource::getUrl('view', ['record' => $call]),
+                assignedTo: $call->caller?->name,
+            ))->values()->all(),
         ];
     }
 
+    /**
+     * Pipeline Board visual redesign: every lane is now one flat card list
+     * (see the class docblock) — the record's own internal status is shown
+     * only as a `stageLabel` badge on the card, never as a separate nested
+     * container. Follow-up/Demo group by a plain status enum (no
+     * `isTerminal()`/is_lost concept), so each maps its own records
+     * directly rather than going through stageBasedLane().
+     */
     private function followUpLane(): array
     {
         $followUps = $this->scopeToPeriod(
@@ -2187,44 +2387,29 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'created_at',
         )
             ->latest('follow_up_at')
-            ->get()
-            ->groupBy(fn (FollowUp $followUp) => $followUp->status->value);
-
-        $stageMeta = [
-            FollowUpStatus::Pending->value => ['label' => 'Pending', 'terminal' => false],
-            FollowUpStatus::Completed->value => ['label' => 'Completed', 'terminal' => true],
-            FollowUpStatus::Cancelled->value => ['label' => 'Cancelled', 'terminal' => true],
-        ];
+            ->get();
 
         return [
             'label' => 'Follow-up',
-            'stages' => collect($stageMeta)->map(function (array $meta, string $status) use ($followUps) {
-                $cards = ($followUps[$status] ?? collect())->map(fn (FollowUp $followUp) => $this->card(
-                    resource: 'follow_up',
-                    id: $followUp->id,
-                    prospect: $followUp->prospect,
-                    meta: $followUp->reason.($followUp->follow_up_at ? ' · '.$followUp->follow_up_at->format('d M, h:i A') : ''),
-                    url: FollowUpResource::getUrl('view', ['record' => $followUp]),
-                    assignedTo: $followUp->responsibleEmployee?->name,
-                    isOverdue: $followUp->isOverdue(),
-                ));
-
-                return [
-                    'label' => $meta['label'],
-                    'terminal' => $meta['terminal'],
-                    'cards' => $cards->all(),
-                ];
-            })->all(),
+            'cards' => $followUps->map(fn (FollowUp $followUp) => $this->card(
+                resource: 'follow_up',
+                id: $followUp->id,
+                prospect: $followUp->prospect,
+                meta: $followUp->reason.($followUp->follow_up_at ? ' · '.$followUp->follow_up_at->format('d M, h:i A') : ''),
+                url: FollowUpResource::getUrl('view', ['record' => $followUp]),
+                assignedTo: $followUp->responsibleEmployee?->name,
+                isOverdue: $followUp->isOverdue(),
+                stageValue: $followUp->status->value,
+                stageLabel: $followUp->status->getLabel(),
+            ))->values()->all(),
         ];
     }
 
     /**
      * Phase 3: Demo has no legacy stage at all (it's Phase 2-native) and no
-     * is_lost concept — its lane groups purely by normalized DemoStatus,
+     * is_lost concept — its cards group purely by normalized DemoStatus,
      * mirroring followUpLane()'s shape exactly (a plain status enum, not a
-     * stageBasedLane()-style progression) rather than being built around
-     * legacy-style stage sub-boxes merely because stageBasedLane() already
-     * exists for the three resources that actually have one.
+     * stageBasedLane()-style progression).
      */
     private function demoLane(): array
     {
@@ -2233,36 +2418,22 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'status_changed_at',
         )
             ->latest('demo_at')
-            ->get()
-            ->groupBy(fn (Demo $demo) => $demo->status->value);
-
-        $stageMeta = [
-            DemoStatus::Scheduled->value => ['label' => 'Scheduled', 'terminal' => false],
-            DemoStatus::Completed->value => ['label' => 'Completed', 'terminal' => true],
-            DemoStatus::Rescheduled->value => ['label' => 'Rescheduled', 'terminal' => true],
-            DemoStatus::Cancelled->value => ['label' => 'Cancelled', 'terminal' => true],
-        ];
+            ->get();
 
         return [
             'label' => 'Demo',
-            'stages' => collect($stageMeta)->map(function (array $meta, string $status) use ($demos) {
-                $cards = ($demos[$status] ?? collect())->map(fn (Demo $demo) => $this->card(
-                    resource: 'demo',
-                    id: $demo->id,
-                    prospect: $demo->prospect,
-                    meta: $demo->demo_at?->format('d M, h:i A').' · '.$demo->mode->getLabel(),
-                    url: DemoResource::getUrl('view', ['record' => $demo]),
-                    outcome: $demo->outcome?->value,
-                    assignedTo: $demo->assignedEmployee?->name,
-                    isOverdue: $demo->isOverdue(),
-                ));
-
-                return [
-                    'label' => $meta['label'],
-                    'terminal' => $meta['terminal'],
-                    'cards' => $cards->all(),
-                ];
-            })->all(),
+            'cards' => $demos->map(fn (Demo $demo) => $this->card(
+                resource: 'demo',
+                id: $demo->id,
+                prospect: $demo->prospect,
+                meta: $demo->demo_at?->format('d M, h:i A').' · '.$demo->mode->getLabel(),
+                url: DemoResource::getUrl('view', ['record' => $demo]),
+                outcome: $demo->outcome?->value,
+                assignedTo: $demo->assignedEmployee?->name,
+                isOverdue: $demo->isOverdue(),
+                stageValue: $demo->status->value,
+                stageLabel: $demo->status->getLabel(),
+            ))->values()->all(),
         ];
     }
 
@@ -2274,7 +2445,6 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 AppointmentResource::getEloquentQuery()->with(['prospect', 'assignedEmployee'])->excludingHistoricalStatus(),
                 'stage_changed_at',
             )->latest('appointment_at')->get(),
-            cases: AppointmentStage::cases(),
             stageOf: fn (Appointment $appointment) => $appointment->stage,
             meta: fn (Appointment $appointment) => $appointment->appointment_at?->format('d M, h:i A') ?? 'Not scheduled',
             isLost: fn (Appointment $appointment) => $appointment->is_lost,
@@ -2285,15 +2455,23 @@ class PipelineBoard extends Page implements HasActions, HasForms
         );
     }
 
+    /**
+     * Lead's Lost state is a per-card badge (`isLost`), not a separate
+     * board grouping any more — is_lost is orthogonal to `stage`
+     * (Lead::markLost() never touches it, see its own docblock: "Lost is
+     * an outcome applied on top of wherever the Lead currently is"), so a
+     * Lost Lead simply stays in the flat list showing its own real stage
+     * badge plus the LOST tag, exactly like every other resource's Lost/
+     * negative-outcome cards already do.
+     */
     private function leadLane(): array
     {
-        $lane = $this->stageBasedLane(
+        return $this->stageBasedLane(
             label: 'Lead',
             records: $this->scopeToPeriod(
                 LeadResource::getEloquentQuery()->with(['prospect', 'assignedEmployee']),
                 'stage_changed_at',
             )->latest('created_at')->get(),
-            cases: LeadStage::cases(),
             stageOf: fn (Lead $lead) => $lead->stage,
             meta: fn (Lead $lead) => $lead->temperature->getLabel().' · since '.$lead->stage_changed_at?->format('d M'),
             isLost: fn (Lead $lead) => $lead->is_lost,
@@ -2301,47 +2479,6 @@ class PipelineBoard extends Page implements HasActions, HasForms
             urlFor: fn (Lead $lead) => LeadResource::getUrl('view', ['record' => $lead]),
             assignedToOf: fn (Lead $lead) => $lead->assignedEmployee?->name,
         );
-
-        return $this->extractLostBox($lane);
-    }
-
-    /**
-     * Lead's "Lost" box is a board-only display grouping, not a real
-     * LeadStage — is_lost is orthogonal to stage (Lead::markLost() never
-     * touches `stage`, see its own docblock: "Lost is an outcome applied
-     * on top of wherever the Lead currently is"). Pulled out of its real
-     * stage's box here so each card sits in exactly one box, matching
-     * every other lane's mutually-exclusive-terminal-boxes convention
-     * (e.g. Succeeded vs Not Succeeded), rather than appearing both in its
-     * normal stage AND in Lost. `terminal => true` sweeps it into the same
-     * branching terminal-pair rendering Validated already uses — no Blade
-     * change needed beyond the negativeWords list.
-     */
-    private function extractLostBox(array $lane): array
-    {
-        $lostCards = [];
-
-        foreach ($lane['stages'] as $stageKey => $stage) {
-            $stillHere = [];
-
-            foreach ($stage['cards'] as $card) {
-                if ($card['isLost']) {
-                    $lostCards[] = $card;
-                } else {
-                    $stillHere[] = $card;
-                }
-            }
-
-            $lane['stages'][$stageKey]['cards'] = $stillHere;
-        }
-
-        $lane['stages']['lost'] = [
-            'label' => 'Lost',
-            'terminal' => true,
-            'cards' => $lostCards,
-        ];
-
-        return $lane;
     }
 
     private function proposalLane(): array
@@ -2352,7 +2489,6 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 ProposalResource::getEloquentQuery()->with(['prospect', 'currentVersion', 'assignedEmployee']),
                 'stage_changed_at',
             )->latest('created_at')->get(),
-            cases: ProposalStage::cases(),
             stageOf: fn (Proposal $proposal) => $proposal->stage,
             meta: fn (Proposal $proposal) => $proposal->value ? '₹'.number_format((float) $proposal->value) : 'No value set',
             isLost: fn (Proposal $proposal) => false, // Proposal has no is_lost flag — Lost lives on `outcome` (the card tag), not a lane concept.
@@ -2368,15 +2504,17 @@ class PipelineBoard extends Page implements HasActions, HasForms
 
     /**
      * Shared shape for the three resources that are pure stage-enum
-     * progressions with an `isTerminal()`/is_lost split (Appointment, Lead,
-     * Proposal) — Follow-up and Call each have their own method above since
-     * neither fits this shape (Follow-up's "stage" is a plain status enum
-     * with no isTerminal() method; Call has no stage concept at all).
+     * progressions (Appointment, Lead, Proposal) — Follow-up and Call each
+     * have their own method above since neither fits this shape (Follow-
+     * up's "stage" is a plain status enum; Call has no stage concept at
+     * all). Pipeline Board visual redesign: returns one FLAT card list per
+     * lane (`terminal`/per-stage grouping is gone — every record's own
+     * stage is now only a `stageLabel` badge on its card, computed here via
+     * $stageOf($record)->getLabel()), never a nested per-stage container.
      *
      * @template TModel of \Illuminate\Database\Eloquent\Model
      *
      * @param  Collection<int, TModel>  $records
-     * @param  array<int, AppointmentStage|LeadStage|ProposalStage>  $cases
      * @param  \Closure(TModel): (AppointmentStage|LeadStage|ProposalStage)  $stageOf
      * @param  \Closure(TModel): string  $meta
      * @param  \Closure(TModel): bool  $isLost
@@ -2389,7 +2527,6 @@ class PipelineBoard extends Page implements HasActions, HasForms
     private function stageBasedLane(
         string $label,
         $records,
-        array $cases,
         \Closure $stageOf,
         \Closure $meta,
         \Closure $isLost,
@@ -2400,10 +2537,10 @@ class PipelineBoard extends Page implements HasActions, HasForms
         ?\Closure $assignedToOf = null,
         ?\Closure $isOverdueOf = null,
     ): array {
-        $grouped = $records->groupBy(fn ($record) => $stageOf($record)->value);
+        $cards = $records->map(function ($record) use ($resourceKey, $stageOf, $meta, $isLost, $urlFor, $outcomeOf, $versionStatusOf, $assignedToOf, $isOverdueOf) {
+            $stage = $stageOf($record);
 
-        $stages = collect($cases)->mapWithKeys(function ($case) use ($grouped, $resourceKey, $meta, $isLost, $urlFor, $outcomeOf, $versionStatusOf, $assignedToOf, $isOverdueOf) {
-            $cards = ($grouped[$case->value] ?? collect())->map(fn ($record) => $this->card(
+            return $this->card(
                 resource: $resourceKey,
                 id: $record->id,
                 prospect: $record->prospect,
@@ -2414,18 +2551,14 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 versionStatus: $versionStatusOf ? $versionStatusOf($record) : null,
                 assignedTo: $assignedToOf ? $assignedToOf($record) : null,
                 isOverdue: $isOverdueOf ? $isOverdueOf($record) : false,
-            ));
-
-            return [$case->value => [
-                'label' => $case->getLabel(),
-                'terminal' => $case->isTerminal(),
-                'cards' => $cards->all(),
-            ]];
+                stageValue: $stage->value,
+                stageLabel: $stage->getLabel(),
+            );
         });
 
         return [
             'label' => $label,
-            'stages' => $stages->all(),
+            'cards' => $cards->values()->all(),
         ];
     }
 
@@ -2448,6 +2581,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
         ?string $versionStatus = null,
         ?string $assignedTo = null,
         bool $isOverdue = false,
+        ?string $stageValue = null,
+        ?string $stageLabel = null,
     ): array {
         return [
             'resource' => $resource,
@@ -2458,6 +2593,15 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'url' => $url,
             'isLost' => $isLost,
             'outcome' => $outcome,
+            // Pipeline Board visual redesign: the record's own internal
+            // stage/status, shown only as a small badge on the card now
+            // that nested per-stage lane containers are gone (see
+            // stageBasedLane()/followUpLane()/demoLane() — every lane is
+            // one flat card list per main pipeline stage). `stageValue` is
+            // the raw enum value (used only for tests/identification, never
+            // rendered); `stageLabel` is what the badge actually shows.
+            'stageValue' => $stageValue,
+            'stageLabel' => $stageLabel,
             // F6: a small read-only Commercial Version Status indicator,
             // null for every lane that has no commercial Version. The board
             // itself is deliberately NOT redesigned — grouping still keys
