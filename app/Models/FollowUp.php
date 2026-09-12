@@ -296,6 +296,15 @@ class FollowUp extends Model implements Reschedulable
      * and Demo counterparts and had been missed here, so deleting the
      * ORIGINAL of a rescheduled pair still produced that raw 500.
      *
+     * Phase 4A-3.4, Section V: `resultingFromClientResponses` (proposal_
+     * client_responses.follow_up_id) is now live — a Follow-Up that is the
+     * historical result of a client response (More Time, or Other -> Create
+     * Follow-Up) must not be destructively deleted, since it would break
+     * that permanent response history. The FK itself is already
+     * restrictOnDelete (see the migration), so this only turns a raw SQL
+     * error into the same friendly DeletionGuard message every other
+     * RESTRICT relationship here gets.
+     *
      * @return array<string, int>
      */
     public function deletionBlockers(): array
@@ -303,6 +312,7 @@ class FollowUp extends Model implements Reschedulable
         return [
             'Call Record' => (int) $this->generatedCallRecord()->exists(),
             'replacement Follow-Up' => (int) $this->replacedBy()->exists(),
+            'Proposal client response' => (int) $this->resultingFromClientResponses()->exists(),
         ];
     }
 

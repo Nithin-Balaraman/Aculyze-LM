@@ -113,10 +113,10 @@ class EmployeeDeletionTest extends TestCase
 
         // Audit fix pass 1 added `demos` (F3) and the three permanent
         // ProposalVersion actor counts (F2/locked Decision D3). Phase
-        // 4A-3.2 added `pdfArtifactsGenerated`, and 4A-3.3 added
-        // `versionsReleased`/`sendsAttempted`/`sendsSent` — the same
-        // permanent-evidence kind extended to released_by/attempted_by/
-        // sent_by.
+        // 4A-3.2 added `pdfArtifactsGenerated`, 4A-3.3 added
+        // `versionsReleased`/`sendsAttempted`/`sendsSent`, and 4A-3.4 added
+        // `clientResponsesRecorded` — the same permanent-evidence kind
+        // extended to released_by/attempted_by/sent_by/recorded_by.
         $this->assertSame([
             'prospects' => 1,
             'callRecords' => 1,
@@ -133,6 +133,7 @@ class EmployeeDeletionTest extends TestCase
             'versionsReleased' => 0,
             'sendsAttempted' => 0,
             'sendsSent' => 0,
+            'clientResponsesRecorded' => 0,
         ], $breakdown);
     }
 

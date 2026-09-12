@@ -201,6 +201,12 @@ class ManageCommercialVersionReleaseSendActionsTest extends TestCase
         $this->actingAs($manager);
         $component = Livewire::test(ManageCommercialVersion::class, ['record' => $proposal->getRouteKey()]);
 
+        // Real recipient data must actually render (not merely the
+        // section's own static description text, which happens to also
+        // contain the phrase "Marked as sent manually" — a prior version of
+        // this test passed on that alone without the repeatable entry
+        // itself ever rendering any real row data).
+        $component->assertSee('a@b.com');
         $component->assertSee('Marked as sent manually');
         $component->assertDontSee('Delivered');
     }

@@ -17,6 +17,7 @@
         'versionsReleased' => 'Versions they Released for client sending',
         'sendsAttempted' => 'Manual sends they attempted',
         'sendsSent' => 'Manual sends they recorded as sent',
+        'clientResponsesRecorded' => 'Client responses they recorded',
     ];
 @endphp
 

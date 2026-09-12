@@ -2,18 +2,25 @@
 
 namespace App\Filament\Resources\ProposalResource\Pages;
 
+use App\Enums\ContactMode;
+use App\Enums\ProposalClientResponseNextAction;
+use App\Enums\ProposalClientResponseType;
 use App\Enums\ProposalLineDiscountType;
+use App\Enums\ProposalOutcome;
 use App\Enums\ProposalPdfArtifactStatus;
 use App\Enums\ProposalTaxComponentType;
 use App\Enums\ProposalVersionLifecycle;
 use App\Filament\Resources\ProposalResource;
+use App\Models\ProposalClientResponse;
 use App\Models\ProposalPdfArtifact;
 use App\Models\ProposalSend;
 use App\Models\ProposalVersion;
+use App\Policies\ProposalClientResponsePolicy;
 use App\Policies\ProposalPdfArtifactPolicy;
 use App\Policies\ProposalReleasePolicy;
 use App\Policies\ProposalSendPolicy;
 use App\Policies\ProposalVersionPolicy;
+use App\Services\ProposalClientResponseService;
 use App\Services\ProposalPdfArtifactService;
 use App\Services\ProposalReleaseService;
 use App\Services\ProposalSendService;
@@ -75,6 +82,9 @@ class ManageCommercialVersion extends ViewRecord
 
     /** Phase 4A-3.3, Section O: minted fresh each time the Send modal opens (mountUsing below), persisted across Livewire requests as ordinary component state so a genuine double-submit of the SAME open modal reuses the same key — a reopened modal (a fresh send later) always gets a new one. */
     public string $sendIdempotencyKey = '';
+
+    /** Phase 4A-3.4, Section O: same convention as $sendIdempotencyKey, minted fresh each time the Record Client Response modal opens. */
+    public string $responseIdempotencyKey = '';
 
     /** @var array<string, mixed>|null */
     public ?array $draftData = [];
@@ -153,6 +163,38 @@ class ManageCommercialVersion extends ViewRecord
     public function canViewSendHistory(): bool
     {
         return app(ProposalSendPolicy::class)->viewHistory(auth()->user(), $this->currentVersion);
+    }
+
+    /**
+     * Phase 4A-3.4, Section P: the Sent Versions a customer response may
+     * legitimately target — NOT necessarily the current Version (locked
+     * Decision 11), so this is scoped to the whole Proposal, not just
+     * $this->currentVersion.
+     *
+     * @return \Illuminate\Support\Collection<int, ProposalVersion>
+     */
+    public function eligibleSentVersions(): \Illuminate\Support\Collection
+    {
+        return $this->record->versions()
+            ->where('lifecycle_status', ProposalVersionLifecycle::Sent)
+            ->orderByDesc('version_number')
+            ->get();
+    }
+
+    public function canRecordClientResponse(): bool
+    {
+        return ! in_array($this->record->outcome, [ProposalOutcome::Won, ProposalOutcome::Lost], true)
+            && $this->eligibleSentVersions()->isNotEmpty()
+            && app(ProposalClientResponsePolicy::class)->recordClientResponse(auth()->user(), $this->record);
+    }
+
+    /** @return \Illuminate\Support\Collection<int, ProposalClientResponse> */
+    public function clientResponseHistory(): \Illuminate\Support\Collection
+    {
+        return ProposalClientResponse::query()
+            ->where('proposal_id', $this->record->getKey())
+            ->orderByDesc('recorded_at')
+            ->get();
     }
 
     private function fillDraftForm(): void
@@ -344,6 +386,25 @@ class ManageCommercialVersion extends ViewRecord
                         TextEntry::make('currentVersion.sent_at')->label('Sent At')->date()->placeholder('—'),
                         TextEntry::make('currentVersion.superseded_at')->label('Superseded At')->dateTime()->placeholder('—'),
                     ]),
+                InfolistSection::make('Proposal Outcome')
+                    ->description('Service-owned — set only by recording an exact client response (Phase 4A-3.4). Never directly editable here.')
+                    ->columns(3)
+                    ->schema([
+                        TextEntry::make('outcome')
+                            ->label('Outcome')
+                            ->badge()
+                            ->placeholder('In Progress'),
+                        TextEntry::make('winningVersion.version_number')
+                            ->label('Winning Version')
+                            ->formatStateUsing(fn ($state) => "V{$state}")
+                            ->placeholder('—')
+                            ->visible(fn () => $this->record->outcome === ProposalOutcome::Won),
+                        TextEntry::make('value')
+                            ->label('Value')
+                            ->money('INR')
+                            ->placeholder('—')
+                            ->visible(fn () => $this->record->outcome === ProposalOutcome::Won),
+                    ]),
                 InfolistSection::make('Final PDF')
                     ->visible(fn () => $this->canAccessPdfSection())
                     ->columns(3)
@@ -423,24 +484,73 @@ class ManageCommercialVersion extends ViewRecord
                     ->schema([
                         RepeatableEntry::make('sendHistory')
                             ->label('')
+                            // Bug fix: sendHistory() is a PAGE method, not a
+                            // relation on the bound Proposal record. Two
+                            // consequences: (1) the REPEATABLE itself needs
+                            // an explicit ->state() closure, since the
+                            // default data_get($record, 'sendHistory')
+                            // resolution against the Proposal returns null;
+                            // (2) once bound this way, every CHILD entry
+                            // below also needs its own explicit
+                            // ->state(fn ($record) => ...) — the default
+                            // per-entry data_get($record, $name) resolution
+                            // does not reliably read the individual item's
+                            // own bound record in this configuration, even
+                            // though $record itself IS correctly the right
+                            // ProposalSend instance (verified directly).
+                            ->state(fn () => $this->sendHistory())
                             ->columns(4)
                             ->schema([
-                                TextEntry::make('method')->label('Method')->badge(),
+                                TextEntry::make('method')->label('Method')->badge()->state(fn ($record) => $record->method),
                                 TextEntry::make('status')
                                     ->label('Status')
                                     ->badge()
-                                    ->formatStateUsing(fn ($state) => 'Marked as sent manually'),
-                                TextEntry::make('sent_at')->label('Sent At')->dateTime(),
-                                TextEntry::make('sentBy.name')->label('Sent By')->placeholder('—'),
-                                TextEntry::make('to_recipients')->label('To')->listWithLineBreaks()->columnSpanFull(),
-                                TextEntry::make('cc_recipients')->label('CC')->listWithLineBreaks()->placeholder('—')->columnSpanFull(),
-                                TextEntry::make('subject')->label('Subject')->placeholder('—'),
-                                TextEntry::make('notes')->label('Notes')->placeholder('—')->columnSpanFull(),
-                                TextEntry::make('pdfArtifact.checksum_sha256')->label('PDF Checksum')->formatStateUsing(fn ($state) => $state ? str($state)->limit(16, '…') : '—'),
+                                    ->state(fn () => 'Marked as sent manually'),
+                                TextEntry::make('sent_at')->label('Sent At')->dateTime()->state(fn ($record) => $record->sent_at),
+                                TextEntry::make('sentBy.name')->label('Sent By')->placeholder('—')->state(fn ($record) => $record->sentBy?->name),
+                                TextEntry::make('to_recipients')->label('To')->listWithLineBreaks()->columnSpanFull()->state(fn ($record) => $record->to_recipients),
+                                TextEntry::make('cc_recipients')->label('CC')->listWithLineBreaks()->placeholder('—')->columnSpanFull()->state(fn ($record) => $record->cc_recipients),
+                                TextEntry::make('subject')->label('Subject')->placeholder('—')->state(fn ($record) => $record->subject),
+                                TextEntry::make('notes')->label('Notes')->placeholder('—')->columnSpanFull()->state(fn ($record) => $record->notes),
+                                TextEntry::make('pdfArtifact.checksum_sha256')
+                                    ->label('PDF Checksum')
+                                    ->state(fn ($record) => $record->pdfArtifact?->checksum_sha256 ? str($record->pdfArtifact->checksum_sha256)->limit(16, '…') : '—'),
                                 TextEntry::make('attachments')
                                     ->label('Selected Attachments')
                                     ->state(fn ($record) => $record->attachments->pluck('original_filename')->implode(', ') ?: '—')
                                     ->columnSpanFull(),
+                            ]),
+                    ]),
+                InfolistSection::make('Client Response History')
+                    ->description('Every recorded customer response against any Sent Version of this Proposal — permanent, read-only, append-only.')
+                    ->schema([
+                        RepeatableEntry::make('clientResponseHistory')
+                            ->label('')
+                            // Same fix as sendHistory() above — a page
+                            // method, not a Proposal relation, so both the
+                            // repeatable itself AND every child entry need
+                            // an explicit ->state() closure.
+                            ->state(fn () => $this->clientResponseHistory())
+                            ->columns(4)
+                            ->schema([
+                                TextEntry::make('response_type')->label('Response')->badge()->state(fn ($record) => $record->response_type),
+                                TextEntry::make('proposalVersion.version_number')
+                                    ->label('Responded-To Version')
+                                    ->state(fn ($record) => "V{$record->proposalVersion->version_number}"),
+                                TextEntry::make('recorded_at')->label('Recorded At')->dateTime()->state(fn ($record) => $record->recorded_at),
+                                TextEntry::make('recordedBy.name')->label('Recorded By')->placeholder('—')->state(fn ($record) => $record->recordedBy?->name),
+                                TextEntry::make('next_action')->label('Next Action')->badge()->placeholder('—')->state(fn ($record) => $record->next_action),
+                                TextEntry::make('reason')->label('Reason')->placeholder('—')->columnSpanFull()->state(fn ($record) => $record->reason),
+                                TextEntry::make('notes')->label('Notes')->placeholder('—')->columnSpanFull()->state(fn ($record) => $record->notes),
+                                TextEntry::make('resultingDraftVersion.version_number')
+                                    ->label('Resulting Draft')
+                                    ->placeholder('—')
+                                    ->state(fn ($record) => $record->resultingDraftVersion ? "V{$record->resultingDraftVersion->version_number}" : null),
+                                TextEntry::make('followUp.follow_up_at')
+                                    ->label('Resulting Follow-Up')
+                                    ->dateTime()
+                                    ->placeholder('—')
+                                    ->state(fn ($record) => $record->followUp?->follow_up_at),
                             ]),
                     ]),
                 InfolistSection::make('Version History')
@@ -627,6 +737,104 @@ class ManageCommercialVersion extends ViewRecord
                     && $this->hasValidRelease()
                     && app(ProposalSendPolicy::class)->send($actor, $version))
                 ->action(fn (array $data) => $this->recordManualSendAction($data)),
+
+            Actions\Action::make('recordClientResponse')
+                ->label('Record Client Response')
+                ->icon('heroicon-o-chat-bubble-left-right')
+                ->color('info')
+                ->modalDescription('Records the customer\'s exact response to a Sent Proposal Version — an internal record only, never a customer-facing action.')
+                ->mountUsing(function ($form) {
+                    $this->responseIdempotencyKey = (string) Str::uuid();
+                    $eligible = $this->eligibleSentVersions();
+
+                    $form->fill([
+                        'proposal_version_id' => $eligible->count() === 1 ? $eligible->first()->getKey() : null,
+                    ]);
+                })
+                ->form([
+                    Select::make('proposal_version_id')
+                        ->label('Sent Version Customer Responded To')
+                        ->options(fn () => $this->eligibleSentVersions()
+                            ->mapWithKeys(fn (ProposalVersion $v) => [
+                                $v->getKey() => "V{$v->version_number} — Sent ".($v->sent_at?->format('d M Y') ?? '—'),
+                            ]))
+                        ->native(false)
+                        ->required(),
+                    Select::make('response_type')
+                        ->label('Response')
+                        ->options(ProposalClientResponseType::class)
+                        ->native(false)
+                        ->live()
+                        ->required(),
+                    Textarea::make('accepted_notes')
+                        ->label('Notes (optional)')
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::Accepted->value),
+                    Textarea::make('revision_reason')
+                        ->label('Reason (optional)')
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::RevisionRequested->value),
+                    Textarea::make('revision_notes')
+                        ->label('Notes (optional)')
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::RevisionRequested->value),
+                    DateTimePicker::make('more_time_follow_up_at')
+                        ->label('Follow Up At')
+                        ->native(false)
+                        ->required(fn (Get $get) => $get('response_type') === ProposalClientResponseType::MoreTime->value)
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::MoreTime->value),
+                    Textarea::make('more_time_reason')
+                        ->label('Reason')
+                        ->required(fn (Get $get) => $get('response_type') === ProposalClientResponseType::MoreTime->value)
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::MoreTime->value),
+                    Textarea::make('more_time_notes')
+                        ->label('Response Notes (optional)')
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::MoreTime->value),
+                    Textarea::make('more_time_follow_up_notes')
+                        ->label('Follow-Up Notes (optional)')
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::MoreTime->value),
+                    Select::make('more_time_contact_mode')
+                        ->label('Contact Mode (optional)')
+                        ->options(ContactMode::class)
+                        ->native(false)
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::MoreTime->value),
+                    Textarea::make('rejected_reason')
+                        ->label('Reason')
+                        ->required(fn (Get $get) => $get('response_type') === ProposalClientResponseType::Rejected->value)
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::Rejected->value),
+                    Textarea::make('rejected_notes')
+                        ->label('Notes (optional)')
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::Rejected->value),
+                    Select::make('other_next_action')
+                        ->label('Next Action')
+                        ->options(ProposalClientResponseNextAction::class)
+                        ->native(false)
+                        ->live()
+                        ->required(fn (Get $get) => $get('response_type') === ProposalClientResponseType::Other->value)
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::Other->value),
+                    Textarea::make('other_await_notes')
+                        ->label('Notes')
+                        ->required(fn (Get $get) => $get('response_type') === ProposalClientResponseType::Other->value
+                            && $get('other_next_action') === ProposalClientResponseNextAction::AwaitFurtherContact->value)
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::Other->value
+                            && $get('other_next_action') === ProposalClientResponseNextAction::AwaitFurtherContact->value),
+                    DateTimePicker::make('other_follow_up_follow_up_at')
+                        ->label('Follow Up At')
+                        ->native(false)
+                        ->required(fn (Get $get) => $get('response_type') === ProposalClientResponseType::Other->value
+                            && $get('other_next_action') === ProposalClientResponseNextAction::CreateFollowUp->value)
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::Other->value
+                            && $get('other_next_action') === ProposalClientResponseNextAction::CreateFollowUp->value),
+                    Textarea::make('other_follow_up_reason')
+                        ->label('Reason')
+                        ->required(fn (Get $get) => $get('response_type') === ProposalClientResponseType::Other->value
+                            && $get('other_next_action') === ProposalClientResponseNextAction::CreateFollowUp->value)
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::Other->value
+                            && $get('other_next_action') === ProposalClientResponseNextAction::CreateFollowUp->value),
+                    Textarea::make('other_follow_up_notes')
+                        ->label('Notes (optional)')
+                        ->visible(fn (Get $get) => $get('response_type') === ProposalClientResponseType::Other->value
+                            && $get('other_next_action') === ProposalClientResponseNextAction::CreateFollowUp->value),
+                ])
+                ->visible(fn () => $this->canRecordClientResponse())
+                ->action(fn (array $data) => $this->recordClientResponseAction($data)),
         ];
     }
 
@@ -822,6 +1030,76 @@ class ManageCommercialVersion extends ViewRecord
         $this->refreshCurrentVersion();
 
         Notification::make()->title('Manual send recorded')->success()->send();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function recordClientResponseAction(array $data): void
+    {
+        $version = ProposalVersion::query()
+            ->whereKey($data['proposal_version_id'] ?? null)
+            ->where('proposal_id', $this->record->getKey())
+            ->first();
+
+        if ($version === null) {
+            Notification::make()->title("Couldn't record this client response")->body('Select which Sent Version the customer responded to.')->danger()->send();
+
+            return;
+        }
+
+        $actor = auth()->user();
+        $responseType = ProposalClientResponseType::tryFrom($data['response_type'] ?? '');
+        $service = app(ProposalClientResponseService::class);
+
+        try {
+            match ($responseType) {
+                ProposalClientResponseType::Accepted => $service->recordAccepted(
+                    $version, $actor, $data['accepted_notes'] ?? null, $this->responseIdempotencyKey
+                ),
+                ProposalClientResponseType::RevisionRequested => $service->recordRevisionRequested(
+                    $version, $actor, $data['revision_reason'] ?? null, $data['revision_notes'] ?? null, $this->responseIdempotencyKey
+                ),
+                ProposalClientResponseType::MoreTime => $service->recordMoreTime(
+                    $version,
+                    $actor,
+                    Carbon::parse($data['more_time_follow_up_at']),
+                    $data['more_time_reason'],
+                    $data['more_time_notes'] ?? null,
+                    $data['more_time_follow_up_notes'] ?? null,
+                    filled($data['more_time_contact_mode'] ?? null) ? ContactMode::from($data['more_time_contact_mode']) : null,
+                    $this->responseIdempotencyKey,
+                ),
+                ProposalClientResponseType::Rejected => $service->recordRejected(
+                    $version, $actor, $data['rejected_reason'], $data['rejected_notes'] ?? null, $this->responseIdempotencyKey
+                ),
+                ProposalClientResponseType::Other => match (ProposalClientResponseNextAction::tryFrom($data['other_next_action'] ?? '')) {
+                    ProposalClientResponseNextAction::AwaitFurtherContact => $service->recordOtherAwaitFurtherContact(
+                        $version, $actor, $data['other_await_notes'], $this->responseIdempotencyKey
+                    ),
+                    ProposalClientResponseNextAction::CreateFollowUp => $service->recordOtherCreateFollowUp(
+                        $version,
+                        $actor,
+                        Carbon::parse($data['other_follow_up_follow_up_at']),
+                        $data['other_follow_up_reason'],
+                        $data['other_follow_up_notes'] ?? null,
+                        $data['other_follow_up_notes'] ?? null,
+                        null,
+                        $this->responseIdempotencyKey,
+                    ),
+                    default => throw new LogicException('Select a next action for Other.'),
+                },
+                default => throw new LogicException('Select a response type.'),
+            };
+        } catch (LogicException $e) {
+            Notification::make()->title("Couldn't record this client response")->body($e->getMessage())->danger()->send();
+
+            return;
+        }
+
+        $this->refreshCurrentVersion();
+
+        Notification::make()->title('Client response recorded')->success()->send();
     }
 
     /**

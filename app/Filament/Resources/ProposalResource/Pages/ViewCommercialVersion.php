@@ -254,6 +254,22 @@ class ViewCommercialVersion extends ViewRecord
                         TextEntry::make('releasedBy.name')->label('Released By')->placeholder('—'),
                         TextEntry::make('release_comment')->label('Release Comment')->placeholder('—')->columnSpanFull(),
                     ]),
+                InfolistSection::make('Client Responses to This Version')
+                    ->description('Read-only historical evidence — no Record Client Response action exists on this page (Phase 4A-3.4).')
+                    ->visible(fn () => $this->getVersionRecord()->clientResponses()->exists())
+                    ->schema([
+                        RepeatableEntry::make('clientResponses')
+                            ->label('')
+                            ->columns(4)
+                            ->schema([
+                                TextEntry::make('response_type')->label('Response')->badge(),
+                                TextEntry::make('recorded_at')->label('Recorded At')->dateTime(),
+                                TextEntry::make('recordedBy.name')->label('Recorded By')->placeholder('—'),
+                                TextEntry::make('next_action')->label('Next Action')->badge()->placeholder('—'),
+                                TextEntry::make('reason')->label('Reason')->placeholder('—')->columnSpanFull(),
+                                TextEntry::make('notes')->label('Notes')->placeholder('—')->columnSpanFull(),
+                            ]),
+                    ]),
                 InfolistSection::make('Line Items')
                     ->description('Exactly the lines and tax components frozen on this Version.')
                     ->schema([
