@@ -627,7 +627,7 @@ class PipelineBoardCrossDropStatusTest extends TestCase
 
             $board = app(PipelineBoard::class);
 
-            $this->assertTrue($this->invokeCrossDropSupported($board, 'lead', 'proposal', $lead));
+            $this->assertTrue($this->invokeCrossDropSupported($board, 'lead', 'proposal', $lead, 'being_prepared'));
 
             // Empty $data — proves the "bare Confirm, no fields" behavior
             // is correct: creating a Proposal from an already-Validated

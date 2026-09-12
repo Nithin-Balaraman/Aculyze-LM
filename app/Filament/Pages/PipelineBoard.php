@@ -2045,18 +2045,21 @@ class PipelineBoard extends Page implements HasActions, HasForms
             // workflow (legacy stage deliberately frozen) remains draggable
             // into Proposal here too.
             //
-            // Phase 4A-3.5 cutover: a brand-new Proposal may only ever be
-            // created at its neutral starting stage — never dropped
-            // straight into a terminal column (Customer Accepted/Rejected),
-            // which used to fabricate an already-Won/Lost Proposal with no
-            // ProposalVersion, no Client Response, and no winning Version at
-            // all. Accepted/Rejected are now exclusively
-            // ProposalClientResponseService's job.
+            // Phase 4A-3.5 cutover (hardening pass): a brand-new Proposal
+            // may only ever be created at its neutral starting stage —
+            // Proposal Being Prepared — never dropped straight into a
+            // terminal column (Customer Accepted/Rejected, which used to
+            // fabricate an already-Won/Lost Proposal with no
+            // ProposalVersion/Client Response/winning Version at all), and
+            // never straight into Sent either (which fabricated an
+            // already-Sent Proposal with no Sent ProposalVersion, Release,
+            // or Send history — Sent is exclusively ProposalSendService's
+            // job, reached only through a real first send).
             return $sourceResource === 'lead'
                 && $source instanceof Lead
                 && ($source->stage->isEligibleForProposal() || $source->status === LeadStatus::ProposalRequired)
                 && $source->proposal === null
-                && ! (ProposalStage::tryFrom($destStage)?->isTerminal() ?? false);
+                && ProposalStage::tryFrom($destStage) === ProposalStage::BeingPrepared;
         }
 
         // Phase 3: Demo has no legacy stage of its own, so its only valid
@@ -2126,8 +2129,8 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 return 'This Lead already has a Proposal — open it directly instead of creating a new one.';
             }
 
-            if (ProposalStage::tryFrom($destStage)?->isTerminal() ?? false) {
-                return 'A new Proposal must start in Proposal Being Prepared or Proposal Sent — Customer Accepted/Rejected are recorded through the Proposal\'s own Record Client Response action.';
+            if (ProposalStage::tryFrom($destStage) !== ProposalStage::BeingPrepared) {
+                return 'A new Proposal must start in Proposal Being Prepared — Sent is recorded through the Proposal\'s own Send action, and Customer Accepted/Rejected through Record Client Response.';
             }
 
             return 'This combination is not supported yet.';

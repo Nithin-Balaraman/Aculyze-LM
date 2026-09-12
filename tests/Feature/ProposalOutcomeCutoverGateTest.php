@@ -127,6 +127,83 @@ class ProposalOutcomeCutoverGateTest extends TestCase
         $this->assertSame(0, Proposal::where('lead_id', $lead->id)->count());
     }
 
+    /**
+     * Phase 4A-3.5 hardening pass: a Lead cross-dropped directly onto the
+     * Proposal lane's "Sent" column used to fabricate an already-Sent
+     * Proposal with no Sent ProposalVersion, no Release, and no Send
+     * history at all — Sent is exclusively ProposalSendService's job,
+     * reached only through a real first send. crossDropSupported() now
+     * only accepts Proposal Being Prepared as a Lead→Proposal creation
+     * target.
+     */
+    public function test_lead_cross_drop_into_the_sent_proposal_stage_is_refused_and_creates_nothing(): void
+    {
+        ['employee' => $employee] = $this->hierarchy();
+        $prospect = Prospect::factory()->create(['assigned_to' => $employee->id, 'created_by' => $employee->id]);
+        $lead = Lead::create([
+            'prospect_id' => $prospect->id, 'assigned_to' => $employee->id, 'created_by' => $employee->id,
+            'stage' => LeadStage::Validated, 'status' => LeadStatus::ProposalRequired, 'temperature' => 'hot', 'notes' => 'Fixture.',
+        ]);
+
+        $this->actingAs($employee);
+
+        $board = app(PipelineBoard::class);
+
+        $eligible = new ReflectionMethod($board, 'crossDropSupported');
+        $eligible->setAccessible(true);
+        $this->assertFalse($eligible->invoke($board, 'lead', 'proposal', $lead, 'sent'));
+
+        $reason = new ReflectionMethod($board, 'unsupportedCrossDropReason');
+        $reason->setAccessible(true);
+        $this->assertSame(
+            'A new Proposal must start in Proposal Being Prepared — Sent is recorded through the Proposal\'s own Send action, and Customer Accepted/Rejected through Record Client Response.',
+            $reason->invoke($board, 'lead', 'proposal', $lead, 'sent')
+        );
+
+        $perform = new ReflectionMethod($board, 'performCrossDrop');
+        $perform->setAccessible(true);
+        $perform->invoke($board, ['sourceResource' => 'lead', 'sourceId' => $lead->id, 'destResource' => 'proposal', 'destStage' => 'sent'], []);
+
+        $this->assertSame(0, Proposal::where('lead_id', $lead->id)->count());
+        $this->assertSame(0, DB::table('proposal_sends')->count());
+    }
+
+    /**
+     * Legitimate Lead→Proposal cross-drop creation still works, and always
+     * lands at the genuine neutral starting state — never a fabricated
+     * Sent/Won/Lost history.
+     */
+    public function test_lead_cross_drop_into_being_prepared_still_creates_a_proposal_at_its_neutral_default(): void
+    {
+        ['employee' => $employee] = $this->hierarchy();
+        $prospect = Prospect::factory()->create(['assigned_to' => $employee->id, 'created_by' => $employee->id]);
+        $lead = Lead::create([
+            'prospect_id' => $prospect->id, 'assigned_to' => $employee->id, 'created_by' => $employee->id,
+            'stage' => LeadStage::Validated, 'status' => LeadStatus::ProposalRequired, 'temperature' => 'hot', 'notes' => 'Fixture.',
+        ]);
+
+        $this->actingAs($employee);
+
+        $board = app(PipelineBoard::class);
+        $method = new ReflectionMethod($board, 'performCrossDrop');
+        $method->setAccessible(true);
+        $method->invoke($board, ['sourceResource' => 'lead', 'sourceId' => $lead->id, 'destResource' => 'proposal', 'destStage' => 'being_prepared'], []);
+
+        $proposal = Proposal::where('lead_id', $lead->id)->firstOrFail();
+        $this->assertSame(ProposalStage::BeingPrepared, $proposal->stage);
+        $this->assertNull($proposal->outcome);
+        $this->assertNull($proposal->sent_at);
+        $this->assertSame(0, DB::table('proposal_sends')->count());
+        $this->assertSame(0, $proposal->versions()->where('lifecycle_status', 'sent')->count());
+    }
+
+    // Regression anchor (kickoff item E): the one legitimate route to Sent
+    // remains a real first send through ProposalSendService, unaffected by
+    // this hardening pass — already exhaustively covered by
+    // ProposalSendTest (e.g. test_first_send_moves_proposal_stage_to_sent),
+    // re-run as part of this pass's regression order rather than
+    // duplicated here.
+
     public function test_clear_cutover_message_is_surfaced_for_a_refused_proposal_drag(): void
     {
         ['employee' => $employee] = $this->hierarchy();
