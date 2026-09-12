@@ -490,8 +490,11 @@ class ProposalSendTest extends TestCase
         $version = $this->releasedVersion($employee, $manager, $seniorManager, $manager);
         app(ProposalSendService::class)->recordManualSend($version->fresh(), $employee, ['a@b.com'], [], null, null, now(), [], $this->sendKey());
 
+        // Phase 4A-3.5 cutover: Won now requires a valid winning_version_id
+        // (DB CHECK) — the already-Sent $version itself is a legitimate
+        // winner here.
         $proposal = $version->fresh()->proposal;
-        $proposal->forceFill(['outcome' => ProposalOutcome::Won, 'notes' => 'Won the deal.'])->save();
+        $proposal->forceFill(['outcome' => ProposalOutcome::Won, 'winning_version_id' => $version->id, 'notes' => 'Won the deal.'])->save();
 
         $send = app(ProposalSendService::class)->recordManualSend($version->fresh(), $employee, ['a@b.com'], [], null, null, now(), [], $this->sendKey());
 
@@ -521,7 +524,7 @@ class ProposalSendTest extends TestCase
         app(ProposalSendService::class)->recordManualSend($version->fresh(), $employee, ['a@b.com'], [], null, null, now(), [], $this->sendKey());
 
         $proposal = $version->fresh()->proposal;
-        $proposal->forceFill(['outcome' => ProposalOutcome::Won, 'notes' => 'Won.'])->save();
+        $proposal->forceFill(['outcome' => ProposalOutcome::Won, 'winning_version_id' => $version->id, 'notes' => 'Won.'])->save();
 
         app(ProposalSendService::class)->recordManualSend($version->fresh(), $employee, ['a@b.com'], [], null, null, now(), [], $this->sendKey());
 

@@ -7,6 +7,7 @@ use App\Enums\ProposalOutcome;
 use App\Enums\ProposalStage;
 use App\Models\Lead;
 use App\Models\Proposal;
+use App\Models\ProposalVersion;
 use App\Models\Prospect;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Date;
@@ -38,11 +39,16 @@ class StaleProposalTest extends TestCase
             'assigned_to' => $prospect->assigned_to,
             'created_by' => $prospect->created_by,
             'stage' => ProposalStage::Sent,
-            'outcome' => $outcome,
             'notes' => in_array($outcome, [ProposalOutcome::Won, ProposalOutcome::Lost], true) ? 'Test outcome notes.' : null,
         ]);
 
-        Proposal::withoutEvents(fn () => $proposal->forceFill(['stage_changed_at' => Date::now()->subDays($daysAgo)])->save());
+        // Phase 4A-3.5 cutover: Won now requires a valid winning_version_id
+        // (DB CHECK) — set in the same update as outcome.
+        $update = ['outcome' => $outcome, 'stage_changed_at' => Date::now()->subDays($daysAgo)];
+        if ($outcome === ProposalOutcome::Won) {
+            $update['winning_version_id'] = ProposalVersion::factory()->create(['proposal_id' => $proposal->id])->id;
+        }
+        Proposal::withoutEvents(fn () => $proposal->forceFill($update)->save());
 
         return $proposal->fresh();
     }

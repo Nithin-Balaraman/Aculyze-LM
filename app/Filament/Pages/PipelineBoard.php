@@ -11,7 +11,6 @@ use App\Enums\FollowUpStatus;
 use App\Enums\LeadStage;
 use App\Enums\LeadStatus;
 use App\Enums\LeadTemperature;
-use App\Enums\ProposalOutcome;
 use App\Enums\ProposalStage;
 use App\Filament\Resources\AppointmentResource;
 use App\Filament\Resources\CallRecordResource;
@@ -962,6 +961,16 @@ class PipelineBoard extends Page implements HasActions, HasForms
             return false;
         }
 
+        // Phase 4A-3.5 cutover (Decision 17): a Proposal's stage/outcome are
+        // now exclusively service-owned (ProposalSendService's first send,
+        // ProposalClientResponseService's Accepted/Revision Requested/
+        // Rejected transitions). No drag on this board may mutate either
+        // field any more — the card remains visible, but every same-lane
+        // drag is refused unconditionally, never silently ignored.
+        if ($resource === 'proposal') {
+            return false;
+        }
+
         return true;
     }
 
@@ -976,6 +985,10 @@ class PipelineBoard extends Page implements HasActions, HasForms
 
         if ($resource === 'lead' && $stage === LeadStage::DemoScheduledOrDone->value) {
             return 'Scheduling a Demo now goes through the Demo lane or the "Schedule Demo" action on the Lead instead — drag this card onto the Demo lane, or open the Lead directly.';
+        }
+
+        if ($resource === 'proposal') {
+            return 'Proposal workflow is managed from the Proposal record.';
         }
 
         return 'This Lead is marked Lost — open it directly if you need to revisit that.';
@@ -1670,42 +1683,22 @@ class PipelineBoard extends Page implements HasActions, HasForms
         Notification::make()->title('Moved to '.$resolved->getLabel())->success()->send();
     }
 
+    /**
+     * Phase 4A-3.5 cutover (Decision 17): a Proposal card may never again be
+     * dragged to mutate stage/outcome — isDropEligible() already refuses
+     * this before the confirm dialog can even be submitted, so this is
+     * unreachable through the UI; it fails closed rather than silently
+     * mutating anything if ever invoked directly.
+     */
     private function dropProposal(array $arguments, array $data): void
     {
-        $resolved = ProposalStage::tryFrom((string) ($arguments['stage'] ?? ''));
-        /** @var ?Proposal $proposal */
-        $proposal = $this->resolveDropRecord($arguments);
+        Notification::make()
+            ->title("Couldn't move this Proposal")
+            ->body('Proposal workflow is managed from the Proposal record.')
+            ->danger()
+            ->send();
 
-        if (! $proposal || ! $resolved || $proposal->stage === $resolved) {
-            return;
-        }
-
-        $this->authorizeUpdate($proposal);
-
-        $update = ['stage' => $resolved];
-
-        if ($resolved === ProposalStage::Sent) {
-            $update['attachment_paths'] = $data['attachment_paths'] ?? [];
-            $update['attachment_names'] = $data['attachment_names'] ?? [];
-            $update['value'] = $data['value'] ?? null;
-            $update['sent_at'] = $data['sent_at'] ?? null;
-        } elseif ($resolved === ProposalStage::CustomerAccepted) {
-            $update['outcome'] = ProposalOutcome::Won;
-            $update['notes'] = $data['notes'] ?? null;
-        } elseif ($resolved === ProposalStage::CustomerRejected) {
-            $update['outcome'] = ProposalOutcome::Lost;
-            $update['notes'] = $data['notes'] ?? null;
-        }
-
-        // Moving backward out of a decided Final Outcome — the dialog's own
-        // required ->accepted() checkbox (see proposalOutcomeResetFields())
-        // already gated reaching this line at all whenever there was an
-        // outcome to clear, so it's cleared unconditionally here.
-        if (! $resolved->isTerminal() && $proposal->outcome !== null) {
-            $update['outcome'] = null;
-        }
-
-        $this->applyDrop($proposal, $update, $resolved->getLabel());
+        throw new Halt;
     }
 
     /**
@@ -1928,6 +1921,11 @@ class PipelineBoard extends Page implements HasActions, HasForms
             // relies on), so this atomically creates the Proposal AND its
             // V1 Draft ProposalVersion together (locked Decision 12),
             // never the bare Proposal this line used to leave behind.
+            // Phase 4A-3.5 cutover: crossDropSupported() already refuses a
+            // terminal $destStage here (see its own docblock), so `outcome`
+            // is never set at creation any more — Accepted/Rejected are
+            // exclusively ProposalClientResponseService's job, and a brand
+            // new Proposal created this way is always still in progress.
             'proposal' => $source instanceof Lead ? app(ProposalCreationService::class)->createForLead($source, [
                 'assigned_to' => $assignedTo,
                 'created_by' => auth()->id(),
@@ -1936,11 +1934,6 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 'attachment_names' => $data['destination_attachment_names'] ?? [],
                 'value' => $data['destination_value'] ?? null,
                 'sent_at' => $data['destination_sent_at'] ?? null,
-                'outcome' => match ($destStage) {
-                    ProposalStage::CustomerAccepted->value => ProposalOutcome::Won,
-                    ProposalStage::CustomerRejected->value => ProposalOutcome::Lost,
-                    default => null,
-                },
                 'notes' => $data['destination_notes'] ?? null,
             ]) : null,
             // Phase 3: routed through the same centralized
@@ -1979,21 +1972,20 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * those would each create their OWN downstream record on top of the one
      * createCrossDropDestination() already created for this same cross-drop.
      *
-     * Proposal has no normalized status this phase (see
-     * StageDropoutReport's own docblock), so its stage+outcome write
-     * remains directly on the model here — there is no competing
-     * normalized-status authority for it to diverge from.
+     * Phase 4A-3.5 cutover: Proposal used to be finalized as Won directly
+     * here (see the removed branch below) whenever it was the dragged
+     * SOURCE of a cross-drop — a drag-driven outcome write that is now
+     * exclusively ProposalClientResponseService's job (Decision 17).
+     * crossDropSupported() refuses a Proposal source before this method can
+     * ever be reached for it, so the 'proposal' case fails closed rather
+     * than silently doing nothing, as a second line of defense.
      */
     private function resolveCrossDropSource(string $sourceResource, Model $source, array $data, ?string $destResource = null): void
     {
         match ($sourceResource) {
             'appointment' => app(WorkflowTransitionService::class)->finalizeCrossDroppedAppointment($source, ['outcome_notes' => $data['source_outcome_notes'] ?? null]),
             'lead' => app(WorkflowTransitionService::class)->finalizeCrossDroppedLead($source, ['notes' => $data['source_notes'] ?? null]),
-            'proposal' => $source->update([
-                'stage' => ProposalStage::CustomerAccepted,
-                'outcome' => ProposalOutcome::Won,
-                'notes' => $data['source_notes'] ?? null,
-            ]),
+            'proposal' => throw new \LogicException('Proposal workflow is managed from the Proposal record — it can no longer be finalized via a board drag.'),
             'follow_up' => $this->completeFollowUp($source, $data, 'source_', $destResource),
             default => null,
         };
@@ -2026,6 +2018,17 @@ class PipelineBoard extends Page implements HasActions, HasForms
             return false;
         }
 
+        // Phase 4A-3.5 cutover (Decision 17): a Proposal can never again be
+        // the SOURCE of a cross-drop either — this used to finalize the
+        // dragged-from Proposal as Won via resolveCrossDropSource() the
+        // moment any downstream Follow-Up/Appointment/Lead was created from
+        // it, a drag-driven outcome write that is now exclusively owned by
+        // ProposalClientResponseService's Accepted path. The Proposal card
+        // stays visible; only its use as a drag source is refused.
+        if ($sourceResource === 'proposal') {
+            return false;
+        }
+
         // Lead's "lost" box is a board-only display grouping, not a real
         // LeadStage a brand-new Lead could ever be created at — a Lead
         // needs a real stage before "Lost" (an outcome applied on top of
@@ -2041,10 +2044,19 @@ class PipelineBoard extends Page implements HasActions, HasForms
             // reasoning — so a Lead that reaches ProposalRequired via the new
             // workflow (legacy stage deliberately frozen) remains draggable
             // into Proposal here too.
+            //
+            // Phase 4A-3.5 cutover: a brand-new Proposal may only ever be
+            // created at its neutral starting stage — never dropped
+            // straight into a terminal column (Customer Accepted/Rejected),
+            // which used to fabricate an already-Won/Lost Proposal with no
+            // ProposalVersion, no Client Response, and no winning Version at
+            // all. Accepted/Rejected are now exclusively
+            // ProposalClientResponseService's job.
             return $sourceResource === 'lead'
                 && $source instanceof Lead
                 && ($source->stage->isEligibleForProposal() || $source->status === LeadStatus::ProposalRequired)
-                && $source->proposal === null;
+                && $source->proposal === null
+                && ! (ProposalStage::tryFrom($destStage)?->isTerminal() ?? false);
         }
 
         // Phase 3: Demo has no legacy stage of its own, so its only valid
@@ -2093,6 +2105,14 @@ class PipelineBoard extends Page implements HasActions, HasForms
             return 'A new Lead can\'t be created directly as Lost — drag an existing Lead card into this box instead.';
         }
 
+        // Phase 4A-3.5 cutover (Decision 17): checked before the
+        // destResource === 'proposal' block below so a Proposal card
+        // dragged onto ANY lane gets this message rather than a
+        // Lead-specific one.
+        if ($sourceResource === 'proposal') {
+            return 'Proposal workflow is managed from the Proposal record.';
+        }
+
         if ($destResource === 'proposal') {
             if ($sourceResource !== 'lead' || ! $source instanceof Lead) {
                 return 'A Proposal needs an existing, Validated Lead behind it — drag a Validated Lead card into this lane instead.';
@@ -2104,6 +2124,10 @@ class PipelineBoard extends Page implements HasActions, HasForms
 
             if ($source->proposal !== null) {
                 return 'This Lead already has a Proposal — open it directly instead of creating a new one.';
+            }
+
+            if (ProposalStage::tryFrom($destStage)?->isTerminal() ?? false) {
+                return 'A new Proposal must start in Proposal Being Prepared or Proposal Sent — Customer Accepted/Rejected are recorded through the Proposal\'s own Record Client Response action.';
             }
 
             return 'This combination is not supported yet.';

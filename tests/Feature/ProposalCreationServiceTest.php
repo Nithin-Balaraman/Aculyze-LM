@@ -402,40 +402,40 @@ class ProposalCreationServiceTest extends TestCase
     }
 
     // -----------------------------------------------------------------
-    // H. LEGACY PARENT OUTCOME COEXISTENCE
+    // H. LEGACY PARENT OUTCOME COEXISTENCE (Phase 4A-3.5: gate CLOSED)
     // -----------------------------------------------------------------
 
-    public function test_legacy_won_outcome_at_creation_still_leaves_v1_draft(): void
+    /**
+     * Phase 4A-3.5 cutover: the legacy coexistence this section used to
+     * document (a Proposal could be created directly Won, with no
+     * ProposalVersion.grand_total-backed winner) is now closed at the
+     * database level. `winning_version_id` is not fillable, so this
+     * generic passthrough service can never populate it — meaning a caller
+     * that (still, incorrectly) hands it 'outcome' => Won can no longer
+     * succeed at all: the DB CHECK now rejects the write outright, and
+     * nothing is left behind (both the Proposal and its V1 Draft roll back
+     * together, same DB::transaction). Every real caller of this service
+     * (CreateProposal, PipelineBoard's Lead cross-drop) was fixed in this
+     * same phase to never pass a non-null outcome at creation.
+     */
+    public function test_legacy_won_outcome_at_creation_is_now_rejected_by_the_db_check(): void
     {
         $lead = $this->leadWithProspect();
 
-        $proposal = app(ProposalCreationService::class)->createForLead($lead, [
-            'assigned_to' => $lead->assigned_to,
-            'created_by' => $lead->created_by,
-            'stage' => ProposalStage::CustomerAccepted->value,
-            'outcome' => ProposalOutcome::Won->value,
-            'notes' => 'Signed and confirmed.',
-        ]);
+        $this->expectException(\Illuminate\Database\QueryException::class);
 
-        $this->assertSame(ProposalOutcome::Won, $proposal->fresh()->outcome);
-
-        $version = ProposalVersion::where('proposal_id', $proposal->id)->firstOrFail();
-        $this->assertSame(ProposalVersionLifecycle::Draft, $version->lifecycle_status);
-    }
-
-    public function test_winning_version_id_remains_null_even_with_legacy_won_outcome(): void
-    {
-        $lead = $this->leadWithProspect();
-
-        $proposal = app(ProposalCreationService::class)->createForLead($lead, [
-            'assigned_to' => $lead->assigned_to,
-            'created_by' => $lead->created_by,
-            'stage' => ProposalStage::CustomerAccepted->value,
-            'outcome' => ProposalOutcome::Won->value,
-            'notes' => 'Signed and confirmed.',
-        ]);
-
-        $this->assertNull($proposal->fresh()->winning_version_id);
+        try {
+            app(ProposalCreationService::class)->createForLead($lead, [
+                'assigned_to' => $lead->assigned_to,
+                'created_by' => $lead->created_by,
+                'stage' => ProposalStage::CustomerAccepted->value,
+                'outcome' => ProposalOutcome::Won->value,
+                'notes' => 'Signed and confirmed.',
+            ]);
+        } finally {
+            $this->assertSame(0, Proposal::where('lead_id', $lead->id)->count());
+            $this->assertSame(0, ProposalVersion::count());
+        }
     }
 
     public function test_phase4_outcome_cutover_gate_behavior_remains_unchanged(): void

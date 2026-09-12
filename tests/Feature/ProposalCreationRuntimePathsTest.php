@@ -11,7 +11,6 @@ use App\Enums\DemoStatus;
 use App\Enums\LeadStage;
 use App\Enums\LeadStatus;
 use App\Enums\LeadTemperature;
-use App\Enums\ProposalOutcome;
 use App\Enums\ProposalStage;
 use App\Enums\ProposalVersionLifecycle;
 use App\Enums\UserRole;
@@ -196,7 +195,16 @@ class ProposalCreationRuntimePathsTest extends TestCase
         });
     }
 
-    public function test_pipeline_board_proposal_cross_drop_with_won_destination_stage_still_leaves_v1_draft(): void
+    /**
+     * Phase 4A-3.5 cutover (Decision 17): a Lead cross-dropped straight onto
+     * a terminal Proposal-lane column used to fabricate an already-Won
+     * Proposal with no ProposalVersion workflow, no Client Response, and no
+     * winning Version at all — silently violating "Accepted is the only v1
+     * route to Won" and (post-cutover) the DB's own Won -> winning_version_id
+     * CHECK. crossDropSupported() now refuses this combination outright, so
+     * the cross-drop is a genuine no-op: nothing is created.
+     */
+    public function test_pipeline_board_proposal_cross_drop_with_won_destination_stage_is_refused(): void
     {
         $org = Organization::factory()->create();
 
@@ -222,12 +230,7 @@ class ProposalCreationRuntimePathsTest extends TestCase
                 ['destination_notes' => 'Signed on the spot.'],
             );
 
-            $proposal = Proposal::where('lead_id', $lead->id)->firstOrFail();
-            $this->assertSame(ProposalOutcome::Won, $proposal->outcome);
-            $this->assertNull($proposal->winning_version_id);
-
-            $version = ProposalVersion::where('proposal_id', $proposal->id)->firstOrFail();
-            $this->assertSame(ProposalVersionLifecycle::Draft, $version->lifecycle_status);
+            $this->assertSame(0, Proposal::where('lead_id', $lead->id)->count());
         });
     }
 

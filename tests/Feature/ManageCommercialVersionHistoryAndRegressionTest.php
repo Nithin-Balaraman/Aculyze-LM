@@ -194,7 +194,21 @@ class ManageCommercialVersionHistoryAndRegressionTest extends TestCase
         $this->assertSame(ProposalStage::BeingPrepared, $fresh->stage);
     }
 
-    public function test_phase4_outcome_cutover_gate_remains_open(): void
+    /**
+     * Phase 4A-3.5 cutover: PHASE4_OUTCOME_CUTOVER_GATE is now CLOSED — the
+     * legacy coexistence this test used to prove (a Proposal could be Won
+     * with no winning_version_id, independent of the commercial Version
+     * workflow) is no longer constructible at all: the DB CHECK added in
+     * this phase rejects outcome=Won without a valid winning_version_id.
+     * Renamed from test_phase4_outcome_cutover_gate_remains_open per the
+     * kickoff's own instruction. What remains true and worth regression-
+     * testing: submitting/approving a commercial Version still never
+     * touches Proposal.outcome or winning_version_id — those are
+     * exclusively ProposalClientResponseService's job (Accepted) — even
+     * when the Proposal already carries a legitimately-won outcome from an
+     * earlier, real Accepted response.
+     */
+    public function test_phase4_outcome_cutover_gate_is_closed(): void
     {
         ['employee' => $employee, 'manager' => $manager, 'seniorManager' => $seniorManager] = $this->hierarchy();
         $proposal = $this->proposalFor($employee);
@@ -202,7 +216,13 @@ class ManageCommercialVersionHistoryAndRegressionTest extends TestCase
             'proposal_id' => $proposal->id, 'version_number' => 1,
             'customer_name_snapshot' => 'Acme Corp', 'payment_terms' => 'Net 30', 'validity_terms' => '30 days',
         ]);
-        $proposal->forceFill(['current_version_id' => $version->id, 'outcome' => ProposalOutcome::Won, 'notes' => 'Signed already, legacy flow.'])->save();
+        $winningVersion = ProposalVersion::factory()->create(['proposal_id' => $proposal->id, 'version_number' => 2, 'lifecycle_status' => ProposalVersionLifecycle::Sent]);
+        $proposal->forceFill([
+            'current_version_id' => $version->id,
+            'outcome' => ProposalOutcome::Won,
+            'winning_version_id' => $winningVersion->id,
+            'notes' => 'Signed already, real Accepted response.',
+        ])->save();
         ProposalVersionLine::create(['proposal_version_id' => $version->id, 'line_number' => 1, 'item_name' => 'Widget', 'quantity' => 1, 'unit_price' => 100]);
 
         $this->actingAs($manager);
@@ -213,7 +233,11 @@ class ManageCommercialVersionHistoryAndRegressionTest extends TestCase
 
         $fresh = $proposal->fresh();
         $this->assertSame(ProposalOutcome::Won, $fresh->outcome);
-        $this->assertNull($fresh->winning_version_id);
+        $this->assertSame($winningVersion->id, $fresh->winning_version_id);
         $this->assertSame(ProposalVersionLifecycle::Approved, $fresh->currentVersion->lifecycle_status);
+
+        $this->assertFileExists(base_path('docs/PHASE4_OUTCOME_CUTOVER_GATE.md'));
+        $gate = file_get_contents(base_path('docs/PHASE4_OUTCOME_CUTOVER_GATE.md'));
+        $this->assertStringContainsString('Status: CLOSED', $gate);
     }
 }

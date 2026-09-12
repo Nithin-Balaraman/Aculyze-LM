@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\LeadStage;
 use App\Enums\ProposalOutcome;
 use App\Enums\ProposalStage;
+use App\Enums\ProposalVersionLifecycle;
 use App\Enums\UserRole;
 use App\Filament\Pages\PipelineBoard;
 use App\Filament\Resources\ProposalResource;
@@ -13,6 +14,7 @@ use App\Filament\Resources\ProposalResource\Pages\ManageCommercialVersion;
 use App\Filament\Resources\ProposalResource\Pages\ViewProposal;
 use App\Models\Lead;
 use App\Models\Proposal;
+use App\Models\ProposalVersion;
 use App\Models\Prospect;
 use App\Models\User;
 use App\Services\ProposalCreationService;
@@ -24,9 +26,13 @@ use Tests\TestCase;
  * Pre-deployment items F6 (clarify the two coexisting status systems) and
  * F5 (Commercial Version shortcut from the Proposal list).
  *
- * Both are clarity/navigation only: PHASE4_OUTCOME_CUTOVER_GATE stays OPEN,
- * Proposal.outcome logic is untouched, winning_version_id is untouched, and
- * no Version state becomes editable from any Proposal screen.
+ * Both are clarity/navigation only: Proposal.outcome logic is untouched,
+ * winning_version_id is untouched, and no Version state becomes editable
+ * from any Proposal screen. Written while PHASE4_OUTCOME_CUTOVER_GATE was
+ * still OPEN; the gate itself closed in Phase 4A-3.5 (see
+ * PHASE4_OUTCOME_CUTOVER_GATE.md) — the "Proposal Outcome" vs "Commercial
+ * Version Status" labeling clarity these tests exercise remains valid and
+ * unaffected by that closure.
  */
 class ProposalStatusClarityAndShortcutTest extends TestCase
 {
@@ -193,14 +199,22 @@ class ProposalStatusClarityAndShortcutTest extends TestCase
         $this->assertSame(ProposalStage::BeingPrepared, $fresh->stage);
     }
 
-    public function test_a_legacy_outcome_and_a_commercial_version_status_coexist_visibly(): void
+    /**
+     * Phase 4A-3.5 cutover: PHASE4_OUTCOME_CUTOVER_GATE is now CLOSED, and
+     * Won can no longer exist without a real winning_version_id (DB CHECK).
+     * What F6 still demonstrates post-cutover: the Proposal Outcome and the
+     * commercial Version's OWN lifecycle status are two genuinely distinct
+     * systems that can legitimately disagree in time — a Proposal can be
+     * Won (via a real Accepted response against some earlier Sent Version)
+     * while ITS CURRENT Version is still an unrelated, later Draft — and
+     * both remain visible side by side rather than conflated.
+     */
+    public function test_a_won_outcome_and_a_different_current_commercial_version_status_coexist_visibly(): void
     {
-        // PHASE4_OUTCOME_CUTOVER_GATE is OPEN, so a Proposal can legitimately
-        // carry a legacy Won outcome while its Version is still a Draft —
-        // exactly the confusion F6 exists to make visible rather than hide.
         ['admin' => $admin, 'employee' => $employee] = $this->people();
         $proposal = $this->proposalWithV1($employee);
-        $proposal->forceFill(['outcome' => ProposalOutcome::Won, 'notes' => 'Signed on the legacy flow.'])->save();
+        $winningVersion = ProposalVersion::factory()->create(['proposal_id' => $proposal->id, 'version_number' => 2, 'lifecycle_status' => ProposalVersionLifecycle::Sent]);
+        $proposal->forceFill(['outcome' => ProposalOutcome::Won, 'winning_version_id' => $winningVersion->id, 'notes' => 'Signed against V2, real Accepted response.'])->save();
 
         $this->actingAs($admin);
 
@@ -210,7 +224,7 @@ class ProposalStatusClarityAndShortcutTest extends TestCase
             ->assertSee('Commercial Version Status')
             ->assertSee('V1 — Draft');
 
-        $this->assertNull($proposal->fresh()->winning_version_id);
+        $this->assertSame($winningVersion->id, $proposal->fresh()->winning_version_id);
     }
 
     // -----------------------------------------------------------------

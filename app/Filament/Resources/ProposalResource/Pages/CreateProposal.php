@@ -44,6 +44,15 @@ class CreateProposal extends CreateRecord
      * as mutateFormDataBeforeCreate() used to derive it, since the service
      * itself derives prospect_id from the Lead rather than accepting it.
      */
+    /**
+     * Phase 4A-3.5 cutover: stage and outcome are now exclusively
+     * service-owned lifecycle state — ProposalSendService's first send and
+     * ProposalClientResponseService's Accepted/Revision Requested/Rejected
+     * transitions. A brand-new Proposal may only ever start at its neutral
+     * default (Proposal Being Prepared, no outcome yet); it can no longer be
+     * created directly into a later stage or a final outcome, regardless of
+     * what a caller supplies.
+     */
     protected function handleRecordCreation(array $data): Model
     {
         $lead = Lead::query()->findOrFail($data['lead_id']);
@@ -51,8 +60,7 @@ class CreateProposal extends CreateRecord
         return app(ProposalCreationService::class)->createForLead($lead, [
             'assigned_to' => $data['assigned_to'],
             'created_by' => $data['created_by'],
-            'stage' => $data['stage'] ?? ProposalStage::BeingPrepared->value,
-            'outcome' => $data['outcome'] ?? null,
+            'stage' => ProposalStage::BeingPrepared->value,
             'value' => $data['value'] ?? null,
             'sent_at' => $data['sent_at'] ?? null,
             'notes' => $data['notes'] ?? null,

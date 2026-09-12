@@ -8,6 +8,7 @@ use App\Enums\ProposalStage;
 use App\Models\Appointment;
 use App\Models\Lead;
 use App\Models\Proposal;
+use App\Models\ProposalVersion;
 use App\Models\Prospect;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -129,7 +130,10 @@ class StageTimingTest extends TestCase
         $original = $proposal->stage_changed_at;
         $this->travel(4)->days();
 
-        $proposal->update(['outcome' => 'won', 'notes' => 'Client signed.']);
+        // Phase 4A-3.5 cutover: Won now requires a valid winning_version_id
+        // (DB CHECK) — forceFill since winning_version_id isn't fillable.
+        $version = ProposalVersion::factory()->create(['proposal_id' => $proposal->id]);
+        $proposal->forceFill(['outcome' => 'won', 'winning_version_id' => $version->id, 'notes' => 'Client signed.'])->save();
 
         $this->assertTrue($proposal->fresh()->stage_changed_at->equalTo($original));
     }
@@ -141,7 +145,8 @@ class StageTimingTest extends TestCase
         $original = $proposal->stage_changed_at;
         $this->travel(4)->days();
 
-        $proposal->update(['stage' => ProposalStage::CustomerAccepted, 'outcome' => 'won', 'notes' => 'Client signed.']);
+        $version = ProposalVersion::factory()->create(['proposal_id' => $proposal->id]);
+        $proposal->forceFill(['stage' => ProposalStage::CustomerAccepted, 'outcome' => 'won', 'winning_version_id' => $version->id, 'notes' => 'Client signed.'])->save();
 
         $this->assertTrue($proposal->fresh()->stage_changed_at->greaterThan($original));
     }

@@ -106,34 +106,35 @@ class ProposalResource extends Resource
                         ->searchable()
                         ->disabled(fn () => ! auth()->user()->isAdmin())
                         ->dehydrated(),
-                    // ->live() so attachment_paths' visible()/required()
-                    // below react the moment Stage changes — same
-                    // mechanism as CallRecordResource's outcome-driven
-                    // fields and LeadResource's stage-driven Notes
-                    // requirement.
-                    Forms\Components\Select::make('stage')
+                    // Phase 4A-3.5 cutover: Proposal Stage and Proposal
+                    // Outcome are now exclusively service-owned lifecycle
+                    // state — ProposalSendService's first send and
+                    // ProposalClientResponseService's Accepted/Revision
+                    // Requested/Rejected/More Time transitions are the only
+                    // writers (see PHASE4_OUTCOME_CUTOVER_GATE.md). A
+                    // Placeholder writes nothing, so neither can ever be
+                    // mutated from this generic form again, mirroring
+                    // commercial_version_status below. Hidden on Create,
+                    // where a brand-new Proposal always starts at its
+                    // neutral default (Being Prepared, no outcome) with
+                    // nothing yet worth displaying.
+                    Forms\Components\Placeholder::make('stage_display')
                         ->label('Proposal Stage')
-                        ->options(ProposalStage::class)
-                        ->required()
-                        ->default(ProposalStage::BeingPrepared)
-                        ->live()
-                        ->helperText('How this Proposal is progressing overall — separate from the Commercial Version Status below.'),
-                    // ->live() so notes' required()/rule() below react
-                    // the moment Proposal Outcome changes — same mechanism
-                    // as stage above.
-                    Forms\Components\Select::make('outcome')
+                        ->visible(fn (?Proposal $record) => $record !== null)
+                        ->content(fn (?Proposal $record) => $record?->stage?->getLabel() ?? '—')
+                        ->helperText('Read-only. Changes only through Send/Record Client Response — separate from the Commercial Version Status below.'),
+                    Forms\Components\Placeholder::make('outcome_display')
                         ->label('Proposal Outcome')
-                        ->options(ProposalOutcome::class)
-                        ->live()
-                        ->helperText('The final result of this Proposal. Leave blank while it is still in progress.'),
+                        ->visible(fn (?Proposal $record) => $record !== null)
+                        ->content(fn (?Proposal $record) => $record?->outcome?->getLabel() ?? 'In Progress')
+                        ->helperText('Read-only. Recorded only through the Record Client Response action.'),
                     // F6: a strictly read-only mirror of the commercial
                     // ProposalVersion lifecycle, so the two status systems
                     // are visible side by side and cannot be mistaken for
-                    // each other while PHASE4_OUTCOME_CUTOVER_GATE is OPEN.
-                    // A Placeholder writes nothing, so no Version state can
-                    // ever be edited from this form; the Commercial Version
-                    // page remains the only place it changes. Hidden on
-                    // Create, where no Version exists yet.
+                    // each other. A Placeholder writes nothing, so no
+                    // Version state can ever be edited from this form; the
+                    // Commercial Version page remains the only place it
+                    // changes. Hidden on Create, where no Version exists yet.
                     Forms\Components\Placeholder::make('commercial_version_status')
                         ->label('Commercial Version Status')
                         ->visible(fn (?Proposal $record) => $record !== null)
@@ -141,27 +142,34 @@ class ProposalResource extends Resource
                             ? 'V'.$record->currentVersion->version_number.' — '.$record->currentVersion->lifecycle_status->getLabel()
                             : 'No commercial Version yet')
                         ->helperText('Read-only. The commercial document\'s own workflow state — change it on the Commercial Version page.'),
-                    Forms\Components\TextInput::make('value')
+                    // Phase 4A-3.5 cutover: on Accepted, ProposalClientResponseService
+                    // sets this to the exact winning Version's own frozen
+                    // grand_total — never re-entered by hand. A Placeholder
+                    // keeps it visible without a manual edit path.
+                    Forms\Components\Placeholder::make('value_display')
                         ->label('Proposal Value (₹)')
-                        ->numeric()
-                        ->prefix('₹'),
+                        ->visible(fn (?Proposal $record) => $record !== null)
+                        ->content(fn (?Proposal $record) => $record?->value !== null ? '₹'.number_format((float) $record->value) : '—')
+                        ->helperText('Read-only. Set automatically from the winning commercial Version once Accepted.'),
                     Forms\Components\DatePicker::make('sent_at'),
-                    // Required the moment Final Outcome is Won or Lost —
-                    // a genuine final decision should always leave a
-                    // record of why. Mirrors the same required()+rule()
-                    // pairing LeadResource uses for "Notes required when
-                    // Validated" — plain required() alone would accept a
-                    // whitespace-only value.
+                    // Required the moment the EXISTING record's outcome is
+                    // already Won or Lost — outcome itself can no longer be
+                    // set from this form (see outcome_display above), but an
+                    // existing terminal Proposal's Notes must still not be
+                    // blanked out from under it; the model's own saving()
+                    // guard is the real enforcement, this is just the
+                    // friendly form-level echo of it, driven by the record
+                    // rather than a live outcome field.
                     Forms\Components\Textarea::make('notes')
                         ->rows(3)
                         ->columnSpanFull()
-                        ->required(fn (Get $get) => self::outcomeIsFinal($get('outcome')))
+                        ->required(fn (?Proposal $record) => self::outcomeIsFinal($record?->outcome))
                         ->validationMessages([
                             'required' => 'Notes are required when the Final Outcome is Won or Lost.',
                         ])
                         ->rule(
-                            fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
-                                if (self::outcomeIsFinal($get('outcome')) && blank($value)) {
+                            fn (?Proposal $record) => function (string $attribute, $value, \Closure $fail) use ($record) {
+                                if (self::outcomeIsFinal($record?->outcome) && blank($value)) {
                                     $fail('Notes are required when the Final Outcome is Won or Lost.');
                                 }
                             },
@@ -210,9 +218,12 @@ class ProposalResource extends Resource
                         // to a later stage (Customer Accepted, or a
                         // Lost outcome) doesn't lose sight of what it
                         // already has attached; required-ness is
-                        // untouched and still keys only off Sent.
-                        ->visible(fn (Get $get) => self::stageIsSent($get('stage')) || filled($get('attachment_paths')))
-                        ->required(fn (Get $get) => self::stageIsSent($get('stage')))
+                        // untouched and still keys only off Sent. Stage is
+                        // no longer a live form field (Phase 4A-3.5
+                        // cutover), so this reads the record's own
+                        // persisted stage directly instead of $get('stage').
+                        ->visible(fn (Get $get, ?Proposal $record) => self::stageIsSent($record?->stage) || filled($get('attachment_paths')))
+                        ->required(fn (?Proposal $record) => self::stageIsSent($record?->stage))
                         ->validationMessages([
                             'required' => 'At least one attachment is required once the Proposal stage is Proposal Sent.',
                         ])

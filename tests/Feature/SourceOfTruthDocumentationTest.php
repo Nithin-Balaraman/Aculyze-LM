@@ -148,12 +148,22 @@ class SourceOfTruthDocumentationTest extends TestCase
         }
     }
 
-    public function test_the_cutover_gate_is_documented_as_open_with_ten_items(): void
+    /**
+     * Phase 4A-3.5 cutover: the gate closed (see
+     * docs/PHASE4_OUTCOME_CUTOVER_GATE.md and
+     * tests/Feature/ProposalOutcomeCutoverGateTest.php for the dedicated
+     * tripwire suite) — renamed from
+     * test_the_cutover_gate_is_documented_as_open_with_ten_items. The
+     * structural assertion this test still usefully makes (exactly ten
+     * numbered checklist items, none silently dropped) remains valid
+     * regardless of open/closed status.
+     */
+    public function test_the_cutover_gate_is_documented_as_closed_with_ten_items(): void
     {
         $gate = file_get_contents(base_path('docs/PHASE4_OUTCOME_CUTOVER_GATE.md'));
 
-        $this->assertStringContainsString('Status: OPEN', $gate);
-        $this->assertStringNotContainsString('Status: CLOSED', $gate);
+        $this->assertStringContainsString('Status: CLOSED', $gate);
+        $this->assertStringNotContainsString('Status: OPEN', $gate);
 
         preg_match_all('/^### \d+\. /m', $gate, $items);
         $this->assertCount(10, $items[0], 'The gate checklist must have exactly 10 items.');

@@ -72,7 +72,15 @@ class ProposalAttachmentRequirementTest extends TestCase
         ]);
     }
 
-    public function test_creating_a_proposal_with_stage_sent_and_no_attachments_fails_validation(): void
+    /**
+     * Phase 4A-3.5 cutover: Stage is no longer a settable form field on
+     * Create at all (a brand-new Proposal always starts at Proposal Being
+     * Prepared — see ProposalResource::formSchema()'s stage_display
+     * Placeholder), so a new Proposal can never require an attachment at
+     * creation time any more — that combination is now unreachable through
+     * this form.
+     */
+    public function test_creating_a_proposal_never_requires_an_attachment(): void
     {
         $employee = User::factory()->create();
         $lead = $this->validatedLead($employee);
@@ -80,17 +88,15 @@ class ProposalAttachmentRequirementTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(CreateProposal::class)
-            ->fillForm([
-                'lead_id' => $lead->id,
-                'stage' => ProposalStage::Sent->value,
-            ])
+            ->fillForm(['lead_id' => $lead->id])
             ->call('create')
-            ->assertHasFormErrors(['attachment_paths' => 'required']);
+            ->assertHasNoFormErrors();
 
-        $this->assertDatabaseCount('proposals', 0);
+        $proposal = Proposal::sole();
+        $this->assertSame(ProposalStage::BeingPrepared, $proposal->stage);
     }
 
-    public function test_creating_a_proposal_with_stage_sent_and_an_attachment_succeeds(): void
+    public function test_creating_a_proposal_with_an_attachment_still_succeeds(): void
     {
         $employee = User::factory()->create();
         $lead = $this->validatedLead($employee);
@@ -102,7 +108,6 @@ class ProposalAttachmentRequirementTest extends TestCase
         Livewire::test(CreateProposal::class)
             ->fillForm([
                 'lead_id' => $lead->id,
-                'stage' => ProposalStage::Sent->value,
                 'attachment_paths' => [$file],
             ])
             ->call('create')
@@ -119,7 +124,7 @@ class ProposalAttachmentRequirementTest extends TestCase
      * restriction that used to scope this field to application/pdf was
      * dropped when it became a multi-attachment field.
      */
-    public function test_creating_a_proposal_with_stage_sent_and_a_non_pdf_attachment_succeeds(): void
+    public function test_creating_a_proposal_with_a_non_pdf_attachment_succeeds(): void
     {
         $employee = User::factory()->create();
         $lead = $this->validatedLead($employee);
@@ -131,7 +136,6 @@ class ProposalAttachmentRequirementTest extends TestCase
         Livewire::test(CreateProposal::class)
             ->fillForm([
                 'lead_id' => $lead->id,
-                'stage' => ProposalStage::Sent->value,
                 'attachment_paths' => [$file],
             ])
             ->call('create')
@@ -154,7 +158,6 @@ class ProposalAttachmentRequirementTest extends TestCase
         Livewire::test(CreateProposal::class)
             ->fillForm([
                 'lead_id' => $lead->id,
-                'stage' => ProposalStage::Sent->value,
                 'attachment_paths' => [$pdf, $sheet],
             ])
             ->call('create')
@@ -171,7 +174,7 @@ class ProposalAttachmentRequirementTest extends TestCase
         }
     }
 
-    public function test_creating_a_proposal_in_a_stage_other_than_sent_does_not_require_or_show_the_attachments_field(): void
+    public function test_creating_a_proposal_with_no_attachment_does_not_show_the_attachments_field(): void
     {
         $employee = User::factory()->create();
         $lead = $this->validatedLead($employee);
@@ -179,10 +182,7 @@ class ProposalAttachmentRequirementTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(CreateProposal::class)
-            ->fillForm([
-                'lead_id' => $lead->id,
-                'stage' => ProposalStage::BeingPrepared->value,
-            ])
+            ->fillForm(['lead_id' => $lead->id])
             ->assertFormFieldIsHidden('attachment_paths')
             ->call('create')
             ->assertHasNoFormErrors();
@@ -190,33 +190,37 @@ class ProposalAttachmentRequirementTest extends TestCase
         $this->assertDatabaseCount('proposals', 1);
     }
 
-    public function test_editing_a_proposal_into_stage_sent_without_an_attachment_fails_validation(): void
+    /**
+     * Phase 4A-3.5 cutover: Stage can no longer be moved to Sent through
+     * this form at all (only ProposalSendService's first send may do that
+     * now) — so this exercises an ALREADY-Sent record (however it reached
+     * that stage) still requiring an attachment on save, rather than a
+     * form-driven transition INTO Sent.
+     */
+    public function test_editing_an_already_sent_proposal_without_an_attachment_fails_validation(): void
     {
         $employee = User::factory()->create();
-        $proposal = $this->proposal($employee, ProposalStage::BeingPrepared);
+        $proposal = $this->proposal($employee, ProposalStage::Sent, attachmentPaths: null);
 
         $this->actingAs($employee);
 
         Livewire::test(EditProposal::class, ['record' => $proposal->getRouteKey()])
-            ->fillForm(['stage' => ProposalStage::Sent->value])
+            ->fillForm(['notes' => 'Touching an unrelated field.'])
             ->call('save')
             ->assertHasFormErrors(['attachment_paths' => 'required']);
     }
 
-    public function test_editing_a_proposal_into_stage_sent_with_an_attachment_succeeds(): void
+    public function test_editing_an_already_sent_proposal_and_uploading_an_attachment_succeeds(): void
     {
         $employee = User::factory()->create();
-        $proposal = $this->proposal($employee, ProposalStage::BeingPrepared);
+        $proposal = $this->proposal($employee, ProposalStage::Sent, attachmentPaths: null);
 
         $this->actingAs($employee);
 
         $file = UploadedFile::fake()->create('proposal.pdf', 100, 'application/pdf');
 
         Livewire::test(EditProposal::class, ['record' => $proposal->getRouteKey()])
-            ->fillForm([
-                'stage' => ProposalStage::Sent->value,
-                'attachment_paths' => [$file],
-            ])
+            ->fillForm(['attachment_paths' => [$file]])
             ->call('save')
             ->assertHasNoFormErrors();
 
@@ -239,7 +243,6 @@ class ProposalAttachmentRequirementTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(EditProposal::class, ['record' => $proposal->getRouteKey()])
-            ->fillForm(['stage' => ProposalStage::Sent->value])
             ->call('save')
             ->assertHasFormErrors(['attachment_paths' => 'required']);
     }
@@ -253,7 +256,6 @@ class ProposalAttachmentRequirementTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(EditProposal::class, ['record' => $proposal->getRouteKey()])
-            ->fillForm(['stage' => ProposalStage::Sent->value])
             ->call('save')
             ->assertHasNoFormErrors();
 
@@ -272,10 +274,19 @@ class ProposalAttachmentRequirementTest extends TestCase
      * stale paths (and the "Download" action) behind — this is the bug
      * this test guards against.
      */
+    /**
+     * Phase 4A-3.5 cutover: Stage can no longer be moved away from Sent
+     * through this form, so this now exercises the dehydratedWhenHidden()
+     * mechanism on a Being Prepared record instead (removing its only
+     * attachment naturally hides the field again, since visibility for a
+     * non-Sent record depends solely on "already has files") — the
+     * mechanism under test (a cleared-but-now-hidden field must still
+     * dehydrate) is identical either way.
+     */
     public function test_removing_an_uploaded_attachment_and_saving_clears_attachment_paths_and_deletes_the_file(): void
     {
         $employee = User::factory()->create();
-        $proposal = $this->proposal($employee, ProposalStage::Sent, attachmentPaths: ['proposal-attachments/existing.pdf']);
+        $proposal = $this->proposal($employee, ProposalStage::BeingPrepared, attachmentPaths: ['proposal-attachments/existing.pdf']);
         Storage::disk('local')->put('proposal-attachments/existing.pdf', 'fake pdf contents');
 
         $this->actingAs($employee);
@@ -290,9 +301,7 @@ class ProposalAttachmentRequirementTest extends TestCase
         $test->call('deleteUploadedFile', 'data.attachment_paths', $fileKey);
         Storage::disk('local')->assertMissing('proposal-attachments/existing.pdf');
 
-        $test->fillForm(['stage' => ProposalStage::BeingPrepared->value])
-            ->call('save')
-            ->assertHasNoFormErrors();
+        $test->call('save')->assertHasNoFormErrors();
 
         $proposal->refresh();
         $this->assertEmpty($proposal->attachment_paths);
@@ -301,7 +310,7 @@ class ProposalAttachmentRequirementTest extends TestCase
     public function test_the_download_action_is_hidden_after_the_only_attachment_is_removed_and_saved(): void
     {
         $employee = User::factory()->create();
-        $proposal = $this->proposal($employee, ProposalStage::Sent, attachmentPaths: ['proposal-attachments/existing.pdf']);
+        $proposal = $this->proposal($employee, ProposalStage::BeingPrepared, attachmentPaths: ['proposal-attachments/existing.pdf']);
         Storage::disk('local')->put('proposal-attachments/existing.pdf', 'fake pdf contents');
 
         $this->actingAs($employee);
@@ -309,7 +318,6 @@ class ProposalAttachmentRequirementTest extends TestCase
         $test = Livewire::test(EditProposal::class, ['record' => $proposal->getRouteKey()]);
         $fileKey = array_key_first($test->get('data.attachment_paths'));
         $test->call('deleteUploadedFile', 'data.attachment_paths', $fileKey)
-            ->fillForm(['stage' => ProposalStage::BeingPrepared->value])
             ->call('save')
             ->assertHasNoFormErrors();
 
@@ -341,7 +349,16 @@ class ProposalAttachmentRequirementTest extends TestCase
             ->assertHasFormErrors(['attachment_paths' => 'required']);
     }
 
-    public function test_moving_a_sent_proposal_back_to_another_stage_no_longer_requires_the_attachments_field(): void
+    /**
+     * Phase 4A-3.5 cutover: Stage can no longer be moved through this form
+     * at all (attempting to fillForm a 'stage' key is simply ignored — see
+     * test_stage_outcome_and_value_are_no_longer_editable_selects_on_the_generic_form
+     * in ProposalOutcomeNotesTest), so an already-Sent Proposal with its
+     * attachment left untouched must still save cleanly — required() is
+     * satisfied by the file that's already there, regardless of what else
+     * changes in the same save.
+     */
+    public function test_saving_an_already_sent_proposal_with_its_existing_attachment_untouched_succeeds(): void
     {
         $employee = User::factory()->create();
         $proposal = $this->proposal($employee, ProposalStage::Sent, attachmentPaths: ['proposal-attachments/existing.pdf']);
@@ -349,24 +366,26 @@ class ProposalAttachmentRequirementTest extends TestCase
 
         $this->actingAs($employee);
 
-        // required() still keys only off stage === Sent — moving away from
-        // Sent drops the requirement even though the field itself stays
-        // visible (see the visibility test below), and saving without
-        // touching attachment_paths at all must not fail.
         Livewire::test(EditProposal::class, ['record' => $proposal->getRouteKey()])
-            ->fillForm(['stage' => ProposalStage::BeingPrepared->value])
+            ->fillForm(['notes' => 'Touching an unrelated field.'])
             ->call('save')
             ->assertHasNoFormErrors();
+
+        $proposal->refresh();
+        $this->assertSame(ProposalStage::Sent, $proposal->stage);
+        $this->assertSame(['proposal-attachments/existing.pdf'], $proposal->attachment_paths);
     }
 
     /**
-     * Follow-up fix: the field previously disappeared entirely once stage
-     * moved on from Sent, even though a file was still attached and still
-     * downloadable via downloadAttachmentAction() — now visible() also
-     * accounts for an existing upload, so it stays visible/reviewable
-     * regardless of which stage the record later moves to.
+     * Follow-up fix (pre-4A-3.5): the field previously disappeared entirely
+     * once stage moved on from Sent, even though a file was still attached
+     * and still downloadable via downloadAttachmentAction() — visible()
+     * also accounts for an existing upload for exactly that reason. Stage
+     * can no longer move at all post-cutover, but the visibility rule
+     * itself remains exercised here directly against an already-Sent
+     * record.
      */
-    public function test_a_proposal_with_an_existing_attachment_still_shows_the_field_after_moving_to_a_later_stage(): void
+    public function test_a_proposal_with_an_existing_attachment_shows_the_field_while_still_sent(): void
     {
         $employee = User::factory()->create();
         $proposal = $this->proposal($employee, ProposalStage::Sent, attachmentPaths: ['proposal-attachments/existing.pdf']);
@@ -375,7 +394,6 @@ class ProposalAttachmentRequirementTest extends TestCase
         $this->actingAs($employee);
 
         Livewire::test(EditProposal::class, ['record' => $proposal->getRouteKey()])
-            ->fillForm(['stage' => ProposalStage::CustomerAccepted->value])
             ->assertFormFieldIsVisible('attachment_paths')
             ->call('save')
             ->assertHasNoFormErrors();

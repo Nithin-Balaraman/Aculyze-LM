@@ -1,10 +1,16 @@
 # PHASE4_OUTCOME_CUTOVER_GATE
 
-**Status: OPEN**
+**Status: CLOSED** (Phase 4A-3.5)
 
-Nothing in this document is satisfied yet. The gate closes only when all ten
-items below are done, verified and signed off — and closing it is Phase 4A-3
-work, explicitly out of scope for anything before that.
+All ten items below are done and verified. The new Phase 4A-3 workflow
+(`ProposalClientResponseService`, `ProposalSendService`) is now the ONLY
+supported writer of Proposal commercial lifecycle/outcome state. Legacy
+direct-mutation routes (the generic Filament stage/outcome form, Pipeline
+Board drag handlers) were removed or made unreachable in Phase 4A-3.5, and a
+database-level CHECK constraint (`proposals_won_requires_winning_version`)
+now enforces "Won requires a winning Version" independently of the
+application layer. See the Phase 4A-3.5 implementation report for the full
+inventory, the classified anti-bypass search, and the exact migration.
 
 ## What this gate is
 
@@ -31,84 +37,89 @@ fix.
 ## Where the gate is referenced today
 
 The gate exists in the code as prose in two service docblocks
-(`ProposalCreationService`, `ProposalVersionWorkflowService`) and in the name
-of a regression test that asserts the two systems still coexist untouched:
-`ManageCommercialVersionHistoryAndRegressionTest::test_phase4_outcome_cutover_gate_remains_open`.
+(`ProposalCreationService`, `ProposalVersionWorkflowService`) — describing
+the now-closed pre-cutover coexistence period, kept as historical context —
+and in `tests/Feature/ProposalOutcomeCutoverGateTest.php`, the dedicated
+Phase 4A-3.5 tripwire suite that fails loudly if any of the closure
+conditions below are ever quietly reopened.
 
-That test is the tripwire. It should fail — loudly and deliberately — on the
-day someone starts the cutover, and be rewritten as part of item 10 rather
-than deleted.
+The former tripwire,
+`ManageCommercialVersionHistoryAndRegressionTest::test_phase4_outcome_cutover_gate_remains_open`,
+was rewritten (per item 10) to
+`test_phase4_outcome_cutover_gate_is_closed` and now asserts the CLOSED
+state instead of documenting the old OPEN coexistence.
 
 ## Closure checklist
 
 Every item must be complete before the gate can be marked CLOSED.
 
 ### 1. Append-only client response model tied to the exact Sent Version
-- [ ] A client response is recorded against the specific `ProposalVersion`
+- [x] A client response is recorded against the specific `ProposalVersion`
       that was actually sent, never against the Proposal in the abstract.
-- [ ] Responses are append-only: a new response never edits or deletes a
+- [x] Responses are append-only: a new response never edits or deletes a
       prior one.
-- [ ] A response cannot be attached to a Version that was never Sent.
+- [x] A response cannot be attached to a Version that was never Sent.
 
 ### 2. Accepted → Won, with the exact winning Version and its value
-- [ ] Accepting a Sent Version sets `proposals.outcome = Won`.
-- [ ] The same operation sets `winning_version_id` to that exact Version.
-- [ ] The Proposal's recorded value is taken from that Version's own frozen
+- [x] Accepting a Sent Version sets `proposals.outcome = Won`.
+- [x] The same operation sets `winning_version_id` to that exact Version.
+- [x] The Proposal's recorded value is taken from that Version's own frozen
       grand total, not re-entered by hand.
-- [ ] Won is unreachable without a winning Version once the gate is closed.
+- [x] Won is unreachable without a winning Version once the gate is closed.
 
 ### 3. Revision Requested → preserve the Sent Version, create a new Draft
-- [ ] The Sent Version is preserved exactly as sent — never edited in place.
-- [ ] A new Draft Version is created from it, following the existing
+- [x] The Sent Version is preserved exactly as sent — never edited in place.
+- [x] A new Draft Version is created from it, following the existing
       `createRevision()` supersede semantics.
-- [ ] The Proposal does not become Lost or Won as a side effect.
+- [x] The Proposal does not become Lost or Won as a side effect.
 
 ### 4. More Time → Hold, with exactly one required Follow-Up
-- [ ] Sets the Proposal to Hold.
-- [ ] Creates exactly one Follow-Up — not zero, not two.
-- [ ] The Follow-Up is mandatory, not optional, and is linked back to the
+- [x] Sets the Proposal to Hold.
+- [x] Creates exactly one Follow-Up — not zero, not two.
+- [x] The Follow-Up is mandatory, not optional, and is linked back to the
       Proposal through the existing origin lineage.
 
 ### 5. Rejected → Lost, with a reason
-- [ ] Sets the Proposal to Lost.
-- [ ] A reason is required and stored; a blank or whitespace-only reason is
+- [x] Sets the Proposal to Lost.
+- [x] A reason is required and stored; a blank or whitespace-only reason is
       rejected.
 
 ### 6. Other → notes plus an explicit next action
-- [ ] Notes are required.
-- [ ] An explicit next action must be chosen — "Other" may never be a dead
+- [x] Notes are required.
+- [x] An explicit next action must be chosen — "Other" may never be a dead
       end that leaves the Proposal in an undefined state.
 
 ### 7. Remove uncontrolled generic `Proposal.outcome` editing
-- [ ] `outcome` is no longer a freely editable Select on the Proposal form.
-- [ ] Outcome changes flow only through the client-response model above.
-- [ ] Any remaining write path is deliberate, named, and covered by a test.
+- [x] `outcome` is no longer a freely editable Select on the Proposal form.
+- [x] Outcome changes flow only through the client-response model above.
+- [x] Any remaining write path is deliberate, named, and covered by a test.
 
 ### 8. Replace direct Pipeline Board Won/Lost writes
-- [ ] The board no longer writes `outcome` directly.
-- [ ] Board interactions that used to set Won/Lost route through the same
+- [x] The board no longer writes `outcome` directly.
+- [x] Board interactions that used to set Won/Lost route through the same
       service as every other outcome write.
-- [ ] Board grouping behaviour is considered separately from outcome
+- [x] Board grouping behaviour is considered separately from outcome
       authorship — changing one must not silently change the other.
 
 ### 9. Repository-wide audit of final outcome writes
-- [ ] Every runtime path that writes `proposals.outcome`,
+- [x] Every runtime path that writes `proposals.outcome`,
       `winning_version_id`, or `proposals.value` is enumerated.
-- [ ] Each is either routed through the new model or explicitly justified in
+- [x] Each is either routed through the new model or explicitly justified in
       writing.
-- [ ] A codebase-shape test prevents new uncontrolled writers appearing —
+- [x] A codebase-shape test prevents new uncontrolled writers appearing —
       the same technique `TenancyBypassUsageTest` already uses for
       `OrganizationScope` bypasses.
 
 ### 10. Enforce Won → `winning_version_id` integrity in service *and* database
-- [ ] The service refuses to record Won without a winning Version.
-- [ ] A database-level CHECK constraint (or equivalent) enforces the same
+- [x] The service refuses to record Won without a winning Version.
+- [x] A database-level CHECK constraint (or equivalent) enforces the same
       invariant, so a direct SQL write cannot violate it.
-- [ ] Existing rows are audited and migrated before the constraint is added —
+- [x] Existing rows are audited and migrated before the constraint is added —
       a Proposal that is Won today with a null `winning_version_id` is
       legitimate pre-cutover data and must be resolved, not silently broken.
-- [ ] `test_phase4_outcome_cutover_gate_remains_open` is rewritten to assert
-      the closed state.
+- [x] `test_phase4_outcome_cutover_gate_remains_open` is rewritten (as
+      `test_phase4_outcome_cutover_gate_is_closed`) to assert the closed
+      state.
 
 ## Explicitly NOT part of this gate
 
@@ -120,16 +131,18 @@ Every item must be complete before the gate can be marked CLOSED.
 
 | Item | Done | Verified by | Date |
 |---|---|---|---|
-| 1 | ☐ | | |
-| 2 | ☐ | | |
-| 3 | ☐ | | |
-| 4 | ☐ | | |
-| 5 | ☐ | | |
-| 6 | ☐ | | |
-| 7 | ☐ | | |
-| 8 | ☐ | | |
-| 9 | ☐ | | |
-| 10 | ☐ | | |
+| 1 | ☑ | Phase 4A-3.4 implementation + Phase 4A-3.5 cutover regression | 2026-09-12 |
+| 2 | ☑ | Phase 4A-3.4 implementation + Phase 4A-3.5 cutover regression | 2026-09-12 |
+| 3 | ☑ | Phase 4A-3.4 implementation + Phase 4A-3.5 cutover regression | 2026-09-12 |
+| 4 | ☑ | Phase 4A-3.4 implementation + Phase 4A-3.5 cutover regression | 2026-09-12 |
+| 5 | ☑ | Phase 4A-3.4 implementation + Phase 4A-3.5 cutover regression | 2026-09-12 |
+| 6 | ☑ | Phase 4A-3.4 implementation + Phase 4A-3.5 cutover regression | 2026-09-12 |
+| 7 | ☑ | Phase 4A-3.5 ProposalResource form cutover | 2026-09-12 |
+| 8 | ☑ | Phase 4A-3.5 PipelineBoard cutover | 2026-09-12 |
+| 9 | ☑ | Phase 4A-3.5 inventory + ProposalOutcomeCutoverGateTest anti-bypass sweep | 2026-09-12 |
+| 10 | ☑ | Phase 4A-3.5 DB CHECK migration + ProposalOutcomeCutoverGateTest | 2026-09-12 |
 
-**Gate status: OPEN.** Do not mark this CLOSED until every box above is
-ticked and the full suite passes with the rewritten tripwire test.
+**Gate status: CLOSED.** Every box above is ticked and the full suite
+(including `tests/Feature/ProposalOutcomeCutoverGateTest.php`, the
+rewritten tripwire test) passes — see the Phase 4A-3.5 implementation
+report for the complete regression run.

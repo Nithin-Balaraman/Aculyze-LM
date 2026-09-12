@@ -13,6 +13,7 @@ use App\Filament\Resources\ProposalResource\Pages\ListProposals;
 use App\Models\Appointment;
 use App\Models\Lead;
 use App\Models\Proposal;
+use App\Models\ProposalVersion;
 use App\Models\Prospect;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -192,15 +193,24 @@ class LeadAppointmentProposalTabsTest extends TestCase
             'notes' => 'Validated in test fixture.',
         ]);
 
-        return Proposal::create([
+        $proposal = Proposal::create([
             'lead_id' => $lead->id,
             'prospect_id' => $prospect->id,
             'assigned_to' => $owner->id,
             'created_by' => $owner->id,
             'stage' => ProposalStage::Sent,
-            'outcome' => $outcome,
             'notes' => in_array($outcome, [ProposalOutcome::Won, ProposalOutcome::Lost], true) ? 'Test outcome notes.' : null,
         ]);
+
+        // Phase 4A-3.5 cutover: Won now requires a valid winning_version_id
+        // (DB CHECK) — set in the same update as outcome.
+        $update = ['outcome' => $outcome];
+        if ($outcome === ProposalOutcome::Won) {
+            $update['winning_version_id'] = ProposalVersion::factory()->create(['proposal_id' => $proposal->id])->id;
+        }
+        $proposal->forceFill($update)->save();
+
+        return $proposal->fresh();
     }
 
     public function test_proposal_pending_tab_shows_undecided_and_hold_proposals(): void

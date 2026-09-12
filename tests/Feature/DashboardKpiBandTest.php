@@ -12,6 +12,7 @@ use App\Models\CallRecord;
 use App\Models\FollowUp;
 use App\Models\Lead;
 use App\Models\Proposal;
+use App\Models\ProposalVersion;
 use App\Models\Prospect;
 use App\Models\User;
 use App\Support\DashboardPeriod;
@@ -318,7 +319,13 @@ class DashboardKpiBandTest extends TestCase
         $nithinLead = Lead::create(['prospect_id' => $nithinProspect->id, 'assigned_to' => $nithin->id, 'created_by' => $nithin->id, 'stage' => 'validated', 'temperature' => 'hot', 'notes' => 'Validated in test fixture.']);
         $kuralLead = Lead::create(['prospect_id' => $kuralProspect->id, 'assigned_to' => $kural->id, 'created_by' => $kural->id, 'stage' => 'validated', 'temperature' => 'hot', 'notes' => 'Validated in test fixture.']);
 
-        Proposal::create(['lead_id' => $nithinLead->id, 'prospect_id' => $nithinProspect->id, 'assigned_to' => $nithin->id, 'created_by' => $nithin->id, 'stage' => ProposalStage::Sent, 'outcome' => ProposalOutcome::Won, 'notes' => 'x']);
+        // Phase 4A-3.5 cutover: Won now requires a valid winning_version_id
+        // (DB CHECK) — set in the same update as outcome, never at
+        // Proposal::create() time.
+        $nithinProposal = Proposal::create(['lead_id' => $nithinLead->id, 'prospect_id' => $nithinProspect->id, 'assigned_to' => $nithin->id, 'created_by' => $nithin->id, 'stage' => ProposalStage::Sent, 'notes' => 'x']);
+        $nithinVersion = ProposalVersion::factory()->create(['proposal_id' => $nithinProposal->id]);
+        $nithinProposal->forceFill(['outcome' => ProposalOutcome::Won, 'winning_version_id' => $nithinVersion->id])->save();
+
         Proposal::create(['lead_id' => $kuralLead->id, 'prospect_id' => $kuralProspect->id, 'assigned_to' => $kural->id, 'created_by' => $kural->id, 'stage' => ProposalStage::Sent, 'outcome' => ProposalOutcome::Lost, 'notes' => 'x']);
 
         $this->actingAs($nithin);

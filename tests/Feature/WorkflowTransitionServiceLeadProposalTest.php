@@ -10,6 +10,7 @@ use App\Models\Demo;
 use App\Models\FollowUp;
 use App\Models\Lead;
 use App\Models\Proposal;
+use App\Models\ProposalVersion;
 use App\Models\Prospect;
 use App\Models\User;
 use App\Services\WorkflowTransitionService;
@@ -45,15 +46,26 @@ class WorkflowTransitionServiceLeadProposalTest extends TestCase
         $lead = $this->newLead($user);
         $lead->update(['status' => LeadStatus::ProposalRequired, 'notes' => 'Ready for Proposal.']);
 
-        return Proposal::create([
+        $proposal = Proposal::create([
             'lead_id' => $lead->id,
             'prospect_id' => $lead->prospect_id,
             'assigned_to' => $user->id,
             'created_by' => $user->id,
             'stage' => ProposalStage::BeingPrepared,
-            'outcome' => $outcome,
             'notes' => $outcome !== null ? 'Outcome notes.' : null,
         ]);
+
+        if ($outcome !== null) {
+            // Phase 4A-3.5 cutover: Won now requires a valid
+            // winning_version_id (DB CHECK) — set in the same update.
+            $update = ['outcome' => $outcome];
+            if ($outcome === ProposalOutcome::Won) {
+                $update['winning_version_id'] = ProposalVersion::factory()->create(['proposal_id' => $proposal->id])->id;
+            }
+            $proposal->forceFill($update)->save();
+        }
+
+        return $proposal->fresh();
     }
 
     public function test_transition_lead_status_changes_status_and_leaves_stage_untouched(): void
