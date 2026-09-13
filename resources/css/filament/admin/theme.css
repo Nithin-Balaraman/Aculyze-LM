@@ -745,6 +745,187 @@
     }
 }
 
+/* ----------------------------------------------------------------------
+ * Pipeline Board — visual card/lane redesign (resources/views/filament/
+ * pages/partials/pipeline-board-{card,lane}.blade.php). Hook classes, not
+ * shared utility classes, matching this file's own established convention
+ * (`.fi-kpi-tile`, `.fi-section-tabs`, ...) — reuses the exact same
+ * `--dark-surface`/cyan-rim depth language as `.fi-section`/
+ * `.fi-modal-window` above, rather than the flatter ad hoc `bg-white/5`-
+ * style opacity overlays this partial used before, which read as
+ * inconsistent with the rest of the app's dark mode.
+ * ------------------------------------------------------------------- */
+.pipeline-board-lane {
+    background-color: rgb(249, 250, 251);
+    border-color: rgb(229, 231, 235);
+}
+
+:is(.dark) .pipeline-board-lane {
+    background-color: rgba(255, 255, 255, 0.025);
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+.pipeline-board-lane-divider {
+    border-color: rgb(229, 231, 235);
+}
+
+:is(.dark) .pipeline-board-lane-divider {
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.pipeline-board-empty-state {
+    border-color: rgb(229, 231, 235);
+    color: rgb(209, 213, 219);
+}
+
+:is(.dark) .pipeline-board-empty-state {
+    border-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.2);
+}
+
+.pipeline-board-card {
+    background-color: #fff;
+    border-color: rgb(229, 231, 235);
+    box-shadow: 0 1px 2px rgba(15, 27, 61, 0.06);
+    transition:
+        border-color 150ms ease,
+        box-shadow 150ms ease;
+}
+
+.pipeline-board-card:hover {
+    border-color: rgb(203, 213, 225);
+    box-shadow: 0 2px 6px rgba(15, 27, 61, 0.1);
+}
+
+/* Dark mode: the same `--dark-surface`/cyan-rim treatment as every other
+   raised surface in the app, one notch lighter than the lane background
+   above it so a card actually reads as sitting on top of its lane. */
+:is(.dark) .pipeline-board-card {
+    background-color: var(--dark-surface);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 0 0 1px rgba(var(--accent-500-rgb), 0.1);
+}
+
+:is(.dark) .pipeline-board-card:hover {
+    border-color: rgba(255, 255, 255, 0.16);
+    box-shadow: 0 0 0 1px rgba(var(--accent-500-rgb), 0.28);
+}
+
+.pipeline-board-card-avatar {
+    background-color: rgb(243, 244, 246);
+    color: rgb(107, 114, 128);
+}
+
+:is(.dark) .pipeline-board-card-avatar {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: rgb(209, 213, 219);
+}
+
+.pipeline-board-card-title {
+    color: rgb(17, 24, 39);
+}
+
+:is(.dark) .pipeline-board-card-title {
+    color: rgb(243, 244, 246);
+}
+
+.pipeline-board-card-meta-text {
+    color: rgb(107, 114, 128);
+}
+
+:is(.dark) .pipeline-board-card-meta-text {
+    color: rgb(156, 163, 175);
+}
+
+.pipeline-board-card-meta-label {
+    color: rgb(156, 163, 175);
+}
+
+:is(.dark) .pipeline-board-card-meta-label {
+    color: rgb(107, 114, 128);
+}
+
+.pipeline-board-card-drag-handle {
+    color: rgb(203, 213, 225);
+}
+
+:is(.dark) .pipeline-board-card-drag-handle {
+    color: rgba(255, 255, 255, 0.3);
+}
+
+.pipeline-board-summary-btn {
+    border-color: rgb(229, 231, 235);
+    color: rgb(156, 163, 175);
+}
+
+.pipeline-board-summary-btn:hover {
+    border-color: rgba(45, 196, 237, 0.6);
+    background-color: rgba(45, 196, 237, 0.1);
+    color: rgb(6, 182, 212);
+}
+
+:is(.dark) .pipeline-board-summary-btn {
+    border-color: rgba(255, 255, 255, 0.1);
+    color: rgb(156, 163, 175);
+}
+
+:is(.dark) .pipeline-board-summary-btn:hover {
+    border-color: rgba(45, 196, 237, 0.5);
+    background-color: rgba(45, 196, 237, 0.12);
+    color: rgb(103, 232, 249);
+}
+
+/* Badges: restrained, bordered pills by default (the card's own internal
+   stage/status) — semantic colors layered on top only for outcome/Lost/
+   Overdue/Commercial-Version, never bright/neon. */
+.pipeline-board-badge {
+    border: 1px solid rgb(229, 231, 235);
+    color: rgb(107, 114, 128);
+}
+
+:is(.dark) .pipeline-board-badge {
+    border-color: rgba(255, 255, 255, 0.12);
+    color: rgb(156, 163, 175);
+}
+
+.pipeline-board-badge-success {
+    border-color: rgba(34, 197, 94, 0.4);
+    color: rgb(22, 163, 74);
+}
+
+:is(.dark) .pipeline-board-badge-success {
+    color: rgb(74, 222, 128);
+}
+
+.pipeline-board-badge-gold {
+    border-color: rgba(201, 154, 61, 0.5);
+    color: rgb(180, 130, 30);
+}
+
+:is(.dark) .pipeline-board-badge-gold {
+    color: rgb(217, 175, 90);
+}
+
+.pipeline-board-badge-coral {
+    border-color: rgba(240, 101, 60, 0.4);
+    color: rgb(217, 80, 45);
+}
+
+:is(.dark) .pipeline-board-badge-coral {
+    color: rgb(248, 141, 108);
+}
+
+.pipeline-board-badge-cyan {
+    border-color: transparent;
+    background-color: rgba(45, 196, 237, 0.12);
+    color: rgb(8, 145, 178);
+}
+
+:is(.dark) .pipeline-board-badge-cyan {
+    background-color: rgba(45, 196, 237, 0.16);
+    color: rgb(103, 232, 249);
+}
+
 /* Section-navigation tabs (App\Support\Filament\SectionTabs) — the
    "switch between long page sections" pattern, e.g. Commercial Version's
    Summary/Outcome/PDF/Release/Send History/Client Response/Version

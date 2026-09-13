@@ -58,6 +58,21 @@ class SectionTabs
             ->tabs($visibleTabs)
             ->contained(false)
             ->persistTabInQueryString($queryStringKey)
-            ->extraAttributes(['class' => 'fi-section-tabs']);
+            ->extraAttributes(['class' => 'fi-section-tabs'])
+            // Visual fix: the containing Infolist's schema-level grid
+            // defaults to 2 columns at the `lg` breakpoint (confirmed
+            // directly — `.fi-fo-component-ctn` renders `grid-template-
+            // columns: 548px 548px` on a 1120px-wide page) whenever the
+            // page's own infolist() never calls ->columns() itself (see
+            // ManageCommercialVersion/ViewCommercialVersion, both of which
+            // pass only this one Tabs component as their infolist's whole
+            // schema). Without this, the Tabs component — and everything
+            // inside every one of its Tabs — silently occupies only the
+            // first of those two columns, leaving the second entirely
+            // empty: exactly the "half the laptop width, huge unused area
+            // on the right" symptom. columnSpanFull() makes this pattern
+            // correct regardless of how many columns its parent Infolist
+            // happens to default to, on every page that adopts it.
+            ->columnSpanFull();
     }
 }

@@ -1,15 +1,28 @@
 @props(['laneKey', 'card', 'isDraggableLane'])
 
-{{-- Pipeline Board visual redesign: one reusable card partial for every
-lane — plain click opens the detail+lineage popup (all resources — see
-PipelineBoard::cardHistoryAction()) instead of navigating away. Right-click
-is reserved for Follow-up's own company-wide "Follow-Up History" Summary
-modal — every other resource has no separate right-click behavior, since
-the click popup already covers them. Dragging is unchanged from before
-(the whole card is the drag source, `fromStage` dropped from the payload
-since the destination is now resolved inside the drop dialog itself, not
-by which stage box the card lands on — see PipelineBoard::
-dropCandidateStages()/resolveDestStage()). --}}
+{{-- Pipeline Board visual redesign (card changeover pass): one reusable
+card partial for every lane — plain click opens the detail+lineage popup
+(all resources — see PipelineBoard::cardHistoryAction()) instead of
+navigating away. Right-click is reserved for Follow-up's own company-wide
+"Follow-Up History" Summary modal — every other resource has no separate
+right-click behavior, since the click popup already covers them. Dragging
+is unchanged from before (the whole card is the drag source, `fromStage`
+dropped from the payload since the destination is now resolved inside the
+drop dialog itself, not by which stage box the card lands on — see
+PipelineBoard::dropCandidateStages()/resolveDestStage()).
+
+Visual hierarchy (this pass, presentation only — every value below already
+existed on the card array before this pass; nothing here is new data):
+company (small label) + drag handle -> primary title (the company name,
+enlarged — this app has one activity per company per lane, not a
+separate named "opportunity", so the company name IS the card's title) ->
+badge row (stage, outcome, Commercial Version status, Lost/Overdue) ->
+Owner/Next meta rows. `.pipeline-board-card` is a hook class carrying the
+light/dark surface + rim treatment in theme.css (the same "hook class,
+not shared utility class" convention already used for
+`.fi-kpi-tile`/`.fi-section-tabs`), so this stays visually consistent with
+the rest of the app's cards rather than the flatter ad hoc styling this
+partial used before. --}}
 <a
     href="{{ $card['url'] }}"
     data-card="{{ $card['resource'] }}-{{ $card['id'] }}"
@@ -24,25 +37,31 @@ dropCandidateStages()/resolveDestStage()). --}}
     @if ($card['resource'] === 'follow_up')
         x-on:contextmenu.prevent="$wire.mountAction('reviewFollowUp', { id: {{ $card['id'] }} })"
     @endif
-    class="group flex flex-col gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-2 shadow-sm transition hover:border-gray-300 hover:shadow dark:border-white/15 dark:bg-white/[0.06] dark:hover:border-white/30"
+    class="pipeline-board-card group flex flex-col gap-2 rounded-lg border px-3 py-2.5"
 >
-    <div class="flex items-start gap-2">
-        <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gray-100 font-mono text-[8px] font-semibold text-gray-500 dark:bg-white/10 dark:text-gray-300">
+    {{-- Top row: small company label (avatar + name) + drag handle. --}}
+    <div class="flex items-center gap-1.5">
+        <span class="pipeline-board-card-avatar flex h-4 w-4 shrink-0 items-center justify-center rounded-full font-mono text-[8px] font-semibold">
             {{ $card['initials'] }}
         </span>
-        <span class="flex-1 truncate text-xs font-medium text-gray-900 dark:text-gray-100">{{ $card['company'] }}</span>
+        <span class="pipeline-board-card-meta-text truncate font-mono text-[10px] uppercase tracking-wide">{{ $card['company'] }}</span>
         @if ($isDraggableLane)
             {{-- Purely visual affordance — the whole card is the actual
             drag source (see draggable="true" above); this just signals
             that it can be picked up. --}}
             <span
                 title="Drag to move"
-                class="shrink-0 cursor-grab select-none font-mono text-[10px] leading-none text-gray-300 opacity-0 transition group-hover:opacity-100 dark:text-white/25"
-            >⠿</span>
+                class="pipeline-board-card-drag-handle ms-auto shrink-0 cursor-grab select-none font-mono text-xs leading-none opacity-0 transition group-hover:opacity-100"
+            >⠿⠿</span>
         @endif
     </div>
 
-    @if (($card['stageLabel'] ?? null) || $card['outcome'] || ($card['versionStatus'] ?? null))
+    {{-- Primary title — the card's own prominent, readable headline. --}}
+    <div class="pipeline-board-card-title truncate text-sm font-semibold leading-tight">
+        {{ $card['company'] }}
+    </div>
+
+    @if (($card['stageLabel'] ?? null) || $card['outcome'] || ($card['versionStatus'] ?? null) || $card['isLost'] || ($card['isOverdue'] ?? false))
         <div class="flex flex-wrap items-center gap-1">
             {{-- The record's own internal stage/status — a plain badge now
             that nested per-stage lane containers are gone (see
@@ -50,7 +69,7 @@ dropCandidateStages()/resolveDestStage()). --}}
             every lane is one flat card list per main pipeline stage, and
             this is the only place that state is still shown. --}}
             @if ($card['stageLabel'] ?? null)
-                <span class="w-fit rounded border border-gray-200 px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wide text-gray-500 dark:border-white/15 dark:text-gray-400">
+                <span class="pipeline-board-badge w-fit rounded px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wide">
                     {{ strtoupper($card['stageLabel']) }}
                 </span>
             @endif
@@ -58,10 +77,10 @@ dropCandidateStages()/resolveDestStage()). --}}
             @if ($card['outcome'])
                 <span
                     @class([
-                        'w-fit rounded border px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wide',
-                        'border-green-500/40 text-green-600 dark:text-green-400' => $card['outcome'] === 'won',
-                        'border-brand-gold/50 text-brand-gold' => $card['outcome'] === 'hold',
-                        'border-brand-coral/40 text-brand-coral' => $card['outcome'] === 'lost',
+                        'pipeline-board-badge w-fit rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide',
+                        'pipeline-board-badge-success' => $card['outcome'] === 'won',
+                        'pipeline-board-badge-gold' => $card['outcome'] === 'hold',
+                        'pipeline-board-badge-coral' => $card['outcome'] === 'lost',
                     ])
                 >
                     {{ strtoupper($card['outcome']) }}
@@ -76,38 +95,49 @@ dropCandidateStages()/resolveDestStage()). --}}
             @if ($card['versionStatus'] ?? null)
                 <span
                     title="Commercial Version Status"
-                    class="w-fit rounded bg-brand-cyan/10 px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wide text-brand-cyan"
+                    class="pipeline-board-badge pipeline-board-badge-cyan w-fit rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide"
                 >CV · {{ strtoupper($card['versionStatus']) }}</span>
+            @endif
+
+            @if ($card['isLost'])
+                <span class="pipeline-board-badge pipeline-board-badge-coral ms-auto w-fit shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide">LOST</span>
+            @elseif ($card['isOverdue'] ?? false)
+                {{-- LOST takes priority over OVERDUE when both could apply
+                to the same card. --}}
+                <span class="pipeline-board-badge pipeline-board-badge-gold ms-auto w-fit shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide">OVERDUE</span>
             @endif
         </div>
     @endif
 
-    <div class="flex items-center gap-1.5">
-        <span class="truncate font-mono text-[10px] text-gray-400 dark:text-gray-500">{{ $card['meta'] }}</span>
-        @if ($card['isLost'])
-            <span class="ms-auto shrink-0 rounded bg-brand-coral/15 px-1 font-mono text-[9px] font-semibold text-brand-coral">LOST</span>
-        @elseif ($card['isOverdue'] ?? false)
-            {{-- LOST takes priority over OVERDUE, which takes priority
-            over the Follow-Up summary button, when more than one could
-            apply to the same card. --}}
-            <span class="ms-auto shrink-0 rounded bg-brand-gold/15 px-1 font-mono text-[9px] font-semibold text-brand-gold">OVERDUE</span>
-        @elseif ($card['resource'] === 'follow_up')
-            {{-- Reuses the exact "Follow-Up History" summary modal already
-            on the Follow-Ups list page — same company-wide Completed/
-            Cancelled history, same view. Right-click above triggers the
-            same action; this button keeps it discoverable. --}}
-            <button
-                type="button"
-                title="This company's Follow-Up Summary"
-                x-on:click.stop.prevent="$wire.mountAction('reviewFollowUp', { id: {{ $card['id'] }} })"
-                class="ms-auto shrink-0 rounded border border-gray-200 px-1 py-0.5 font-mono text-[9px] font-semibold text-gray-400 transition hover:border-brand-cyan/60 hover:bg-brand-cyan/10 hover:text-brand-cyan dark:border-white/10 dark:text-gray-500"
-            >↻ SUMMARY</button>
+    {{-- Meta rows: Owner (assigned employee) / Next (the lane's own
+    free-text "what's next" summary — call outcome, appointment time,
+    lead temperature, demo mode, proposal value; see PipelineBoard's own
+    per-lane `meta:` closures). --}}
+    <div class="flex flex-col gap-0.5">
+        @if ($card['assignedTo'] ?? null)
+            <div class="pipeline-board-card-meta-text flex items-baseline gap-1 truncate font-mono text-[10px]">
+                <span class="pipeline-board-card-meta-label shrink-0">Owner:</span>
+                <span class="truncate">{{ $card['assignedTo'] }}</span>
+            </div>
         @endif
+        <div class="flex items-center gap-1.5">
+            <div class="pipeline-board-card-meta-text flex min-w-0 flex-1 items-baseline gap-1 truncate font-mono text-[10px]">
+                <span class="pipeline-board-card-meta-label shrink-0">Next:</span>
+                <span class="truncate">{{ $card['meta'] }}</span>
+            </div>
+            @if ($card['resource'] === 'follow_up')
+                {{-- Reuses the exact "Follow-Up History" summary modal
+                already on the Follow-Ups list page — same company-wide
+                Completed/Cancelled history, same view. Right-click above
+                triggers the same action; this button keeps it
+                discoverable. --}}
+                <button
+                    type="button"
+                    title="This company's Follow-Up Summary"
+                    x-on:click.stop.prevent="$wire.mountAction('reviewFollowUp', { id: {{ $card['id'] }} })"
+                    class="pipeline-board-summary-btn shrink-0 rounded border px-1 py-0.5 font-mono text-[9px] font-semibold transition"
+                >↻</button>
+            @endif
+        </div>
     </div>
-
-    @if ($card['assignedTo'] ?? null)
-        <span class="truncate font-mono text-[9px] text-gray-400 dark:text-white/30">
-            {{ $card['assignedTo'] }}
-        </span>
-    @endif
 </a>

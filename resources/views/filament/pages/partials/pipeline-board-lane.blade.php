@@ -6,7 +6,7 @@ docblock). The drop target is the LANE itself, not a specific stage; the
 resulting dialog (PipelineBoard::dropFormSchema()/crossDropFormSchema())
 resolves the actual destination stage, so this partial only needs to know
 which lane a card was dropped into, never which stage box. --}}
-<div class="flex w-72 shrink-0 flex-col">
+<div class="flex w-80 shrink-0 flex-col">
     <div
         data-lane="{{ $laneKey }}"
         x-data="{ over: false }"
@@ -26,14 +26,14 @@ which lane a card was dropped into, never which stage box. --}}
             "
             :class="over ? 'ring-2 ring-brand-cyan ring-offset-1 ring-offset-white dark:ring-offset-gray-900' : ''"
         @endif
-        class="flex flex-1 flex-col rounded-xl border border-gray-200 bg-gray-50 p-2.5 transition dark:border-white/10 dark:bg-white/[0.04]"
+        class="pipeline-board-lane flex flex-1 flex-col rounded-xl border p-2.5 transition"
     >
-        <div class="mb-2 flex items-baseline gap-2 border-b border-gray-200 pb-2 dark:border-white/10">
-            <span class="font-mono text-[10px] text-gray-400 dark:text-white/30">{{ sprintf('%02d', $number) }}</span>
-            <h2 class="text-[13.5px] font-semibold tracking-tight text-gray-900 dark:text-gray-50">
+        <div class="pipeline-board-lane-divider mb-2 flex items-baseline gap-2 border-b pb-2">
+            <span class="pipeline-board-card-meta-label font-mono text-[10px]">{{ sprintf('%02d', $number) }}</span>
+            <h2 class="pipeline-board-card-title text-[13.5px] font-semibold tracking-tight">
                 {{ $lane['label'] }}
             </h2>
-            <span class="ms-auto shrink-0 rounded-md bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] font-medium text-gray-500 dark:bg-white/[0.06] dark:text-gray-400">
+            <span class="pipeline-board-badge ms-auto shrink-0 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-medium">
                 {{ count($lane['cards']) }}
             </span>
         </div>
@@ -53,7 +53,7 @@ which lane a card was dropped into, never which stage box. --}}
                     'isDraggableLane' => $isDraggableLane,
                 ])
             @empty
-                <div class="rounded-lg border border-dashed border-gray-200 py-4 text-center font-mono text-[10px] tracking-wide text-gray-300 dark:border-white/10 dark:text-white/20">
+                <div class="pipeline-board-empty-state rounded-lg border border-dashed py-4 text-center font-mono text-[10px] tracking-wide">
                     No Opportunities
                 </div>
             @endforelse

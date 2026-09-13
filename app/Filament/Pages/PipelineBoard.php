@@ -35,6 +35,7 @@ use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Support\Enums\MaxWidth;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -147,14 +148,26 @@ class PipelineBoard extends Page implements HasActions, HasForms
     protected static string $view = 'filament.pages.pipeline-board';
 
     /**
-     * One entry per lane, in left-to-right display order. Each lane's
-     * `stages` is itself ordered (display/progression order, same
-     * convention as every stage enum's own case order elsewhere in this
-     * app) and keyed by a stable string the view can key off (not the
-     * enum's own ->value, so the Call lane — which has no real enum behind
-     * its single box — fits the same shape).
+     * Visual redesign: a 6-lane Kanban board is exactly the kind of page
+     * that benefits from the full content width beside the sidebar,
+     * unlike a text-heavy form/detail page where Filament's default
+     * `max-w-7xl` cap keeps line lengths readable. `data-pipeline-board-
+     * scroll`'s own horizontal scroll still kicks in on any viewport too
+     * narrow to show all 6 lanes at once, so this only ever gives the
+     * board MORE room, never forces anything to overflow that wouldn't
+     * already have.
+     */
+    public function getMaxContentWidth(): MaxWidth | string | null
+    {
+        return MaxWidth::Full;
+    }
+
+    /**
+     * One entry per lane, in left-to-right display order. Every lane is a
+     * single flat card list (see the class docblock's "Pipeline Board
+     * visual redesign" note) — never a nested per-stage/status grouping.
      *
-     * @return array<string, array{label: string, stages: array<string, array{label: string, terminal: bool, cards: array<int, array<string, mixed>>}>}>
+     * @return array<string, array{label: string, cards: array<int, array<string, mixed>>}>
      */
     /**
      * "+ Log a call" — Call is the pipeline's ORIGIN lane (see callLane()'s
