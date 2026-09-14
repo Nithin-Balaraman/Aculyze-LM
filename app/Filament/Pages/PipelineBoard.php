@@ -1508,61 +1508,33 @@ class PipelineBoard extends Page implements HasActions, HasForms
     }
 
     /**
-     * Mirrors CallRecordResource::form()'s own Call Details fields exactly —
-     * same validation/config, same outcome-driven conditional visibility for
-     * Follow Up At/Appointment At/Notes — minus the Company select, which is
-     * already implied by which Call card was dragged. Used only by the
-     * cross-lane dialog when the dragged source is itself a Call (see
-     * crossDropFormSchema()/logNewCall()); Call is never a same-lane drag
-     * (it has only the one box) and never a cross-lane destination. The
-     * "+ Log a call" header action (getHeaderActions()) reuses
-     * CallRecordResource::formSchema() directly instead, since it needs the
-     * real Company select too.
+     * Modal-routing audit fix: reuses CallRecordResource's own
+     * callDetailsFieldsSchema()/profileSentFieldsSchema()/notesFieldSchema()
+     * verbatim (minus the Company select, which is already implied by
+     * which Call card was dragged) instead of a hand-copied field list.
+     * The hand-copied version previously omitted the `next_action` field
+     * (required by CallRecord's own model guard whenever outcome is Other)
+     * and the whole "Profile Sent" section (required whenever outcome is
+     * Profile Requested) — logging a new call from the board with either
+     * outcome could never actually be submitted, always failing with "A
+     * Call Record with outcome Other/Profile Requested requires..." since
+     * there was no field to supply it. Reusing the real schema methods
+     * means this can never drift out of sync with CallRecordResource's own
+     * create form again. Used only by the cross-lane dialog when the
+     * dragged source is itself a Call (see crossDropFormSchema()/
+     * logNewCall()); Call is never a same-lane drag (it has only the one
+     * box) and never a cross-lane destination. The "+ Log a call" header
+     * action (getHeaderActions()) reuses CallRecordResource::formSchema()
+     * directly instead, since it needs the real Company select too.
      *
      * @return array<int, Forms\Components\Component>
      */
-    private function callLogFormSchema(string $prefix = ''): array
+    private function callLogFormSchema(): array
     {
         return [
-            Forms\Components\DateTimePicker::make("{$prefix}called_at")
-                ->label('Called At')
-                ->seconds(false)
-                ->required()
-                ->default(now()),
-            Forms\Components\Select::make("{$prefix}outcome")
-                ->label('Call Outcome')
-                ->options(CallOutcome::class)
-                ->required()
-                ->live()
-                ->helperText('Determines what happens next — see the Follow-Ups, Appointments, and Leads panels.'),
-            Forms\Components\TextInput::make("{$prefix}contact_person_spoken_to")
-                ->label('Contact Person Spoken To')
-                ->maxLength(255),
-            Forms\Components\TextInput::make("{$prefix}designation")
-                ->label('Designation')
-                ->placeholder('e.g. Manager, Owner, Procurement Head')
-                ->maxLength(255),
-            Forms\Components\TextInput::make("{$prefix}phone_called")
-                ->label('Phone Called')
-                ->tel()
-                ->maxLength(20),
-            Forms\Components\DateTimePicker::make("{$prefix}follow_up_at")
-                ->label('Follow Up At')
-                ->seconds(false)
-                ->visible(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->routesToFollowUp() ?? false)
-                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->routesToFollowUp() ?? false),
-            Forms\Components\DateTimePicker::make("{$prefix}appointment_at")
-                ->label('Appointment At')
-                ->seconds(false)
-                ->visible(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->routesToAppointment() ?? false)
-                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->routesToAppointment() ?? false),
-            Forms\Components\Textarea::make("{$prefix}notes")
-                ->label('Call Notes')
-                ->rows(3)
-                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->requiresNotes() ?? false)
-                ->validationMessages([
-                    'required' => 'Notes are required for this outcome — only No Answer, Switched Off, and Not Reachable are exempt.',
-                ]),
+            ...CallRecordResource::callDetailsFieldsSchema(includeCompanyField: false),
+            ...CallRecordResource::profileSentFieldsSchema(),
+            ...CallRecordResource::notesFieldSchema(),
         ];
     }
 
@@ -1924,12 +1896,25 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 'user_id' => auth()->id(),
                 'called_at' => $data['called_at'] ?? now(),
                 'outcome' => $data['outcome'] ?? null,
+                // Modal-routing audit fix: `next_action` is required by
+                // CallRecord's own model guard whenever outcome is Other,
+                // and the four profile_sent_* fields are required whenever
+                // outcome is Profile Requested (see CallRecord::booted()) —
+                // both are now genuinely collected by callLogFormSchema()
+                // (see that method's docblock), so they must actually reach
+                // the created record rather than being silently dropped
+                // here the way they previously were.
+                'next_action' => $data['next_action'] ?? null,
                 'notes' => $data['notes'] ?? null,
                 'follow_up_at' => $data['follow_up_at'] ?? null,
                 'appointment_at' => $data['appointment_at'] ?? null,
                 'contact_person_spoken_to' => $data['contact_person_spoken_to'] ?? null,
                 'designation' => $data['designation'] ?? null,
                 'phone_called' => $data['phone_called'] ?? null,
+                'profile_sent_status' => $data['profile_sent_status'] ?? null,
+                'profile_sent_at' => $data['profile_sent_at'] ?? null,
+                'profile_sent_mode' => $data['profile_sent_mode'] ?? null,
+                'profile_sent_notes' => $data['profile_sent_notes'] ?? null,
             ]);
         } catch (\LogicException $e) {
             Notification::make()->title("Couldn't log the call")->body($e->getMessage())->danger()->send();

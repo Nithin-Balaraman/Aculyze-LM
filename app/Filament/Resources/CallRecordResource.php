@@ -66,9 +66,51 @@ class CallRecordResource extends Resource
     public static function formSchema(): array
     {
         return [
-                Forms\Components\Section::make('Call Details')
-                    ->columns(2)
-                    ->schema([
+            Forms\Components\Section::make('Call Details')
+                ->columns(2)
+                ->schema(self::callDetailsFieldsSchema()),
+            ...self::profileSentFieldsSchema(),
+            // Phase 2 item #5: once a company is selected, show its
+            // already-saved Database details inline so the caller doesn't
+            // have to leave this screen to look them up. Only meaningful
+            // here (this resource's own create/edit form has the Company
+            // select) — PipelineBoard's cross-drop Call dialog never
+            // includes this section since the Company is already implied
+            // by the dragged card.
+            Forms\Components\Section::make('Company Details')
+                ->schema([
+                    Forms\Components\Placeholder::make('prospect_details')
+                        ->label('')
+                        ->content(fn (Get $get) => new HtmlString(
+                            view('filament.forms.prospect-call-details', [
+                                'prospect' => Prospect::find($get('prospect_id')),
+                            ])->render()
+                        ))
+                        ->columnSpanFull(),
+                ])
+                ->visible(fn (Get $get) => filled($get('prospect_id')) && $get('prospect_id') !== self::CREATE_NEW_PROSPECT),
+            ...self::notesFieldSchema(),
+        ];
+    }
+
+    /**
+     * The "Call Details" section's own fields — extracted so
+     * PipelineBoard's cross-drop "Log a New Call" dialog (see
+     * PipelineBoard::callLogFormSchema()) can reuse the EXACT same fields,
+     * validation, and outcome-driven conditional visibility (including
+     * `next_action`, required whenever outcome is Other — see
+     * followUpAtVisible()/appointmentAtVisible() and CallRecord's own
+     * `booted()` guard) rather than a hand-copied subset that can silently
+     * drift out of sync with this one. `$includeCompanyField` is false only
+     * for that reuse, since the Company is already implied by whichever
+     * card was dragged.
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    public static function callDetailsFieldsSchema(bool $includeCompanyField = true): array
+    {
+        return [
+                ...($includeCompanyField ? [
                         Forms\Components\Select::make('prospect_id')
                             ->label('Company')
                             ->required()
@@ -193,138 +235,147 @@ class CallRecordResource extends Resource
                                         $set('prospect_id', $prospect->getKey());
                                     }),
                             ]),
-                        Forms\Components\DateTimePicker::make('called_at')
-                            ->required()
-                            ->default(now())
-                            ->seconds(false),
-                        Forms\Components\Select::make('outcome')
-                            ->options(CallOutcome::class)
-                            ->required()
-                            ->live()
-                            ->helperText('Determines what happens next — see the Follow-Ups, Appointments, and Leads panels.'),
-                        Forms\Components\TextInput::make('contact_person_spoken_to')
-                            ->maxLength(255),
-                        Forms\Components\TextInput::make('designation')
-                            ->label('Designation')
-                            ->placeholder('e.g. Manager, Owner, Procurement Head')
-                            ->maxLength(255),
-                        Forms\Components\TextInput::make('phone_called')
-                            ->tel()
-                            ->maxLength(20),
-                        // Visibility is driven by the outcome's own routing
-                        // rules (CallOutcome::routesToFollowUp()/
-                        // routesToAppointment()) rather than a manual
-                        // toggle, so the field can never fall out of sync
-                        // with what the outcome actually does. Required
-                        // whenever visible — the caller must know the
-                        // follow-up/appointment time when logging the call
-                        // — and read straight into the auto-created
-                        // Follow-Up/Appointment record by
-                        // CallRoutingService::createFollowUp()/
-                        // createAppointment(). Only ever one visible at a
-                        // time in practice, since no outcome routes to both.
-                        // The model-level "exempt auto-routed insert"
-                        // guards on FollowUp/Appointment stay in place —
-                        // they cover every OTHER write path (tests,
-                        // seeders, future imports/backfills), not this
-                        // form, which now never submits a blank value.
-                        // Phase 3: visible whenever the outcome could
-                        // possibly create a Follow-Up — either
-                        // unconditionally (Callback Requested) or as the
-                        // caller's explicit, intentional decision
-                        // (Concerned Person Not Available / Profile
-                        // Requested's optional callback, or Other's
-                        // CreateFollowUp next action). Required only where
-                        // the Follow-Up is mandatory, not merely possible —
-                        // see self::followUpAtRequired().
-                        Forms\Components\DateTimePicker::make('follow_up_at')
-                            ->label('Follow Up At')
-                            ->seconds(false)
-                            ->visible(fn (Get $get) => self::followUpAtVisible($get('outcome'), $get('next_action')))
-                            ->required(fn (Get $get) => self::followUpAtRequired($get('outcome'), $get('next_action'))),
-                        Forms\Components\DateTimePicker::make('appointment_at')
-                            ->label('Appointment At')
-                            ->seconds(false)
-                            ->visible(fn (Get $get) => self::appointmentAtVisible($get('outcome'), $get('next_action')))
-                            ->required(fn (Get $get) => self::appointmentAtVisible($get('outcome'), $get('next_action'))),
-                        // Phase 3: the explicit, constrained next-action
-                        // decision — meaningful ONLY for outcome Other (see
-                        // App\Enums\CallNextAction).
-                        Forms\Components\Select::make('next_action')
-                            ->label('Next Action')
-                            ->options(CallNextAction::class)
-                            ->live()
-                            ->visible(fn (Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::Others)
-                            ->required(fn (Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::Others),
-                    ]),
-                // Phase 3: structured Profile Sent tracking — visible only
-                // for outcome Profile Requested. Follow-Up itself stays
-                // optional/intentional only (see follow_up_at above).
-                Forms\Components\Section::make('Profile Sent')
-                    ->columns(2)
-                    ->visible(fn (Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::ProfileRequested)
-                    ->schema([
-                        Forms\Components\Select::make('profile_sent_status')
-                            ->options(ProfileSentStatus::class)
-                            ->live()
-                            ->required(fn (Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::ProfileRequested),
-                        Forms\Components\Select::make('profile_sent_mode')
-                            ->label('Mode')
-                            ->options(ProfileSentMode::class)
-                            ->live()
-                            ->required(fn (Get $get) => self::resolveProfileSentStatus($get('profile_sent_status')) === ProfileSentStatus::Sent),
-                        Forms\Components\DateTimePicker::make('profile_sent_at')
-                            ->label('Sent At')
-                            ->seconds(false)
-                            ->required(fn (Get $get) => self::resolveProfileSentStatus($get('profile_sent_status')) === ProfileSentStatus::Sent),
-                        Forms\Components\Textarea::make('profile_sent_notes')
-                            ->label('Notes')
-                            ->rows(2)
-                            ->columnSpanFull()
-                            ->required(fn (Get $get) => self::resolveProfileSentMode($get('profile_sent_mode')) === ProfileSentMode::Other)
-                            ->helperText('Required when Mode is Other, to explain how the profile was sent.'),
-                    ]),
-                // Phase 2 item #5: once a company is selected, show its
-                // already-saved Database details inline so the caller
-                // doesn't have to leave this screen to look them up.
-                Forms\Components\Section::make('Company Details')
-                    ->schema([
-                        Forms\Components\Placeholder::make('prospect_details')
-                            ->label('')
-                            ->content(fn (Get $get) => new HtmlString(
-                                view('filament.forms.prospect-call-details', [
-                                    'prospect' => Prospect::find($get('prospect_id')),
-                                ])->render()
-                            ))
-                            ->columnSpanFull(),
-                    ])
-                    ->visible(fn (Get $get) => filled($get('prospect_id')) && $get('prospect_id') !== self::CREATE_NEW_PROSPECT),
-                Forms\Components\Section::make('Notes')
-                    ->schema([
-                        // Required for any outcome where a real conversation
-                        // actually happened (CallOutcome::requiresNotes() —
-                        // every outcome except the three "never connected"
-                        // ones), so there's something on record. Was
-                        // previously scoped to just Others (the catch-all
-                        // with no defined next action). Mirrors the same
-                        // required()+rule() pairing LeadResource uses for
-                        // "Notes required when Validated" — plain required()
-                        // alone would accept a whitespace-only value.
-                        Forms\Components\Textarea::make('notes')
-                            ->rows(3)
-                            ->columnSpanFull()
-                            ->required(fn (Get $get) => self::outcomeRequiresNotes($get('outcome')))
-                            ->validationMessages([
-                                'required' => 'Notes are required for this outcome — only No Answer, Switched Off, and Not Reachable are exempt.',
-                            ])
-                            ->rule(
-                                fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
-                                    if (self::outcomeRequiresNotes($get('outcome')) && blank($value)) {
-                                        $fail('Notes are required for this outcome — only No Answer, Switched Off, and Not Reachable are exempt.');
-                                    }
-                                },
-                            ),
-                    ]),
+                    ] : []),
+                Forms\Components\DateTimePicker::make('called_at')
+                    ->required()
+                    ->default(now())
+                    ->seconds(false),
+                Forms\Components\Select::make('outcome')
+                    ->options(CallOutcome::class)
+                    ->required()
+                    ->live()
+                    ->helperText('Determines what happens next — see the Follow-Ups, Appointments, and Leads panels.'),
+                Forms\Components\TextInput::make('contact_person_spoken_to')
+                    ->maxLength(255),
+                Forms\Components\TextInput::make('designation')
+                    ->label('Designation')
+                    ->placeholder('e.g. Manager, Owner, Procurement Head')
+                    ->maxLength(255),
+                Forms\Components\TextInput::make('phone_called')
+                    ->tel()
+                    ->maxLength(20),
+                // Visibility is driven by the outcome's own routing
+                // rules (CallOutcome::routesToFollowUp()/
+                // routesToAppointment()) rather than a manual
+                // toggle, so the field can never fall out of sync
+                // with what the outcome actually does. Required
+                // whenever visible — the caller must know the
+                // follow-up/appointment time when logging the call
+                // — and read straight into the auto-created
+                // Follow-Up/Appointment record by
+                // CallRoutingService::createFollowUp()/
+                // createAppointment(). Only ever one visible at a
+                // time in practice, since no outcome routes to both.
+                // The model-level "exempt auto-routed insert"
+                // guards on FollowUp/Appointment stay in place —
+                // they cover every OTHER write path (tests,
+                // seeders, future imports/backfills), not this
+                // form, which now never submits a blank value.
+                // Phase 3: visible whenever the outcome could
+                // possibly create a Follow-Up — either
+                // unconditionally (Callback Requested) or as the
+                // caller's explicit, intentional decision
+                // (Concerned Person Not Available / Profile
+                // Requested's optional callback, or Other's
+                // CreateFollowUp next action). Required only where
+                // the Follow-Up is mandatory, not merely possible —
+                // see self::followUpAtRequired().
+                Forms\Components\DateTimePicker::make('follow_up_at')
+                    ->label('Follow Up At')
+                    ->seconds(false)
+                    ->visible(fn (Get $get) => self::followUpAtVisible($get('outcome'), $get('next_action')))
+                    ->required(fn (Get $get) => self::followUpAtRequired($get('outcome'), $get('next_action'))),
+                Forms\Components\DateTimePicker::make('appointment_at')
+                    ->label('Appointment At')
+                    ->seconds(false)
+                    ->visible(fn (Get $get) => self::appointmentAtVisible($get('outcome'), $get('next_action')))
+                    ->required(fn (Get $get) => self::appointmentAtVisible($get('outcome'), $get('next_action'))),
+                // Phase 3: the explicit, constrained next-action
+                // decision — meaningful ONLY for outcome Other (see
+                // App\Enums\CallNextAction).
+                Forms\Components\Select::make('next_action')
+                    ->label('Next Action')
+                    ->options(CallNextAction::class)
+                    ->live()
+                    ->visible(fn (Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::Others)
+                    ->required(fn (Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::Others),
+        ];
+    }
+
+    /**
+     * The "Profile Sent" section — extracted for the same reuse reason as
+     * callDetailsFieldsSchema() above (see that method's docblock).
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    public static function profileSentFieldsSchema(): array
+    {
+        return [
+            // Phase 3: structured Profile Sent tracking — visible only
+            // for outcome Profile Requested. Follow-Up itself stays
+            // optional/intentional only (see follow_up_at above).
+            Forms\Components\Section::make('Profile Sent')
+                ->columns(2)
+                ->visible(fn (Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::ProfileRequested)
+                ->schema([
+                    Forms\Components\Select::make('profile_sent_status')
+                        ->options(ProfileSentStatus::class)
+                        ->live()
+                        ->required(fn (Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::ProfileRequested),
+                    Forms\Components\Select::make('profile_sent_mode')
+                        ->label('Mode')
+                        ->options(ProfileSentMode::class)
+                        ->live()
+                        ->required(fn (Get $get) => self::resolveProfileSentStatus($get('profile_sent_status')) === ProfileSentStatus::Sent),
+                    Forms\Components\DateTimePicker::make('profile_sent_at')
+                        ->label('Sent At')
+                        ->seconds(false)
+                        ->required(fn (Get $get) => self::resolveProfileSentStatus($get('profile_sent_status')) === ProfileSentStatus::Sent),
+                    Forms\Components\Textarea::make('profile_sent_notes')
+                        ->label('Notes')
+                        ->rows(2)
+                        ->columnSpanFull()
+                        ->required(fn (Get $get) => self::resolveProfileSentMode($get('profile_sent_mode')) === ProfileSentMode::Other)
+                        ->helperText('Required when Mode is Other, to explain how the profile was sent.'),
+                ]),
+        ];
+    }
+
+    /**
+     * The "Notes" section — extracted for the same reuse reason as
+     * callDetailsFieldsSchema() above (see that method's docblock).
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    public static function notesFieldSchema(): array
+    {
+        return [
+            Forms\Components\Section::make('Notes')
+                ->schema([
+                    // Required for any outcome where a real conversation
+                    // actually happened (CallOutcome::requiresNotes() —
+                    // every outcome except the three "never connected"
+                    // ones), so there's something on record. Was
+                    // previously scoped to just Others (the catch-all
+                    // with no defined next action). Mirrors the same
+                    // required()+rule() pairing LeadResource uses for
+                    // "Notes required when Validated" — plain required()
+                    // alone would accept a whitespace-only value.
+                    Forms\Components\Textarea::make('notes')
+                        ->rows(3)
+                        ->columnSpanFull()
+                        ->required(fn (Get $get) => self::outcomeRequiresNotes($get('outcome')))
+                        ->validationMessages([
+                            'required' => 'Notes are required for this outcome — only No Answer, Switched Off, and Not Reachable are exempt.',
+                        ])
+                        ->rule(
+                            fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
+                                if (self::outcomeRequiresNotes($get('outcome')) && blank($value)) {
+                                    $fail('Notes are required for this outcome — only No Answer, Switched Off, and Not Reachable are exempt.');
+                                }
+                            },
+                        ),
+                ]),
         ];
     }
 
