@@ -41,9 +41,13 @@ which lane a card was dropped into, never which stage box. --}}
         {{-- Grows with the card count up to ~10 visible cards, then
         scrolls internally rather than pushing the page's own height
         around — every card past the cap is still present and reachable,
-        just scrolled to. --}}
+        just scrolled to. Final visual polish pass: `pipeline-board-scroll-
+        hidden` removes the scrollbar's own visual chrome (see theme.css)
+        without touching `overflow-y-auto` — wheel/trackpad/touch/keyboard
+        scrolling all keep working exactly as before, only the bar itself
+        no longer clutters the lane. --}}
         <div
-            class="flex min-h-[4rem] flex-col gap-1.5 overflow-y-auto pe-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-track]:bg-transparent dark:[&::-webkit-scrollbar-thumb]:bg-white/15"
+            class="pipeline-board-scroll-hidden flex min-h-[4rem] flex-col gap-1.5 overflow-y-auto pe-1"
             style="max-height: 32rem;"
         >
             @forelse ($lane['cards'] as $card)

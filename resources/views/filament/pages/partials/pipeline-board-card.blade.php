@@ -32,9 +32,34 @@ card stays a single `<a>` with its own click-opens-modal / drag-to-move
 behavior UNCHANGED (see PipelineBoard::cardHistoryAction() again) — the
 new expand toggle and its revealed detail panel both carry
 `x-on:click.stop` so nothing inside them ever bubbles up to the anchor's
-own click handler or accidentally opens the modal. --}}
+own click handler or accidentally opens the modal.
+
+Final visual polish pass: the dedicated corner drag-handle icon is gone —
+it was only ever a visual affordance (see the removed span's own comment
+in the prior revision); the actual drag source has always been this whole
+`<a>` element (`draggable="true"` + `dragstart` below), so removing the
+icon changes nothing about drag behavior itself. `expanded`'s toggle now
+also nudges the page-level `pipelineBoard` Alpine store's `expandedCount`
+(registered once in pipeline-board.blade.php) so the board's one
+"Collapse all" control knows whether anything is expanded, and this card
+listens for that control's `pipeline-board-collapse-all` window event to
+close itself if (and only if) it's currently open — still no server
+round-trip, still fully local presentation state. --}}
 <a
-    x-data="{ expanded: false }"
+    x-data="{
+        expanded: false,
+        toggle() {
+            this.expanded = ! this.expanded;
+            $store.pipelineBoard.expandedCount += this.expanded ? 1 : -1;
+        },
+        collapse() {
+            if (this.expanded) {
+                this.expanded = false;
+                $store.pipelineBoard.expandedCount--;
+            }
+        },
+    }"
+    x-on:pipeline-board-collapse-all.window="collapse()"
     href="{{ $card['url'] }}"
     data-card="{{ $card['resource'] }}-{{ $card['id'] }}"
     @if ($isDraggableLane)
@@ -50,25 +75,19 @@ own click handler or accidentally opens the modal. --}}
     @endif
     class="pipeline-board-card group flex flex-col gap-2 rounded-lg border px-3 py-2.5"
 >
-    {{-- Top row: small company label (avatar + name) + drag handle. --}}
+    {{-- Top row: small company label + avatar. The whole card is the drag
+    source (draggable="true" above) — no separate handle needed. --}}
     <div class="flex items-center gap-1.5">
         <span class="pipeline-board-card-avatar flex h-4 w-4 shrink-0 items-center justify-center rounded-full font-mono text-[8px] font-semibold">
             {{ $card['initials'] }}
         </span>
         <span class="pipeline-board-card-meta-text truncate font-mono text-[10px] uppercase tracking-wide">{{ $card['company'] }}</span>
-        @if ($isDraggableLane)
-            {{-- Purely visual affordance — the whole card is the actual
-            drag source (see draggable="true" above); this just signals
-            that it can be picked up. --}}
-            <span
-                title="Drag to move"
-                class="pipeline-board-card-drag-handle ms-auto shrink-0 cursor-grab select-none font-mono text-xs leading-none opacity-0 transition group-hover:opacity-100"
-            >⠿⠿</span>
-        @endif
     </div>
 
-    {{-- Primary title — the card's own prominent, readable headline. --}}
-    <div class="pipeline-board-card-title truncate text-sm font-semibold leading-tight">
+    {{-- Primary title — the card's own prominent, readable headline. Wraps
+    up to 2 lines (never clipped to one) rather than truncating, so a long
+    company name stays fully readable. --}}
+    <div class="pipeline-board-card-title line-clamp-2 break-words text-sm font-semibold leading-tight">
         {{ $card['company'] }}
     </div>
 
@@ -123,18 +142,21 @@ own click handler or accidentally opens the modal. --}}
     {{-- Meta rows: Owner (assigned employee) / Next (the lane's own
     free-text "what's next" summary — call outcome, appointment time,
     lead temperature, demo mode, proposal value; see PipelineBoard's own
-    per-lane `meta:` closures). --}}
+    per-lane `meta:` closures). Final visual polish pass: neither wraps as
+    a single truncated/clipped line any more — a date/time or a longer
+    "what's next" string now wraps onto a second line in full rather than
+    being cut off mid-value. --}}
     <div class="flex flex-col gap-0.5">
         @if ($card['assignedTo'] ?? null)
-            <div class="pipeline-board-card-meta-text flex items-baseline gap-1 truncate font-mono text-[10px]">
+            <div class="pipeline-board-card-meta-text flex items-baseline gap-1 font-mono text-[10px]">
                 <span class="pipeline-board-card-meta-label shrink-0">Owner:</span>
-                <span class="truncate">{{ $card['assignedTo'] }}</span>
+                <span class="break-words">{{ $card['assignedTo'] }}</span>
             </div>
         @endif
-        <div class="flex items-center gap-1.5">
-            <div class="pipeline-board-card-meta-text flex min-w-0 flex-1 items-baseline gap-1 truncate font-mono text-[10px]">
+        <div class="flex items-start gap-1.5">
+            <div class="pipeline-board-card-meta-text flex min-w-0 flex-1 items-baseline gap-1 font-mono text-[10px]">
                 <span class="pipeline-board-card-meta-label shrink-0">Next:</span>
-                <span class="truncate">{{ $card['meta'] }}</span>
+                <span class="break-words">{{ $card['meta'] }}</span>
             </div>
             @if ($card['resource'] === 'follow_up')
                 {{-- Reuses the exact "Follow-Up History" summary modal
@@ -156,9 +178,10 @@ own click handler or accidentally opens the modal. --}}
         {{-- Card expansion pass: a quick-context panel revealed only by the
         dedicated control below — never by clicking the card itself (that
         still opens the existing detail modal unchanged) and never by
-        dragging (the drag handle above is untouched). `x-on:click.stop` on
-        this whole block means nothing inside it — including a plain click
-        on the text rows — ever bubbles up to the card's own click handler. --}}
+        dragging (the whole card, still the only drag source, is
+        untouched). `x-on:click.stop` on this whole block means nothing
+        inside it — including a plain click on the text rows — ever
+        bubbles up to the card's own click handler. --}}
         <div
             x-show="expanded"
             x-cloak
@@ -168,7 +191,7 @@ own click handler or accidentally opens the modal. --}}
             @foreach ($card['details'] as $detail)
                 <div class="pipeline-board-card-meta-text flex items-baseline gap-1 font-mono text-[10px]">
                     <span class="pipeline-board-card-meta-label shrink-0">{{ $detail['label'] }}:</span>
-                    <span class="truncate">{{ $detail['value'] }}</span>
+                    <span class="break-words">{{ $detail['value'] }}</span>
                 </div>
             @endforeach
 
@@ -183,12 +206,14 @@ own click handler or accidentally opens the modal. --}}
     @endif
 
     {{-- Expand/collapse control — a separate small click target from both
-    the card body (modal) and the drag handle (move), placed last so it
+    the card body (modal) and dragging the card (move), placed last so it
     always sits at the bottom of the card regardless of how many badge/meta
-    rows precede it. --}}
+    rows precede it. Calls the shared toggle() (see x-data above) so the
+    board-level "Collapse all" control's enabled/disabled state stays
+    accurate. --}}
     <button
         type="button"
-        x-on:click.stop.prevent="expanded = ! expanded"
+        x-on:click.stop.prevent="toggle()"
         :aria-expanded="expanded.toString()"
         :aria-label="expanded ? 'Hide details' : 'Show more details'"
         class="pipeline-board-expand-btn flex w-full items-center justify-center rounded py-0.5 transition"

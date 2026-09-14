@@ -25,67 +25,86 @@
             Every Call, Follow-up, Appointment, Lead, Demo, and Proposal you can see, grouped into its real stage. Drag a card within its own lane to move it, or into another lane to create a linked record there.
         </p>
 
-        {{-- Phase 6: filters which cards appear across every lane at once,
-        based on each resource's own most meaningful recency date rather
-        than a single shared column — see PipelineBoard::periodRange()/
-        scopeToPeriod(). A custom Alpine dropdown rather than a native
-        <select>: a native select's OPEN options popup is drawn by the OS,
-        not the page, so it ignores our dark-mode CSS entirely on some
-        platforms even with color-scheme set — this one is fully our own
-        markup, so it always matches the board's theme. @entangle(...).live
-        keeps it a real two-way binding to the same $period property
-        wire:model.live would have used. --}}
-        <div
-            x-data="{
-                open: false,
-                value: @entangle('period').live,
-                options: [
-                    { value: 'all', label: 'All time' },
-                    { value: 'today', label: 'Today' },
-                    { value: 'week', label: 'This week' },
-                    { value: 'month', label: 'This month' },
-                    { value: 'quarter', label: 'This quarter' },
-                ],
-                label() {
-                    return this.options.find((option) => option.value === this.value)?.label ?? 'All time';
-                },
-            }"
-            x-on:click.outside="open = false"
-            class="relative flex shrink-0 items-center gap-2"
-        >
-            <label id="pipeline-board-period-label" class="font-mono text-[10px] uppercase tracking-wider text-gray-400 dark:text-white/40">Period</label>
+        <div class="flex flex-wrap items-center gap-3">
+            {{-- Phase 6: filters which cards appear across every lane at
+            once, based on each resource's own most meaningful recency date
+            rather than a single shared column — see PipelineBoard::
+            periodRange()/scopeToPeriod(). A custom Alpine dropdown rather
+            than a native <select>: a native select's OPEN options popup is
+            drawn by the OS, not the page, so it ignores our dark-mode CSS
+            entirely on some platforms even with color-scheme set — this one
+            is fully our own markup, so it always matches the board's theme.
+            @entangle(...).live keeps it a real two-way binding to the same
+            $period property wire:model.live would have used. --}}
+            <div
+                x-data="{
+                    open: false,
+                    value: @entangle('period').live,
+                    options: [
+                        { value: 'all', label: 'All time' },
+                        { value: 'today', label: 'Today' },
+                        { value: 'week', label: 'This week' },
+                        { value: 'month', label: 'This month' },
+                        { value: 'quarter', label: 'This quarter' },
+                    ],
+                    label() {
+                        return this.options.find((option) => option.value === this.value)?.label ?? 'All time';
+                    },
+                }"
+                x-on:click.outside="open = false"
+                class="relative flex shrink-0 items-center gap-2"
+            >
+                <label id="pipeline-board-period-label" class="font-mono text-[10px] uppercase tracking-wider text-gray-400 dark:text-white/40">Period</label>
+                <button
+                    type="button"
+                    aria-haspopup="listbox"
+                    :aria-expanded="open"
+                    aria-labelledby="pipeline-board-period-label"
+                    x-on:click="open = !open"
+                    class="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 shadow-sm transition hover:border-gray-400 dark:border-white/10 dark:bg-white/5 dark:text-gray-100 dark:hover:border-white/25"
+                >
+                    <span x-text="label()"></span>
+                    <span class="text-gray-400 dark:text-white/40">⌄</span>
+                </button>
+
+                <div
+                    x-show="open"
+                    x-cloak
+                    x-transition.origin.top.right
+                    role="listbox"
+                    class="absolute right-0 top-full z-10 mt-1 w-36 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-gray-800"
+                >
+                    <template x-for="option in options" :key="option.value">
+                        <button
+                            type="button"
+                            role="option"
+                            x-on:click="value = option.value; open = false"
+                            x-text="option.label"
+                            class="block w-full px-3 py-1.5 text-left text-sm transition"
+                            :class="value === option.value
+                                ? 'font-medium text-brand-cyan'
+                                : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-white/10'"
+                        ></button>
+                    </template>
+                </div>
+            </div>
+
+            {{-- Final visual polish pass: a single board-level "Collapse
+            all", presentation-only (no wire call, no server round-trip) —
+            it just broadcasts a window event every card's own x-data
+            already listens for (see pipeline-board-card.blade.php's
+            `collapse()`). Reads the `pipelineBoard` Alpine store's
+            `expandedCount` (registered once below) purely to disable
+            itself when nothing is expanded — visually secondary (outline
+            style, not the primary "+ Log a call" treatment) since it's a
+            housekeeping action, not a workflow one. --}}
             <button
                 type="button"
-                aria-haspopup="listbox"
-                :aria-expanded="open"
-                aria-labelledby="pipeline-board-period-label"
-                x-on:click="open = !open"
-                class="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 shadow-sm transition hover:border-gray-400 dark:border-white/10 dark:bg-white/5 dark:text-gray-100 dark:hover:border-white/25"
-            >
-                <span x-text="label()"></span>
-                <span class="text-gray-400 dark:text-white/40">⌄</span>
-            </button>
-
-            <div
-                x-show="open"
-                x-cloak
-                x-transition.origin.top.right
-                role="listbox"
-                class="absolute right-0 top-full z-10 mt-1 w-36 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-gray-800"
-            >
-                <template x-for="option in options" :key="option.value">
-                    <button
-                        type="button"
-                        role="option"
-                        x-on:click="value = option.value; open = false"
-                        x-text="option.label"
-                        class="block w-full px-3 py-1.5 text-left text-sm transition"
-                        :class="value === option.value
-                            ? 'font-medium text-brand-cyan'
-                            : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-white/10'"
-                    ></button>
-                </template>
-            </div>
+                x-data
+                x-on:click="$dispatch('pipeline-board-collapse-all')"
+                :disabled="$store.pipelineBoard.expandedCount === 0"
+                class="pipeline-board-collapse-all shrink-0 rounded-lg border px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40"
+            >Collapse all</button>
         </div>
     </div>
 
@@ -97,7 +116,7 @@
     than the whole document (a stage box's own internal scroll, added
     above, is a small capped area, not the page's primary vertical
     navigation). --}}
-    <div data-pipeline-board-scroll class="-mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
+    <div data-pipeline-board-scroll class="pipeline-board-scroll-hidden -mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
         <div class="flex items-start gap-5">
             @foreach ($this->getLanes() as $laneKey => $lane)
                 @include('filament.pages.partials.pipeline-board-lane', [
@@ -110,6 +129,32 @@
             @endforeach
         </div>
     </div>
+
+    {{--
+        Registers the `pipelineBoard` Alpine store once, page-scoped —
+        same `alpine:init` pattern as the panel-wide `bulkSelect` store
+        (resources/views/filament/scripts/bulk-select-store.blade.php),
+        just registered here instead since this state is specific to this
+        one page. `expandedCount` is nothing but a shared counter every
+        card's own x-data increments/decrements as it expands/collapses
+        (see pipeline-board-card.blade.php's `toggle()`/`collapse()`) so
+        the "Collapse all" button above can disable itself when there's
+        nothing to collapse — no Livewire property, no server round-trip,
+        reset to 0 on every fresh page load same as any other Alpine state.
+        Guarded the same defensive way as the auto-scroll binding just
+        below, against this partial somehow running more than once.
+    --}}
+    <script>
+        if (! window.__pipelineBoardStoreRegistered) {
+            window.__pipelineBoardStoreRegistered = true;
+
+            document.addEventListener('alpine:init', () => {
+                Alpine.store('pipelineBoard', {
+                    expandedCount: 0,
+                });
+            });
+        }
+    </script>
 
     {{--
         Auto-scroll while dragging (Trello/Notion-style edge scrolling).

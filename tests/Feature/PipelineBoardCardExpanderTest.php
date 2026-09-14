@@ -27,13 +27,24 @@ class PipelineBoardCardExpanderTest extends TestCase
 {
     use RefreshDatabase;
 
-    /** Returns the substring of $html between a card's own data-card marker and the next one (or end of string), i.e. that one card's own rendered block. */
+    /**
+     * Returns the substring of $html covering one card's whole rendered
+     * `<a>...</a>` block, found via its own `data-card` marker. Starts from
+     * the nearest preceding `<a` (not from the marker itself) since
+     * x-data/x-on attributes on that same tag are written BEFORE `data-card`
+     * in the template — starting at the marker itself would silently cut
+     * off assertions against those earlier attributes.
+     */
     private function cardBlock(string $html, string $marker): string
     {
-        $start = strpos($html, $marker);
-        $this->assertNotFalse($start, "Expected to find {$marker} in the rendered board.");
+        $markerPos = strpos($html, $marker);
+        $this->assertNotFalse($markerPos, "Expected to find {$marker} in the rendered board.");
 
-        $nextCardPos = strpos($html, 'data-card="', $start + strlen($marker));
+        preg_match_all('/<a[\s>]/', substr($html, 0, $markerPos), $matches, PREG_OFFSET_CAPTURE);
+        $this->assertNotEmpty($matches[0], "Expected an <a ...> tag before {$marker}.");
+        $start = end($matches[0])[1];
+
+        $nextCardPos = strpos($html, 'data-card="', $markerPos + strlen($marker));
 
         return $nextCardPos === false
             ? substr($html, $start)
@@ -81,7 +92,7 @@ class PipelineBoardCardExpanderTest extends TestCase
 
             $this->assertStringContainsString('pipeline-board-expand-btn', $block);
             $this->assertStringContainsString("expanded ? 'Hide details' : 'Show more details'", $block);
-            $this->assertStringContainsString('expanded = ! expanded', $block);
+            $this->assertStringContainsString('x-on:click.stop.prevent="toggle()"', $block);
         });
     }
 
@@ -104,7 +115,7 @@ class PipelineBoardCardExpanderTest extends TestCase
             // The toggle button's own handler is .stop.prevent — a click on
             // it can never bubble to the enclosing <a>'s click handler.
             $this->assertMatchesRegularExpression(
-                '/x-on:click\.stop\.prevent="expanded = ! expanded"/',
+                '/x-on:click\.stop\.prevent="toggle\(\)"/',
                 $block,
             );
             // And the panel it reveals also stops propagation for any click
@@ -151,7 +162,7 @@ class PipelineBoardCardExpanderTest extends TestCase
         });
     }
 
-    public function test_a_draggable_cards_drag_handle_and_click_to_open_modal_wiring_are_both_still_present_alongside_the_expander(): void
+    public function test_the_dedicated_drag_handle_icon_is_gone_but_the_whole_card_is_still_draggable_and_click_to_open_modal_wiring_is_unchanged(): void
     {
         $org = Organization::factory()->create();
 
@@ -167,9 +178,88 @@ class PipelineBoardCardExpanderTest extends TestCase
             $html = Livewire::test(PipelineBoard::class)->html();
             $block = $this->cardBlock($html, 'data-card="lead-'.$lead->id.'"');
 
+            // The dedicated corner icon is gone...
+            $this->assertStringNotContainsString('pipeline-board-card-drag-handle', $block);
+            $this->assertStringNotContainsString('⠿⠿', $block);
+            // ...but the card itself — the <a> this whole block starts
+            // with — is still the drag source, exactly as before.
             $this->assertStringContainsString('draggable="true"', $block);
-            $this->assertStringContainsString('pipeline-board-card-drag-handle', $block);
+            $this->assertStringContainsString("dataTransfer.setData('text/plain', JSON.stringify({ resource: 'lead', id: {$lead->id} }))", $block);
             $this->assertStringContainsString("\$wire.mountAction('cardHistory', { resource: 'lead', id: {$lead->id} })", $block);
+        });
+    }
+
+    public function test_a_board_level_collapse_all_control_exists_and_is_wired_to_a_presentation_only_window_event(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $this->actingAs($user);
+            $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+            $lead = Lead::create([
+                'prospect_id' => $prospect->id, 'assigned_to' => $user->id, 'created_by' => $user->id,
+                'stage' => 'requirement_collection', 'temperature' => 'warm',
+            ]);
+
+            $html = Livewire::test(PipelineBoard::class)->html();
+
+            // The board-level control exists, dispatches a plain window
+            // event (no wire:click / mountAction — purely presentation),
+            // and disables itself when nothing is expanded.
+            $this->assertStringContainsString('pipeline-board-collapse-all', $html);
+            $this->assertStringContainsString("\$dispatch('pipeline-board-collapse-all')", $html);
+            $this->assertStringContainsString(':disabled="$store.pipelineBoard.expandedCount === 0"', $html);
+
+            // Every card listens for that exact event and only acts if it
+            // is currently expanded — never a server round-trip.
+            $block = $this->cardBlock($html, 'data-card="lead-'.$lead->id.'"');
+            $this->assertStringContainsString("x-on:pipeline-board-collapse-all.window=\"collapse()\"", $block);
+            $this->assertStringNotContainsString('wire:click', $block);
+        });
+    }
+
+    /**
+     * Final visual polish pass, Section 7: the title and the Next/date row
+     * must wrap rather than hard-truncate with an ellipsis, so a real
+     * scheduled date/time is never clipped. This only proves the wrapping
+     * CSS classes are used (and the old clipping ones are gone) on those
+     * specific elements — the visual result itself is confirmed by browser
+     * QA, not asserted here.
+     */
+    public function test_the_next_row_and_title_wrap_instead_of_being_hard_truncated(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $this->actingAs($user);
+            $prospect = Prospect::factory()->create([
+                'assigned_to' => $user->id, 'created_by' => $user->id,
+                'company_name' => 'A Genuinely Very Long Prospect Company Name Pvt Ltd',
+            ]);
+            $lead = Lead::create([
+                'prospect_id' => $prospect->id, 'assigned_to' => $user->id, 'created_by' => $user->id,
+                'stage' => 'requirement_collection', 'temperature' => 'warm',
+            ]);
+
+            $html = Livewire::test(PipelineBoard::class)->html();
+            $block = $this->cardBlock($html, 'data-card="lead-'.$lead->id.'"');
+
+            // The full long company name is present in the title block
+            // (proving it isn't cut down to a truncated prefix), and the
+            // title/Next elements use wrapping classes, not `truncate`.
+            $this->assertStringContainsString(
+                'pipeline-board-card-title line-clamp-2 break-words',
+                $block,
+            );
+            $this->assertStringContainsString('A Genuinely Very Long Prospect Company Name Pvt Ltd', $block);
+
+            // The Next row's own value span no longer clips its text.
+            $this->assertMatchesRegularExpression(
+                '/Next:<\/span>\s*<span class="break-words">/',
+                $block,
+            );
         });
     }
 }

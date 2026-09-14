@@ -756,12 +756,23 @@
  * inconsistent with the rest of the app's dark mode.
  * ------------------------------------------------------------------- */
 .pipeline-board-lane {
-    background-color: rgb(249, 250, 251);
-    border-color: rgb(229, 231, 235);
+    /* Final visual polish pass: a real pale blue-gray tint (not a near-
+       white gray a card's own solid white can get lost against) so PAGE ->
+       LANE -> CARD reads as a clear three-step hierarchy rather than two
+       barely-distinguishable off-whites. */
+    background-color: rgb(240, 244, 250);
+    border-color: rgb(223, 229, 238);
 }
 
 :is(.dark) .pipeline-board-lane {
-    background-color: rgba(255, 255, 255, 0.025);
+    /* A real solid tone, not a translucent white overlay on the page
+       background (the previous `rgba(255,255,255,0.025)` — see git log —
+       read as nearly identical to the page itself, since it only ever
+       nudges whatever's already behind it rather than establishing its
+       own layer). Deliberately BETWEEN `--dm-bg` (the page) and
+       `--dark-surface` (the card) so a card genuinely reads as sitting on
+       top of its lane, which sits on top of the page. */
+    background-color: rgb(14, 19, 33);
     border-color: rgba(255, 255, 255, 0.08);
 }
 
@@ -797,18 +808,23 @@
     box-shadow: 0 2px 6px rgba(15, 27, 61, 0.1);
 }
 
-/* Dark mode: the same `--dark-surface`/cyan-rim treatment as every other
-   raised surface in the app, one notch lighter than the lane background
-   above it so a card actually reads as sitting on top of its lane. */
+/* Final visual polish pass: dark-mode cards were reading as "glass" —
+   `--dark-surface` is already a genuinely solid, opaque color (no alpha
+   channel at all), but the cyan-tinted glow-ring box-shadow used in place
+   of a real border gave the whole card a translucent/frosted feel,
+   especially once the lane behind it was ALSO a translucent overlay (see
+   .pipeline-board-lane above — now fixed to a real solid tone too). This
+   keeps the solid `--dark-surface` background but swaps the glow ring for
+   a plain, slightly stronger border, plus a subtle plain elevation shadow
+   on hover instead of a brighter glow — a real edge, not a rim of light. */
 :is(.dark) .pipeline-board-card {
     background-color: var(--dark-surface);
-    border-color: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 0 0 1px rgba(var(--accent-500-rgb), 0.1);
+    border-color: rgba(255, 255, 255, 0.14);
 }
 
 :is(.dark) .pipeline-board-card:hover {
-    border-color: rgba(255, 255, 255, 0.16);
-    box-shadow: 0 0 0 1px rgba(var(--accent-500-rgb), 0.28);
+    border-color: rgba(255, 255, 255, 0.24);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
 }
 
 .pipeline-board-card-avatar {
@@ -843,14 +859,6 @@
 
 :is(.dark) .pipeline-board-card-meta-label {
     color: rgb(107, 114, 128);
-}
-
-.pipeline-board-card-drag-handle {
-    color: rgb(203, 213, 225);
-}
-
-:is(.dark) .pipeline-board-card-drag-handle {
-    color: rgba(255, 255, 255, 0.3);
 }
 
 .pipeline-board-summary-btn {
@@ -972,6 +980,41 @@
 
 :is(.dark) .pipeline-board-open-company-link:hover {
     color: rgb(165, 243, 252);
+}
+
+/* Final visual polish pass: hides scrollbar CHROME only — `overflow-y-
+   auto`/`overflow-x-auto` stay exactly as they were on whichever element
+   this is applied to, so wheel/trackpad/touch/keyboard scrolling all keep
+   working unchanged; only the scrollbar's own visible track/thumb is
+   removed, on both lane vertical scroll and the board's horizontal
+   scroll. */
+.pipeline-board-scroll-hidden {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge/IE — harmless elsewhere */
+}
+
+.pipeline-board-scroll-hidden::-webkit-scrollbar {
+    display: none; /* Chrome/Safari/other WebKit/Blink */
+}
+
+.pipeline-board-collapse-all {
+    border-color: rgb(229, 231, 235);
+    color: rgb(107, 114, 128);
+}
+
+.pipeline-board-collapse-all:hover:not(:disabled) {
+    border-color: rgb(203, 213, 225);
+    color: rgb(55, 65, 81);
+}
+
+:is(.dark) .pipeline-board-collapse-all {
+    border-color: rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.55);
+}
+
+:is(.dark) .pipeline-board-collapse-all:hover:not(:disabled) {
+    border-color: rgba(255, 255, 255, 0.24);
+    color: rgba(255, 255, 255, 0.8);
 }
 
 /* Section-navigation tabs (App\Support\Filament\SectionTabs) — the
