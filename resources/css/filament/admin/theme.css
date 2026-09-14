@@ -926,6 +926,54 @@
     color: rgb(103, 232, 249);
 }
 
+/* Card expansion pass: the bottom expand/collapse control and the quick-
+   context panel it reveals — see pipeline-board-card.blade.php. Kept as
+   its own dim, unobtrusive control (not a colored button) so it reads as
+   a corner affordance, not a call to action competing with the card's own
+   click-opens-modal behavior. */
+.pipeline-board-expand-btn {
+    color: rgb(156, 163, 175);
+}
+
+.pipeline-board-expand-btn:hover {
+    background-color: rgba(15, 23, 42, 0.04);
+    color: rgb(107, 114, 128);
+}
+
+:is(.dark) .pipeline-board-expand-btn {
+    color: rgba(255, 255, 255, 0.35);
+}
+
+:is(.dark) .pipeline-board-expand-btn:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.pipeline-board-expanded-details {
+    border-color: rgb(229, 231, 235);
+}
+
+:is(.dark) .pipeline-board-expanded-details {
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+.pipeline-board-open-company-link {
+    color: rgb(8, 145, 178);
+}
+
+.pipeline-board-open-company-link:hover {
+    color: rgb(14, 116, 144);
+    text-decoration: underline;
+}
+
+:is(.dark) .pipeline-board-open-company-link {
+    color: rgb(103, 232, 249);
+}
+
+:is(.dark) .pipeline-board-open-company-link:hover {
+    color: rgb(165, 243, 252);
+}
+
 /* Section-navigation tabs (App\Support\Filament\SectionTabs) — the
    "switch between long page sections" pattern, e.g. Commercial Version's
    Summary/Outcome/PDF/Release/Send History/Client Response/Version

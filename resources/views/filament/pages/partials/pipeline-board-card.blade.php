@@ -22,8 +22,19 @@ light/dark surface + rim treatment in theme.css (the same "hook class,
 not shared utility class" convention already used for
 `.fi-kpi-tile`/`.fi-section-tabs`), so this stays visually consistent with
 the rest of the app's cards rather than the flatter ad hoc styling this
-partial used before. --}}
+partial used before.
+
+Card expansion pass: `expanded` is purely local Alpine state, one instance
+per card (declared on this very `<a>` via x-data below) — never persisted,
+never a Livewire round-trip, and independent across cards, so any number
+of cards can be expanded at once with no accordion behavior. The whole
+card stays a single `<a>` with its own click-opens-modal / drag-to-move
+behavior UNCHANGED (see PipelineBoard::cardHistoryAction() again) — the
+new expand toggle and its revealed detail panel both carry
+`x-on:click.stop` so nothing inside them ever bubbles up to the anchor's
+own click handler or accidentally opens the modal. --}}
 <a
+    x-data="{ expanded: false }"
     href="{{ $card['url'] }}"
     data-card="{{ $card['resource'] }}-{{ $card['id'] }}"
     @if ($isDraggableLane)
@@ -140,4 +151,53 @@ partial used before. --}}
             @endif
         </div>
     </div>
+
+    @if (! empty($card['details']) || ($card['openCompanyUrl'] ?? null))
+        {{-- Card expansion pass: a quick-context panel revealed only by the
+        dedicated control below — never by clicking the card itself (that
+        still opens the existing detail modal unchanged) and never by
+        dragging (the drag handle above is untouched). `x-on:click.stop` on
+        this whole block means nothing inside it — including a plain click
+        on the text rows — ever bubbles up to the card's own click handler. --}}
+        <div
+            x-show="expanded"
+            x-cloak
+            x-on:click.stop
+            class="pipeline-board-expanded-details flex flex-col gap-1 border-t pt-2"
+        >
+            @foreach ($card['details'] as $detail)
+                <div class="pipeline-board-card-meta-text flex items-baseline gap-1 font-mono text-[10px]">
+                    <span class="pipeline-board-card-meta-label shrink-0">{{ $detail['label'] }}:</span>
+                    <span class="truncate">{{ $detail['value'] }}</span>
+                </div>
+            @endforeach
+
+            @if ($card['openCompanyUrl'] ?? null)
+                <button
+                    type="button"
+                    x-on:click.stop.prevent="window.location = '{{ $card['openCompanyUrl'] }}'"
+                    class="pipeline-board-open-company-link w-fit font-mono text-[10px] font-semibold transition"
+                >Open company →</button>
+            @endif
+        </div>
+    @endif
+
+    {{-- Expand/collapse control — a separate small click target from both
+    the card body (modal) and the drag handle (move), placed last so it
+    always sits at the bottom of the card regardless of how many badge/meta
+    rows precede it. --}}
+    <button
+        type="button"
+        x-on:click.stop.prevent="expanded = ! expanded"
+        :aria-expanded="expanded.toString()"
+        :aria-label="expanded ? 'Hide details' : 'Show more details'"
+        class="pipeline-board-expand-btn flex w-full items-center justify-center rounded py-0.5 transition"
+    >
+        <svg x-show="! expanded" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3 w-3">
+            <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.19l3.71-3.96a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+        </svg>
+        <svg x-show="expanded" x-cloak xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3 w-3">
+            <path fill-rule="evenodd" d="M14.77 12.79a.75.75 0 01-1.06-.02L10 8.81l-3.71 3.96a.75.75 0 11-1.08-1.04l4.25-4.5a.75.75 0 011.08 0l4.25 4.5a.75.75 0 01-.02 1.06z" clip-rule="evenodd" />
+        </svg>
+    </button>
 </a>

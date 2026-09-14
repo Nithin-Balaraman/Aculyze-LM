@@ -18,6 +18,7 @@ use App\Filament\Resources\DemoResource;
 use App\Filament\Resources\FollowUpResource;
 use App\Filament\Resources\LeadResource;
 use App\Filament\Resources\ProposalResource;
+use App\Filament\Resources\ProspectResource;
 use App\Models\Appointment;
 use App\Models\CallRecord;
 use App\Models\Demo;
@@ -43,6 +44,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Pipeline Board: a drag-and-drop visual view of the sales pipeline,
@@ -2381,6 +2383,12 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 meta: $call->outcome->getLabel().' · '.$call->called_at->diffForHumans(),
                 url: CallRecordResource::getUrl('view', ['record' => $call]),
                 assignedTo: $call->caller?->name,
+                details: [
+                    ['label' => 'Contact', 'value' => $call->contact_person_spoken_to ?: $call->prospect?->contact_person],
+                    ['label' => 'Phone', 'value' => $call->phone_called ?: $call->prospect?->mobile ?: $call->prospect?->telephone],
+                    ['label' => 'Email', 'value' => $call->prospect?->email],
+                    ['label' => 'Next action', 'value' => $call->next_action],
+                ],
             ))->values()->all(),
         ];
     }
@@ -2414,6 +2422,12 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 isOverdue: $followUp->isOverdue(),
                 stageValue: $followUp->status->value,
                 stageLabel: $followUp->status->getLabel(),
+                details: [
+                    ['label' => 'Reason', 'value' => $followUp->reason],
+                    ['label' => 'Contact', 'value' => $followUp->prospect?->contact_person],
+                    ['label' => 'Phone', 'value' => $followUp->prospect?->mobile ?: $followUp->prospect?->telephone],
+                    ['label' => 'Notes', 'value' => Str::limit($followUp->notes, 90)],
+                ],
             ))->values()->all(),
         ];
     }
@@ -2446,6 +2460,12 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 isOverdue: $demo->isOverdue(),
                 stageValue: $demo->status->value,
                 stageLabel: $demo->status->getLabel(),
+                details: [
+                    ['label' => 'Product/Service', 'value' => $demo->product_service],
+                    ['label' => 'Purpose', 'value' => Str::limit($demo->purpose, 90)],
+                    ['label' => 'Feedback', 'value' => Str::limit($demo->feedback, 90)],
+                    ['label' => 'Next action', 'value' => $demo->next_action],
+                ],
             ))->values()->all(),
         ];
     }
@@ -2465,6 +2485,12 @@ class PipelineBoard extends Page implements HasActions, HasForms
             urlFor: fn (Appointment $appointment) => AppointmentResource::getUrl('view', ['record' => $appointment]),
             assignedToOf: fn (Appointment $appointment) => $appointment->assignedEmployee?->name,
             isOverdueOf: fn (Appointment $appointment) => $appointment->isOverdue(),
+            detailsOf: fn (Appointment $appointment) => [
+                ['label' => 'Contact', 'value' => $appointment->prospect?->contact_person],
+                ['label' => 'Phone', 'value' => $appointment->prospect?->mobile ?: $appointment->prospect?->telephone],
+                ['label' => 'Meeting notes', 'value' => Str::limit($appointment->meeting_notes, 90)],
+                ['label' => 'Outcome notes', 'value' => Str::limit($appointment->outcome_notes, 90)],
+            ],
         );
     }
 
@@ -2491,6 +2517,12 @@ class PipelineBoard extends Page implements HasActions, HasForms
             resourceKey: 'lead',
             urlFor: fn (Lead $lead) => LeadResource::getUrl('view', ['record' => $lead]),
             assignedToOf: fn (Lead $lead) => $lead->assignedEmployee?->name,
+            detailsOf: fn (Lead $lead) => [
+                ['label' => 'Requirement', 'value' => Str::limit($lead->requirement_details, 90)],
+                ['label' => 'Contact', 'value' => $lead->prospect?->contact_person],
+                ['label' => 'Phone', 'value' => $lead->prospect?->mobile ?: $lead->prospect?->telephone],
+                ['label' => 'Email', 'value' => $lead->prospect?->email],
+            ],
         );
     }
 
@@ -2512,6 +2544,11 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 ? 'V'.$proposal->currentVersion->version_number.' '.$proposal->currentVersion->lifecycle_status->getLabel()
                 : null,
             assignedToOf: fn (Proposal $proposal) => $proposal->assignedEmployee?->name,
+            detailsOf: fn (Proposal $proposal) => [
+                ['label' => 'Proposal #', 'value' => $proposal->proposal_number],
+                ['label' => 'Sent', 'value' => $proposal->sent_at?->format('d M, h:i A')],
+                ['label' => 'Notes', 'value' => Str::limit($proposal->notes, 90)],
+            ],
         );
     }
 
@@ -2536,6 +2573,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * @param  \Closure(TModel): (?string)  $versionStatusOf
      * @param  \Closure(TModel): (?string)  $assignedToOf
      * @param  \Closure(TModel): bool  $isOverdueOf
+     * @param  \Closure(TModel): array  $detailsOf
      */
     private function stageBasedLane(
         string $label,
@@ -2549,8 +2587,9 @@ class PipelineBoard extends Page implements HasActions, HasForms
         ?\Closure $versionStatusOf = null,
         ?\Closure $assignedToOf = null,
         ?\Closure $isOverdueOf = null,
+        ?\Closure $detailsOf = null,
     ): array {
-        $cards = $records->map(function ($record) use ($resourceKey, $stageOf, $meta, $isLost, $urlFor, $outcomeOf, $versionStatusOf, $assignedToOf, $isOverdueOf) {
+        $cards = $records->map(function ($record) use ($resourceKey, $stageOf, $meta, $isLost, $urlFor, $outcomeOf, $versionStatusOf, $assignedToOf, $isOverdueOf, $detailsOf) {
             $stage = $stageOf($record);
 
             return $this->card(
@@ -2566,6 +2605,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 isOverdue: $isOverdueOf ? $isOverdueOf($record) : false,
                 stageValue: $stage->value,
                 stageLabel: $stage->getLabel(),
+                details: $detailsOf ? $detailsOf($record) : [],
             );
         });
 
@@ -2596,6 +2636,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
         bool $isOverdue = false,
         ?string $stageValue = null,
         ?string $stageLabel = null,
+        array $details = [],
     ): array {
         return [
             'resource' => $resource,
@@ -2604,6 +2645,27 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'initials' => $this->initials($prospect?->company_name),
             'meta' => $meta,
             'url' => $url,
+            // Card expansion pass (visual/presentation only — see
+            // pipeline-board-card.blade.php's own expand/collapse control):
+            // a short list of ['label' => ..., 'value' => ...] pairs shown
+            // only when the card is expanded, built entirely from data each
+            // lane method already has loaded (the record itself plus its
+            // already-eager-loaded `prospect`) — never a new query per card.
+            // Deliberately NOT included: traversing to a *different*
+            // resource (e.g. a Follow-up's originating Lead, or a Call's
+            // other recent calls to the same company) since that would mean
+            // an additional query per card rather than reusing what's
+            // already loaded; the board's per-lane list already surfaces
+            // every such resource as its own card.
+            'details' => array_values(array_filter(
+                $details,
+                fn (array $detail): bool => filled($detail['value'] ?? null),
+            )),
+            // Card expansion pass: a plain link to the Prospect's own record
+            // — every resource on the board hangs off one Prospect, so this
+            // is available unconditionally rather than needing a per-lane
+            // closure.
+            'openCompanyUrl' => $prospect ? ProspectResource::getUrl('view', ['record' => $prospect]) : null,
             'isLost' => $isLost,
             'outcome' => $outcome,
             // Pipeline Board visual redesign: the record's own internal
