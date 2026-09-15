@@ -391,8 +391,20 @@ class FollowUpResource extends Resource
                 Forms\Components\Select::make('lead_id')
                     ->label('Lead')
                     ->helperText('The existing Lead (requirement) this Demo belongs to.')
+                    // Lost-Lead Demo protection fix: a Lost Lead is a closed
+                    // outcome (Lead::markLost()'s own docblock — an outcome
+                    // applied on top of wherever the Lead currently is, never
+                    // un-done) and must never be offered as a fresh Demo's
+                    // target, mirroring the same `! $source->is_lost` guard
+                    // Pipeline Board's own Lead->Demo cross-drop already
+                    // enforces (PipelineBoard::crossDropSupported()). This is
+                    // the UI-layer half of the fix — see
+                    // WorkflowTransitionService::transitionToDemo() for the
+                    // authoritative service-level guard every caller goes
+                    // through regardless of which form/action they came from.
                     ->options(fn (FollowUp $record) => Lead::query()
                         ->where('prospect_id', $record->prospect_id)
+                        ->where('is_lost', false)
                         ->get()
                         ->mapWithKeys(fn (Lead $lead) => [$lead->id => $lead->stage->getLabel().' — '.$lead->created_at->format('d M Y')]))
                     ->searchable()

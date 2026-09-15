@@ -122,4 +122,90 @@ class FollowUpScheduleDemoResourceTest extends TestCase
 
         $this->assertSame(1, Demo::count(), 'Must not create a second Scheduled Demo for the same Lead.');
     }
+
+    /**
+     * Lost-Lead Demo protection fix: a Lost Lead is a closed outcome (see
+     * Lead::markLost()'s own docblock) and must never be offered as a
+     * candidate for a brand-new Demo, mirroring the same guard Pipeline
+     * Board's own Lead->Demo cross-drop already enforces.
+     */
+    public function test_the_lead_selector_excludes_a_lost_lead_for_the_same_prospect(): void
+    {
+        $user = User::factory()->create();
+        $followUp = $this->makeFollowUp($user);
+        $activeLead = Lead::create([
+            'prospect_id' => $followUp->prospect_id,
+            'assigned_to' => $user->id,
+            'created_by' => $user->id,
+            'stage' => 'requirement_collection',
+            'status' => LeadStatus::RequirementCollection,
+            'temperature' => 'warm',
+        ]);
+        $lostLead = Lead::create([
+            'prospect_id' => $followUp->prospect_id,
+            'assigned_to' => $user->id,
+            'created_by' => $user->id,
+            'stage' => 'requirement_collection',
+            'status' => LeadStatus::RequirementCollection,
+            'temperature' => 'cold',
+        ]);
+        $lostLead->markLost('Went with a competitor.');
+        $this->actingAs($user);
+
+        $html = Livewire::test(ListFollowUps::class)
+            ->mountTableAction('scheduleDemo', $followUp)
+            ->html();
+
+        // The Select's options are a searchable field with no ->preload(),
+        // so Filament embeds them as a JSON-encoded options array inside
+        // the field's own Alpine x-data (`options: JSON.parse('[{...
+        // "value":"1",...}]')`), with every double quote rendered as a
+        // literal backslash-u-0022 escape sequence rather than a plain `"`
+        // character — confirmed by inspecting the actual rendered markup.
+        // Built via chr(92) rather than typed escape sequences so this
+        // string is unambiguous regardless of any intermediate string
+        // processing.
+        $escapedQuote = chr(92).'u0022';
+        $this->assertStringContainsString(
+            $escapedQuote.'value'.$escapedQuote.':'.$escapedQuote.$activeLead->id.$escapedQuote,
+            $html,
+            'The active, non-lost Lead must still be offered.',
+        );
+        $this->assertStringNotContainsString(
+            $escapedQuote.'value'.$escapedQuote.':'.$escapedQuote.$lostLead->id.$escapedQuote,
+            $html,
+            'A Lost Lead must never be offered as a Demo target.',
+        );
+    }
+
+    public function test_scheduling_a_demo_against_a_lost_lead_is_rejected_even_if_its_id_is_submitted_directly(): void
+    {
+        $user = User::factory()->create();
+        $followUp = $this->makeFollowUp($user);
+        $lostLead = Lead::create([
+            'prospect_id' => $followUp->prospect_id,
+            'assigned_to' => $user->id,
+            'created_by' => $user->id,
+            'stage' => 'requirement_collection',
+            'status' => LeadStatus::RequirementCollection,
+            'temperature' => 'cold',
+        ]);
+        $lostLead->markLost('Went with a competitor.');
+        $this->actingAs($user);
+
+        // Bypasses the (now-filtered) dropdown entirely, exactly as a
+        // stale client-side form state or a direct API call would —
+        // proving the rejection is enforced by the service, not merely
+        // by which options the UI happens to render.
+        Livewire::test(ListFollowUps::class)
+            ->callTableAction('scheduleDemo', $followUp, data: [
+                'lead_id' => $lostLead->id,
+                'demo_at' => now()->addDays(3)->format('Y-m-d H:i:s'),
+                'mode' => DemoMode::Online->value,
+                'meeting_link' => 'https://meet.example.com/demo',
+            ])
+            ->assertNotified();
+
+        $this->assertSame(0, Demo::count(), 'No Demo should be persisted when the target Lead is Lost.');
+    }
 }

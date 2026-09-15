@@ -175,6 +175,18 @@ class WorkflowTransitionService
     public function transitionToDemo(Lead $lead, Appointment|FollowUp|Lead|Proposal|Demo $origin, string $originAlias, array $data): Demo
     {
         return DB::transaction(function () use ($lead, $origin, $originAlias, $data) {
+            // Lost-Lead Demo protection fix: the authoritative guard, since
+            // every caller of this service (Follow-Up's own Schedule Demo
+            // action, Pipeline Board's Lead->Demo cross-drop, and any future
+            // one) must go through it — a caller-side UI filter alone (see
+            // FollowUpResource::scheduleDemoAction()'s own Lead query) is
+            // not sufficient on its own, since is_lost is a genuinely
+            // one-way door (Lead::markLost()'s own docblock) and nothing
+            // about scheduling a Demo can ever legitimately reopen it.
+            if ($lead->is_lost) {
+                throw new LogicException("Lead #{$lead->getKey()} is marked Lost — a Demo can't be scheduled from it.");
+            }
+
             if (blank($data['demo_at'] ?? null)) {
                 throw new LogicException('A Demo requires a Demo date/time.');
             }
