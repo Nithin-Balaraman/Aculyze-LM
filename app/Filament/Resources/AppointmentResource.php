@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\AppointmentMode;
 use App\Enums\AppointmentOutcome;
 use App\Enums\AppointmentStage;
 use App\Enums\AppointmentStatus;
@@ -93,6 +94,28 @@ class AppointmentResource extends Resource
                         // reschedule.
                         ->disabled(fn (?Appointment $record) => $record?->appointment_at !== null)
                         ->dehydrated(fn (?Appointment $record) => $record?->appointment_at === null),
+                    // Surfaced on View/Edit (display-only fix — routing/
+                    // creation is unchanged): these are only ever populated
+                    // when the Appointment was scheduled through Pipeline
+                    // Board's Calls -> Appointment destination-specific
+                    // modal (see PipelineBoard::callToAppointmentFormSchema()/
+                    // CallRoutingService::createAppointment()). Appointments
+                    // created any other way (standalone create, Others +
+                    // CreateAppointment) simply leave these null — shown as
+                    // blank here, never fabricated, exactly like an
+                    // Appointment predating this feature.
+                    Forms\Components\Select::make('mode')
+                        ->options(AppointmentMode::class)
+                        ->live()
+                        ->placeholder('Not set'),
+                    Forms\Components\TextInput::make('person_meeting')
+                        ->label('Person Meeting')
+                        ->maxLength(255)
+                        ->placeholder('Not set'),
+                    Forms\Components\TextInput::make('location')
+                        ->maxLength(255)
+                        ->placeholder('Not set')
+                        ->visible(fn (Get $get) => AppointmentMode::tryFrom((string) $get('mode'))?->requiresLocation() ?? filled($get('location'))),
                     // ->live() so outcome_notes' required()/rule()
                     // below react the moment Stage changes — same
                     // mechanism as LeadResource's stage-driven Notes
