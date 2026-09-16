@@ -72,6 +72,23 @@ class LeadResource extends Resource
                             ->required()
                             ->searchable()
                             ->preload(),
+                        // Surfaced on View/Edit (display-only fix — creation/
+                        // routing is unchanged): the primary human-readable
+                        // identity for this opportunity (a company may have
+                        // more than one independent Lead — see
+                        // MultipleLeadsPerCompanyTest). Only ever populated
+                        // when the Lead was created through Pipeline Board's
+                        // Calls -> Lead destination-specific modal (see
+                        // PipelineBoard::callToLeadFormSchema()/
+                        // CallRoutingService::createLead()) — a Lead
+                        // predating this feature, or created via the legacy
+                        // Others + CreateLead path, simply leaves it blank
+                        // here, never fabricated.
+                        Forms\Components\TextInput::make('opportunity_title')
+                            ->label('Opportunity Title')
+                            ->maxLength(255)
+                            ->placeholder('Not set')
+                            ->columnSpanFull(),
                         Forms\Components\Select::make('assigned_to')
                             ->label('Assigned Employee')
                             ->options(fn () => User::query()->pluck('name', 'id'))
