@@ -95,9 +95,16 @@ round-trip, still fully local presentation state. --}}
 
     {{-- Primary title — the card's own prominent, readable headline. Wraps
     up to 2 lines (never clipped to one) rather than truncating, so a long
-    company name stays fully readable. --}}
+    company/opportunity name stays fully readable. Lead-only today:
+    `primaryTitle` (see PipelineBoard::leadLane()) is the Lead's own
+    Opportunity Title, letting two independent Leads on the same company
+    read as distinct cards — the small company row above already stands in
+    as the secondary/subtitle line for every card, so nothing else needs
+    to change here. Every other lane's `primaryTitle` is always null, so
+    `?:` falls back to the company name exactly as before this pass — a
+    card's headline is never left blank either way. --}}
     <div class="pipeline-board-card-title line-clamp-2 break-words text-sm font-semibold leading-tight">
-        {{ $card['company'] }}
+        {{ $card['primaryTitle'] ?: $card['company'] }}
     </div>
 
     @if (($card['stageLabel'] ?? null) || $card['outcome'] || ($card['versionStatus'] ?? null) || $card['isLost'] || ($card['isOverdue'] ?? false) || ! empty($card['badges'] ?? []))

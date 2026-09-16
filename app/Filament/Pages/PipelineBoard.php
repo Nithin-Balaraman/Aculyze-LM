@@ -2880,6 +2880,16 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 ['label' => 'Phone', 'value' => $lead->prospect?->mobile ?: $lead->prospect?->telephone],
                 ['label' => 'Email', 'value' => $lead->prospect?->email],
             ],
+            // Opportunity Title as the card's primary headline (company
+            // demoted to the small kicker row above it, which every card
+            // already shows unconditionally) — the whole reason this field
+            // exists is to tell two independent Leads on the same company
+            // apart (see MultipleLeadsPerCompanyTest); showing only the
+            // company name, as every other lane's card still correctly
+            // does, made that impossible. Blank/legacy Leads fall back to
+            // the company name (card()'s own null handling in the Blade
+            // partial) — a card's headline is never left blank.
+            primaryTitleOf: fn (Lead $lead) => $lead->opportunity_title,
         );
     }
 
@@ -2945,8 +2955,12 @@ class PipelineBoard extends Page implements HasActions, HasForms
         ?\Closure $assignedToOf = null,
         ?\Closure $isOverdueOf = null,
         ?\Closure $detailsOf = null,
+        // Lead-only (see leadLane()) — every other caller leaves this
+        // null, so their cards' primaryTitle stays null too (card()'s own
+        // default), unchanged.
+        ?\Closure $primaryTitleOf = null,
     ): array {
-        $cards = $records->map(function ($record) use ($resourceKey, $stageOf, $meta, $isLost, $urlFor, $outcomeOf, $versionStatusOf, $assignedToOf, $isOverdueOf, $detailsOf) {
+        $cards = $records->map(function ($record) use ($resourceKey, $stageOf, $meta, $isLost, $urlFor, $outcomeOf, $versionStatusOf, $assignedToOf, $isOverdueOf, $detailsOf, $primaryTitleOf) {
             $stage = $stageOf($record);
 
             return $this->card(
@@ -2963,6 +2977,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 stageValue: $stage->value,
                 stageLabel: $stage->getLabel(),
                 details: $detailsOf ? $detailsOf($record) : [],
+                primaryTitle: $primaryTitleOf ? $primaryTitleOf($record) : null,
             );
         });
 
@@ -3016,11 +3031,23 @@ class PipelineBoard extends Page implements HasActions, HasForms
         // destination-aware highlighting for this card" — every other
         // lane's drag behavior is unchanged.
         ?array $validDestinations = null,
+        // `primaryTitle`: overrides the card's big headline (see
+        // pipeline-board-card.blade.php) — Lead-only today (see
+        // leadLane()'s own opportunity_title), null for every other lane,
+        // so their cards are byte-for-byte unchanged. The small company
+        // "kicker" row above the headline stays `company` unconditionally
+        // for every card, so a Lead card with an opportunity title reads
+        // as company (secondary) -> opportunity (primary), exactly the
+        // hierarchy needed to tell two independent Leads on the same
+        // company apart. Falls back to the company name in Blade when
+        // null/blank — a card's headline is never left blank.
+        ?string $primaryTitle = null,
     ): array {
         return [
             'resource' => $resource,
             'id' => $id,
             'company' => $prospect?->company_name ?? 'Unknown company',
+            'primaryTitle' => $primaryTitle,
             'initials' => $this->initials($prospect?->company_name),
             'meta' => $meta,
             'url' => $url,
