@@ -188,6 +188,12 @@ class CallRoutingService
                 'follow_up_at' => $callRecord->follow_up_at,
                 'reason' => $callRecord->outcome->getLabel(),
                 'status' => 'pending',
+                // Pipeline Board V2 (Calls column): the optional Contact
+                // Mode the Calls -> Follow-Up destination-specific modal
+                // collects, staged on the Call being logged (see
+                // CallRecord.follow_up_contact_mode) — null for every other
+                // Follow-Up-creating path, which never sets it.
+                'contact_mode' => $callRecord->follow_up_contact_mode?->value,
             ]
         );
     }
@@ -203,6 +209,21 @@ class CallRoutingService
                 'appointment_at' => $callRecord->appointment_at,
                 'stage' => AppointmentStage::AppointmentMade->value,
                 'status' => AppointmentStatus::Scheduled->value,
+                // Pipeline Board V2 (Calls column): staging fields the
+                // destination-specific Calls -> Appointment modal collects
+                // on the Call being logged (see CallRecord's own
+                // appointment_mode/appointment_person_meeting/
+                // appointment_location columns) — null for every other
+                // Appointment-creating path (e.g. Others + CreateAppointment),
+                // which simply never sets them. `notes` doubles as this
+                // Appointment's own meeting_notes: the modal labels the same
+                // underlying CallRecord.notes field "Additional Notes" for
+                // this destination rather than introducing a second,
+                // duplicate notes field.
+                'mode' => $callRecord->appointment_mode?->value,
+                'person_meeting' => $callRecord->appointment_person_meeting,
+                'location' => $callRecord->appointment_location,
+                'meeting_notes' => $callRecord->notes,
             ]
         );
     }
@@ -219,6 +240,13 @@ class CallRoutingService
                 'status' => LeadStatus::RequirementCollection->value,
                 'temperature' => LeadTemperature::Warm->value,
                 'requirement_details' => $callRecord->notes,
+                // Pipeline Board V2 (Calls column, locked design section
+                // D1): the destination-specific Calls -> Lead modal's
+                // required Opportunity Title, staged on the Call being
+                // logged (see CallRecord.lead_opportunity_title) — null for
+                // the legacy Others + CreateLead path, which never collects
+                // it.
+                'opportunity_title' => $callRecord->lead_opportunity_title,
             ]
         );
     }

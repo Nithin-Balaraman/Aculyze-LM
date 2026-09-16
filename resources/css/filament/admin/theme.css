@@ -982,6 +982,117 @@
     color: rgb(165, 243, 252);
 }
 
+/* Pipeline Board V2 (Calls column, locked design section 10): solid,
+   high-contrast badges — a deliberate departure from the restrained
+   outline `.pipeline-board-badge` above for operationally important Calls
+   states (Callback Requested, Profile Requested, Requirement Identified,
+   ...). One modifier class per semantic color name, matching every
+   relevant enum's own ->getColor() values (CallOutcome/ProfileSentStatus/
+   ProfileSentMode/AppointmentMode) exactly, so "same status = same color
+   everywhere" holds without a second, driftable mapping. */
+.pipeline-board-badge-solid {
+    border: none;
+}
+
+.pipeline-board-badge-solid-gray {
+    background-color: rgb(107, 114, 128);
+    color: rgb(255, 255, 255);
+}
+
+.pipeline-board-badge-solid-warning {
+    background-color: rgb(202, 138, 4);
+    color: rgb(255, 255, 255);
+}
+
+.pipeline-board-badge-solid-info {
+    background-color: rgb(8, 145, 178);
+    color: rgb(255, 255, 255);
+}
+
+.pipeline-board-badge-solid-success {
+    background-color: rgb(22, 163, 74);
+    color: rgb(255, 255, 255);
+}
+
+.pipeline-board-badge-solid-danger {
+    background-color: rgb(220, 38, 38);
+    color: rgb(255, 255, 255);
+}
+
+:is(.dark) .pipeline-board-badge-solid-gray {
+    background-color: rgb(75, 85, 99);
+}
+
+:is(.dark) .pipeline-board-badge-solid-warning {
+    background-color: rgb(180, 130, 30);
+}
+
+:is(.dark) .pipeline-board-badge-solid-info {
+    background-color: rgb(14, 116, 144);
+}
+
+:is(.dark) .pipeline-board-badge-solid-success {
+    background-color: rgb(21, 128, 61);
+}
+
+:is(.dark) .pipeline-board-badge-solid-danger {
+    background-color: rgb(185, 28, 28);
+}
+
+/* Pipeline Board V2 (Calls column, locked design section F3): Calls-only
+   quick actions (View Call / Edit Call / Record New Call) — a restrained
+   bordered pill, deliberately less prominent than a primary action button
+   since these manage the Call itself, not the sales workflow. */
+.pipeline-board-quick-action {
+    border: 1px solid rgb(229, 231, 235);
+    color: rgb(107, 114, 128);
+}
+
+.pipeline-board-quick-action:hover {
+    border-color: rgb(203, 213, 225);
+    color: rgb(55, 65, 81);
+}
+
+:is(.dark) .pipeline-board-quick-action {
+    border-color: rgba(255, 255, 255, 0.12);
+    color: rgb(156, 163, 175);
+}
+
+:is(.dark) .pipeline-board-quick-action:hover {
+    border-color: rgba(255, 255, 255, 0.24);
+    color: rgb(229, 231, 235);
+}
+
+/* Pipeline Board V2: global drag-destination highlighting (see
+   pipeline-board-lane.blade.php) — applied only to a lane's resting state;
+   the existing cyan ring above still owns the stronger "actively hovering
+   a valid drop target" state, and .pipeline-board-lane-nodrop replaces it
+   entirely while hovering an invalid one. */
+.pipeline-board-lane-highlight {
+    border-color: rgba(45, 196, 237, 0.5);
+    box-shadow: 0 0 0 1px rgba(45, 196, 237, 0.25);
+}
+
+.pipeline-board-lane-dimmed {
+    opacity: 0.45;
+}
+
+.pipeline-board-lane-nodrop {
+    border-color: rgba(220, 38, 38, 0.5);
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.25);
+    cursor: not-allowed;
+}
+
+:is(.dark) .pipeline-board-lane-highlight {
+    border-color: rgba(45, 196, 237, 0.55);
+    box-shadow: 0 0 0 1px rgba(45, 196, 237, 0.3);
+}
+
+:is(.dark) .pipeline-board-lane-nodrop {
+    border-color: rgba(248, 113, 113, 0.6);
+    box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.3);
+}
+
 /* Final visual polish pass: hides scrollbar CHROME only — `overflow-y-
    auto`/`overflow-x-auto` stay exactly as they were on whichever element
    this is applied to, so wheel/trackpad/touch/keyboard scrolling all keep

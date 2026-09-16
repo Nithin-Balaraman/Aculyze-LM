@@ -64,8 +64,17 @@ round-trip, still fully local presentation state. --}}
     data-card="{{ $card['resource'] }}-{{ $card['id'] }}"
     @if ($isDraggableLane)
         draggable="true"
-        x-on:dragstart="$event.dataTransfer.setData('text/plain', JSON.stringify({ resource: '{{ $card['resource'] }}', id: {{ $card['id'] }} })); $el.style.opacity = 0.4"
-        x-on:dragend="$el.style.opacity = 1"
+        x-on:dragstart="
+            $event.dataTransfer.setData('text/plain', JSON.stringify({ resource: '{{ $card['resource'] }}', id: {{ $card['id'] }} }));
+            $el.style.opacity = 0.4;
+            $store.pipelineBoard.dragActive = true;
+            $store.pipelineBoard.dragValidDestinations = {{ $card['validDestinations'] !== null ? Illuminate\Support\Js::from($card['validDestinations']) : 'null' }};
+        "
+        x-on:dragend="
+            $el.style.opacity = 1;
+            $store.pipelineBoard.dragActive = false;
+            $store.pipelineBoard.dragValidDestinations = null;
+        "
     @else
         draggable="false"
     @endif
@@ -91,7 +100,7 @@ round-trip, still fully local presentation state. --}}
         {{ $card['company'] }}
     </div>
 
-    @if (($card['stageLabel'] ?? null) || $card['outcome'] || ($card['versionStatus'] ?? null) || $card['isLost'] || ($card['isOverdue'] ?? false))
+    @if (($card['stageLabel'] ?? null) || $card['outcome'] || ($card['versionStatus'] ?? null) || $card['isLost'] || ($card['isOverdue'] ?? false) || ! empty($card['badges'] ?? []))
         <div class="flex flex-wrap items-center gap-1">
             {{-- The record's own internal stage/status — a plain badge now
             that nested per-stage lane containers are gone (see
@@ -103,6 +112,22 @@ round-trip, still fully local presentation state. --}}
                     {{ strtoupper($card['stageLabel']) }}
                 </span>
             @endif
+
+            {{-- Pipeline Board V2 (Calls column, locked design section 10):
+            solid, high-contrast semantic badges — Calls-only today (see
+            PipelineBoard::callCardBadges()) — distinct from the outline
+            badges above/below. Each reuses its own enum's already-approved
+            ->getColor() value (gray/warning/info/success/danger), so "same
+            status = same color everywhere" holds without a second,
+            driftable color mapping. --}}
+            @foreach ($card['badges'] ?? [] as $badge)
+                <span
+                    @class([
+                        'pipeline-board-badge-solid w-fit rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide',
+                        "pipeline-board-badge-solid-{$badge['color']}",
+                    ])
+                >{{ strtoupper($badge['label']) }}</span>
+            @endforeach
 
             @if ($card['outcome'])
                 <span
@@ -136,6 +161,20 @@ round-trip, still fully local presentation state. --}}
                 to the same card. --}}
                 <span class="pipeline-board-badge pipeline-board-badge-gold ms-auto w-fit shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide">OVERDUE</span>
             @endif
+        </div>
+    @endif
+
+    {{-- Pipeline Board V2 (Calls column, locked design section F1):
+    unlike `details` below, these rows are always visible, never gated
+    behind the expand toggle — Calls-only today (Contact/Phone). --}}
+    @if (! empty($card['collapsedDetails'] ?? []))
+        <div class="flex flex-col gap-0.5">
+            @foreach ($card['collapsedDetails'] as $detail)
+                <div class="pipeline-board-card-meta-text flex items-baseline gap-1 font-mono text-[10px]">
+                    <span class="pipeline-board-card-meta-label shrink-0">{{ $detail['label'] }}:</span>
+                    <span class="break-words">{{ $detail['value'] }}</span>
+                </div>
+            @endforeach
         </div>
     @endif
 
@@ -202,6 +241,24 @@ round-trip, still fully local presentation state. --}}
                     class="pipeline-board-open-company-link w-fit font-mono text-[10px] font-semibold transition"
                 >Open company →</button>
             @endif
+        </div>
+    @endif
+
+    {{-- Pipeline Board V2 (Calls column, locked design section F3): Calls-
+    only quick actions — manage/log the Call itself, deliberately separate
+    from drag (which moves the workflow forward). `x-on:click.stop` so
+    these never bubble up to the card's own click-opens-history-modal
+    handler. Reuses the existing viewRecord/editRecord/createCompany
+    actions verbatim — no new business logic. --}}
+    @if (! empty($card['quickActions'] ?? []))
+        <div x-on:click.stop class="flex flex-wrap gap-1 border-t pt-1.5">
+            @foreach ($card['quickActions'] as $quickAction)
+                <button
+                    type="button"
+                    x-on:click.stop.prevent="$wire.mountAction('{{ $quickAction['action'] }}', {{ Illuminate\Support\Js::from($quickAction['arguments']) }})"
+                    class="pipeline-board-quick-action rounded px-1.5 py-0.5 font-mono text-[9px] font-medium transition"
+                >{{ $quickAction['label'] }}</button>
+            @endforeach
         </div>
     @endif
 

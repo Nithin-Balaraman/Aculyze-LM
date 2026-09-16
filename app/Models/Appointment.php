@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AppointmentMode;
 use App\Enums\AppointmentOutcome;
 use App\Enums\AppointmentStage;
 use App\Enums\AppointmentStatus;
@@ -57,6 +58,14 @@ class Appointment extends Model implements Reschedulable
         'outcome',
         'meeting_notes',
         'outcome_notes',
+        // Pipeline Board V2 (Calls column, locked design section 4A): new,
+        // additive scheduling fields collected only by the destination-
+        // specific Calls -> Appointment modal — never required at the model
+        // level (see the migration's own docblock), so every other
+        // Appointment creation path is unaffected.
+        'mode',
+        'person_meeting',
+        'location',
     ];
 
     protected function casts(): array
@@ -65,6 +74,7 @@ class Appointment extends Model implements Reschedulable
             'stage' => AppointmentStage::class,
             'status' => AppointmentStatus::class,
             'outcome' => AppointmentOutcome::class,
+            'mode' => AppointmentMode::class,
             'appointment_at' => 'datetime',
             'stage_changed_at' => 'datetime',
             'status_changed_at' => 'datetime',

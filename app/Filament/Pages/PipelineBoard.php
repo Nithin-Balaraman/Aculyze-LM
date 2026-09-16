@@ -2,9 +2,11 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\AppointmentMode;
 use App\Enums\AppointmentStage;
 use App\Enums\AppointmentStatus;
 use App\Enums\CallOutcome;
+use App\Enums\ContactMode;
 use App\Enums\DemoMode;
 use App\Enums\DemoStatus;
 use App\Enums\FollowUpStatus;
@@ -191,6 +193,17 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 ->modalHeading('Log a Call')
                 ->modalWidth('2xl')
                 ->modalSubmitActionLabel('Log call')
+                // Pipeline Board V2 (Calls column, locked design section
+                // F3): a Call card's own "Record New Call" quick action
+                // mounts this exact same action with a `prospectId`
+                // argument so the Company select comes pre-filled with the
+                // card's own Prospect — no separate form/business logic,
+                // just a prefill. Mounted without arguments (the header
+                // button), `prospectId` is simply absent and the form
+                // starts blank exactly as before.
+                ->fillForm(fn (array $arguments) => filled($arguments['prospectId'] ?? null)
+                    ? ['prospect_id' => $arguments['prospectId']]
+                    : [])
                 ->form(CallRecordResource::formSchema())
                 ->action(function (array $data) {
                     $this->performCreateCompany($data);
@@ -1209,16 +1222,39 @@ class PipelineBoard extends Page implements HasActions, HasForms
             ];
         }
 
-        // Dragging a Call card doesn't create the destination type directly
-        // at all — see performCrossDrop() and the class docblock — so this
-        // dialog is an entirely different form: the same Call Details
-        // fields CallRecordResource's own create form asks for (minus
-        // Company, which is already implied by the dragged card).
+        // Pipeline Board V2 (Calls column, locked design): dragging a Call
+        // card still never creates the destination type directly — see
+        // performCrossDrop() — but the dialog is now destination-specific
+        // rather than one generic "Log a New Call" form shown identically
+        // for all three lanes. The rep already expressed intent by choosing
+        // a destination column, so each dialog collects exactly what that
+        // one transition needs (and, for Appointment/Lead, forces the
+        // resulting outcome deterministically — see performCrossDrop()) —
+        // never a free outcome picker that could silently diverge from the
+        // chosen lane.
         if ($sourceResource === 'call') {
-            return [
-                Forms\Components\Section::make('Log a New Call')
-                    ->schema($this->callLogFormSchema()),
-            ];
+            return match ($destResource) {
+                'follow_up' => [
+                    Forms\Components\Section::make('Schedule Follow-Up')
+                        ->schema($this->callToFollowUpFormSchema()),
+                ],
+                'appointment' => [
+                    Forms\Components\Section::make('Create Appointment')
+                        ->schema($this->callToAppointmentFormSchema()),
+                ],
+                'lead' => [
+                    Forms\Components\Section::make('Create Lead')
+                        ->schema($this->callToLeadFormSchema()),
+                ],
+                // Unreachable in practice — crossDropSupported() already
+                // refused Demo/Proposal as a Call destination before this
+                // method is ever called — kept only as a safe fallback.
+                default => [
+                    Forms\Components\Placeholder::make('unsupported')
+                        ->label('Not available yet')
+                        ->content('A Call can only be moved to Follow-Ups, Appointments, or Leads.'),
+                ],
+            };
         }
 
         // A destination Follow-up is always created Pending — see the class
@@ -1508,33 +1544,166 @@ class PipelineBoard extends Page implements HasActions, HasForms
     }
 
     /**
-     * Modal-routing audit fix: reuses CallRecordResource's own
-     * callDetailsFieldsSchema()/profileSentFieldsSchema()/notesFieldSchema()
-     * verbatim (minus the Company select, which is already implied by
-     * which Call card was dragged) instead of a hand-copied field list.
-     * The hand-copied version previously omitted the `next_action` field
-     * (required by CallRecord's own model guard whenever outcome is Other)
-     * and the whole "Profile Sent" section (required whenever outcome is
-     * Profile Requested) — logging a new call from the board with either
-     * outcome could never actually be submitted, always failing with "A
-     * Call Record with outcome Other/Profile Requested requires..." since
-     * there was no field to supply it. Reusing the real schema methods
-     * means this can never drift out of sync with CallRecordResource's own
-     * create form again. Used only by the cross-lane dialog when the
-     * dragged source is itself a Call (see crossDropFormSchema()/
-     * logNewCall()); Call is never a same-lane drag (it has only the one
-     * box) and never a cross-lane destination. The "+ Log a call" header
-     * action (getHeaderActions()) reuses CallRecordResource::formSchema()
-     * directly instead, since it needs the real Company select too.
+     * Pipeline Board V2 (Calls column, locked design section 3): the
+     * destination-specific "Schedule Follow-Up" dialog — only the three
+     * outcomes that can legitimately create a Follow-Up are offered
+     * (`Others` is intentionally excluded from every destination-specific
+     * Calls drag modal; it remains available only via the normal "+ Log a
+     * call" / Record New Call flow, unchanged). Reuses
+     * CallRecordResource::profileSentFieldsSchema()/notesFieldSchema()
+     * verbatim so this can never drift from the real Call form's own
+     * validation rules, the same reasoning the modal-routing audit fix
+     * already established for the (now-removed) generic dialog.
      *
      * @return array<int, Forms\Components\Component>
      */
-    private function callLogFormSchema(): array
+    private function callToFollowUpFormSchema(): array
+    {
+        $allowedOutcomes = collect([
+            CallOutcome::CallbackRequested,
+            CallOutcome::ConcernedPersonNotAvailable,
+            CallOutcome::ProfileRequested,
+        ])->mapWithKeys(fn (CallOutcome $outcome) => [$outcome->value => $outcome->getLabel()]);
+
+        return [
+            Forms\Components\DateTimePicker::make('called_at')
+                ->required()
+                ->default(now())
+                ->seconds(false),
+            Forms\Components\Select::make('outcome')
+                ->label('Outcome')
+                ->options($allowedOutcomes)
+                ->required()
+                ->live(),
+            Forms\Components\TextInput::make('contact_person_spoken_to')
+                ->label('Contact Person')
+                ->maxLength(255),
+            Forms\Components\TextInput::make('designation')
+                ->maxLength(255),
+            Forms\Components\TextInput::make('phone_called')
+                ->label('Phone')
+                ->tel()
+                ->maxLength(20),
+            // Reused verbatim — its own ->visible() already keys off
+            // $get('outcome') === ProfileRequested, matching this dialog's
+            // 'outcome' field name exactly, so it activates only for that
+            // one outcome, same as the real Call form.
+            ...CallRecordResource::profileSentFieldsSchema(),
+            Forms\Components\DateTimePicker::make('follow_up_at')
+                ->label('Follow-Up Date & Time')
+                ->seconds(false)
+                // Locked design section 3C: Profile Requested's Follow-Up
+                // is OPTIONAL — filling it in is the only signal that
+                // creates one at all (CallOutcome::routesToConditionalFollowUp()
+                // + CallRoutingService::routeDownstream()'s own
+                // `filled($locked->follow_up_at)` gate); leaving it blank
+                // means no Follow-Up is created and this Call stays
+                // represented in Calls, exactly as today.
+                ->required(fn (Forms\Get $get) => in_array(
+                    CallOutcome::tryFrom((string) $get('outcome')),
+                    [CallOutcome::CallbackRequested, CallOutcome::ConcernedPersonNotAvailable],
+                    true,
+                ))
+                ->helperText(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome')) === CallOutcome::ProfileRequested
+                    ? 'Optional — only fill this in if a follow-up should be scheduled. Leave blank and this call stays in Calls.'
+                    : null),
+            // Locked design section 3C: Contact Mode is deliberately not
+            // shown for Profile Requested — the employee only needs to
+            // decide whether a follow-up should be scheduled there.
+            Forms\Components\Select::make('follow_up_contact_mode')
+                ->label('Contact Mode')
+                ->options(ContactMode::class)
+                ->visible(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome')) !== CallOutcome::ProfileRequested),
+            ...CallRecordResource::notesFieldSchema(),
+        ];
+    }
+
+    /**
+     * Pipeline Board V2 (Calls column, locked design section 4): the
+     * destination-specific "Create Appointment" dialog — no outcome picker
+     * at all; dropping here has exactly one deterministic meaning
+     * (outcome forced to AppointmentSet server-side — see
+     * performCrossDrop()), so `Others` can never surface here either.
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    private function callToAppointmentFormSchema(): array
     {
         return [
-            ...CallRecordResource::callDetailsFieldsSchema(includeCompanyField: false),
-            ...CallRecordResource::profileSentFieldsSchema(),
-            ...CallRecordResource::notesFieldSchema(),
+            Forms\Components\DateTimePicker::make('called_at')
+                ->required()
+                ->default(now())
+                ->seconds(false),
+            Forms\Components\DateTimePicker::make('appointment_at')
+                ->label('Appointment Date & Time')
+                ->required()
+                ->seconds(false)
+                ->default(now()->addDay()),
+            Forms\Components\Select::make('appointment_mode')
+                ->label('Mode')
+                ->options(AppointmentMode::class)
+                ->required()
+                ->live(),
+            Forms\Components\TextInput::make('appointment_person_meeting')
+                ->label('Person Meeting')
+                ->required()
+                ->maxLength(255)
+                ->helperText('Who the appointment is actually with — may differ from who was spoken to on this call.'),
+            Forms\Components\TextInput::make('appointment_location')
+                ->label('Location')
+                ->maxLength(255)
+                ->visible(fn (Forms\Get $get) => AppointmentMode::tryFrom((string) $get('appointment_mode'))?->requiresLocation() ?? false)
+                ->required(fn (Forms\Get $get) => AppointmentMode::tryFrom((string) $get('appointment_mode'))?->requiresLocation() ?? false),
+            // Locked design section 4: user-facing label for
+            // appointments.meeting_notes via this Call's own `notes` field
+            // — the meeting hasn't happened yet, so this is deliberately
+            // NOT labeled "Meeting Notes" here.
+            Forms\Components\Textarea::make('notes')
+                ->label('Additional Notes')
+                ->rows(3)
+                ->required(),
+        ];
+    }
+
+    /**
+     * Pipeline Board V2 (Calls column, locked design section 5): the
+     * destination-specific "Create Lead" dialog — no outcome picker;
+     * outcome is forced to RequirementIdentified server-side (see
+     * performCrossDrop()). "Requirement Details" is the user-facing label
+     * for this Call's own `notes` field (preserves the existing
+     * CallRecord.notes -> Lead.requirement_details mapping in
+     * CallRoutingService::createLead() unchanged) — deliberately no
+     * separate Notes field, and no structured Product/Service field (see
+     * locked design section 5B).
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    private function callToLeadFormSchema(): array
+    {
+        return [
+            Forms\Components\DateTimePicker::make('called_at')
+                ->required()
+                ->default(now())
+                ->seconds(false),
+            Forms\Components\TextInput::make('lead_opportunity_title')
+                ->label('Opportunity Title')
+                ->required()
+                ->maxLength(255)
+                ->placeholder('e.g. Inventory Automation, ERP Requirement, Cybersecurity Assessment')
+                ->helperText('Identifies this specific opportunity — a company may have more than one.'),
+            Forms\Components\TextInput::make('contact_person_spoken_to')
+                ->label('Contact Person')
+                ->maxLength(255),
+            Forms\Components\TextInput::make('designation')
+                ->maxLength(255),
+            Forms\Components\TextInput::make('phone_called')
+                ->label('Phone')
+                ->tel()
+                ->maxLength(20),
+            Forms\Components\Textarea::make('notes')
+                ->label('Requirement Details')
+                ->rows(3)
+                ->required(),
         ];
     }
 
@@ -1848,7 +2017,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
         $this->authorizeUpdate($source);
 
         if ($sourceResource === 'call') {
-            $this->logNewCall($source, $data);
+            $this->logNewCall($source, $this->resolveCallOutcomeForDestination($destResource, $data));
 
             return;
         }
@@ -1877,6 +2046,42 @@ class PipelineBoard extends Page implements HasActions, HasForms
     }
 
     /**
+     * Pipeline Board V2 (Calls column, locked design): the destination
+     * itself now decides the outcome for Appointment/Lead — the rep never
+     * picks one, so it can never diverge from the lane it was dropped on
+     * (the exact ambiguity the locked design exists to remove — see the
+     * class docblock's Phase 4 note and the earlier destination-agnostic
+     * behavior this replaces). Follow-Up keeps its own restricted picker
+     * (callToFollowUpFormSchema()) — only one of the three allowed values
+     * is accepted here too, server-side, regardless of what the dialog
+     * itself renders, since $data ultimately comes from the client.
+     */
+    private function resolveCallOutcomeForDestination(?string $destResource, array $data): array
+    {
+        $allowedFollowUpOutcomes = [
+            CallOutcome::CallbackRequested->value,
+            CallOutcome::ConcernedPersonNotAvailable->value,
+            CallOutcome::ProfileRequested->value,
+        ];
+
+        $data['outcome'] = match ($destResource) {
+            'appointment' => CallOutcome::AppointmentSet->value,
+            'lead' => CallOutcome::RequirementIdentified->value,
+            'follow_up' => in_array($data['outcome'] ?? null, $allowedFollowUpOutcomes, true) ? $data['outcome'] : null,
+            default => null,
+        };
+
+        // `Others` (and therefore next_action) is intentionally excluded
+        // from every destination-specific Calls drag modal (locked design
+        // section E) — it remains available only via the normal "+ Log a
+        // call" flow (getHeaderActions()/performCreateCompany()), which
+        // never calls this method at all.
+        $data['next_action'] = null;
+
+        return $data;
+    }
+
+    /**
      * Dragging a Call card logs a brand-new Call Record for the same
      * Prospect — an ordinary Eloquent ::create(), so CallRecordObserver
      * fires exactly as it would from CallRecordResource's own Create page,
@@ -1890,6 +2095,11 @@ class PipelineBoard extends Page implements HasActions, HasForms
     {
         $prospect = $source->prospect;
 
+        if (blank($data['outcome'] ?? null)) {
+            Notification::make()->title("Couldn't complete the move")->body('This combination is not supported.')->danger()->send();
+            throw new Halt;
+        }
+
         try {
             CallRecord::create([
                 'prospect_id' => $prospect->id,
@@ -1900,10 +2110,10 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 // CallRecord's own model guard whenever outcome is Other,
                 // and the four profile_sent_* fields are required whenever
                 // outcome is Profile Requested (see CallRecord::booted()) —
-                // both are now genuinely collected by callLogFormSchema()
-                // (see that method's docblock), so they must actually reach
-                // the created record rather than being silently dropped
-                // here the way they previously were.
+                // both are now genuinely collected by the destination-
+                // specific schemas above, so they must actually reach the
+                // created record rather than being silently dropped here
+                // the way they previously were.
                 'next_action' => $data['next_action'] ?? null,
                 'notes' => $data['notes'] ?? null,
                 'follow_up_at' => $data['follow_up_at'] ?? null,
@@ -1915,6 +2125,15 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 'profile_sent_at' => $data['profile_sent_at'] ?? null,
                 'profile_sent_mode' => $data['profile_sent_mode'] ?? null,
                 'profile_sent_notes' => $data['profile_sent_notes'] ?? null,
+                // Pipeline Board V2 (Calls column): destination-specific
+                // staging fields — see CallRoutingService::
+                // createAppointment()/createFollowUp()/createLead() and
+                // CallRecord's own docblock for these columns.
+                'appointment_mode' => $data['appointment_mode'] ?? null,
+                'appointment_person_meeting' => $data['appointment_person_meeting'] ?? null,
+                'appointment_location' => $data['appointment_location'] ?? null,
+                'follow_up_contact_mode' => $data['follow_up_contact_mode'] ?? null,
+                'lead_opportunity_title' => $data['lead_opportunity_title'] ?? null,
             ]);
         } catch (\LogicException $e) {
             Notification::make()->title("Couldn't log the call")->body($e->getMessage())->danger()->send();
@@ -2350,14 +2569,48 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * which has always shown these regardless); the hiding, when it
      * existed, lived entirely in CallRecordResource's own query.
      */
+    /**
+     * Pipeline Board V2 (Calls column, locked design sections F1/F2/F3):
+     * card content beyond the previously plain outcome/contact/phone. The
+     * extra "Recent call history"/"Existing Opportunities count"/"Upcoming
+     * Follow-Up or Appointment" fields (section F2) are batched into this
+     * one query via nested eager loads (withCount for the opportunities
+     * count, bounded nested `with()` for the other two) rather than a
+     * per-card query, so a lane of N calls still costs a small constant
+     * number of queries — never N+1. "Existing Opportunities" is COUNT
+     * ONLY (locked design F2) — never resolves or exposes which Lead(s),
+     * matching the same "never auto-associate by Prospect" principle the
+     * Calls -> Lead modal itself follows.
+     */
     private function callLane(): array
     {
         $calls = $this->scopeToPeriod(
-            CallRecordResource::getEloquentQuery()->with(['prospect', 'caller']),
+            CallRecordResource::getEloquentQuery()->with([
+                // Untyped $query — Laravel hands the nested closure the
+                // relation's own query-builder-like object, whose concrete
+                // class differs by relation type (BelongsTo vs HasMany),
+                // so a single Builder type hint here is wrong for 'prospect'.
+                'prospect' => fn ($query) => $query->withCount('leads'),
+                'prospect.callRecords' => fn ($query) => $query->latest('called_at')->limit(4),
+                'prospect.followUps' => fn ($query) => $query->where('status', FollowUpStatus::Pending->value)->orderBy('follow_up_at'),
+                'prospect.appointments' => fn ($query) => $query->where('status', AppointmentStatus::Scheduled->value)->orderBy('appointment_at'),
+                'caller',
+            ]),
             'called_at',
         )
             ->latest('called_at')
             ->get();
+
+        // Locked design: a Calls card may be dragged ONLY to Follow-Ups/
+        // Appointments/Leads — derived from the real crossDropSupported()
+        // gate (already unconditionally true for every Call source) rather
+        // than hardcoded again here, so the drag-highlight UX can never
+        // drift from the actual eligibility rule.
+        $probeSource = $calls->first() ?? new CallRecord;
+        $validDestinations = array_values(array_filter(
+            ['follow_up', 'appointment', 'lead', 'demo', 'proposal'],
+            fn (string $dest) => $this->crossDropSupported('call', $dest, $probeSource, $this->canonicalCrossDropStage($dest) ?? ''),
+        ));
 
         return [
             'label' => 'Call',
@@ -2368,14 +2621,98 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 meta: $call->outcome->getLabel().' · '.$call->called_at->diffForHumans(),
                 url: CallRecordResource::getUrl('view', ['record' => $call]),
                 assignedTo: $call->caller?->name,
-                details: [
+                validDestinations: $validDestinations,
+                badges: $this->callCardBadges($call),
+                collapsedDetails: [
                     ['label' => 'Contact', 'value' => $call->contact_person_spoken_to ?: $call->prospect?->contact_person],
                     ['label' => 'Phone', 'value' => $call->phone_called ?: $call->prospect?->mobile ?: $call->prospect?->telephone],
+                ],
+                details: [
+                    ['label' => 'Designation', 'value' => $call->designation],
                     ['label' => 'Email', 'value' => $call->prospect?->email],
-                    ['label' => 'Next action', 'value' => $call->next_action],
+                    ['label' => 'Latest notes', 'value' => Str::limit($call->notes, 90)],
+                    ['label' => 'Next action', 'value' => $call->next_action?->getLabel()],
+                    ['label' => 'Profile status', 'value' => $call->profile_sent_status?->getLabel()],
+                    ['label' => 'Recent calls', 'value' => $this->recentCallHistorySummary($call)],
+                    ['label' => 'Existing Opportunities', 'value' => $call->prospect ? (string) $call->prospect->leads_count : null],
+                    ['label' => 'Upcoming', 'value' => $this->upcomingFollowUpOrAppointmentSummary($call)],
+                ],
+                quickActions: [
+                    ['label' => 'View Call', 'action' => 'viewRecord', 'arguments' => ['resource' => 'call', 'id' => $call->id]],
+                    ['label' => 'Edit Call', 'action' => 'editRecord', 'arguments' => ['resource' => 'call', 'id' => $call->id]],
+                    ['label' => 'Record New Call', 'action' => 'createCompany', 'arguments' => ['prospectId' => $call->prospect_id]],
                 ],
             ))->values()->all(),
         ];
+    }
+
+    /**
+     * Locked design section 10: solid, semantic-color badges distinct from
+     * the existing outline stage/outcome badges — reuses each enum's own
+     * already-approved ->getColor() (CallOutcome/ProfileSentStatus) so
+     * "same status = same color everywhere" holds automatically, rather
+     * than a second, driftable color mapping. Profile Requested gets two
+     * separate badges (main outcome + Pending/Sent sub-state), matching
+     * the locked design's explicit example exactly.
+     *
+     * @return array<int, array{label: string, color: string}>
+     */
+    private function callCardBadges(CallRecord $call): array
+    {
+        $badges = [
+            ['label' => $call->outcome->getLabel(), 'color' => $call->outcome->getColor()],
+        ];
+
+        if ($call->outcome === CallOutcome::ProfileRequested && $call->profile_sent_status !== null) {
+            $badges[] = ['label' => $call->profile_sent_status->getLabel(), 'color' => $call->profile_sent_status->getColor()];
+        }
+
+        return $badges;
+    }
+
+    /**
+     * Bounded to the 3 most recent OTHER calls for the same Prospect,
+     * already eager-loaded (see callLane()) — never a per-card query.
+     */
+    private function recentCallHistorySummary(CallRecord $call): ?string
+    {
+        $recent = $call->prospect?->callRecords
+            ?->reject(fn (CallRecord $other) => $other->is($call))
+            ->take(3);
+
+        if (! $recent || $recent->isEmpty()) {
+            return null;
+        }
+
+        return $recent
+            ->map(fn (CallRecord $other) => $other->outcome->getLabel().' ('.$other->called_at->format('d M').')')
+            ->implode('; ');
+    }
+
+    /**
+     * The nearer of this Prospect's next Pending Follow-Up or Scheduled
+     * Appointment (both already eager-loaded — see callLane()), if any.
+     * Never resolves or implies a specific Lead — matches the "count only,
+     * no auto-association" principle the Existing Opportunities figure
+     * itself follows.
+     */
+    private function upcomingFollowUpOrAppointmentSummary(CallRecord $call): ?string
+    {
+        $followUp = $call->prospect?->followUps?->first();
+        $appointment = $call->prospect?->appointments?->first();
+
+        $candidates = collect([
+            $followUp ? ['label' => 'Follow-Up', 'at' => $followUp->follow_up_at] : null,
+            $appointment ? ['label' => 'Appointment', 'at' => $appointment->appointment_at] : null,
+        ])->filter()->filter(fn (array $candidate) => $candidate['at'] !== null);
+
+        $next = $candidates->sortBy('at')->first();
+
+        if (! $next) {
+            return null;
+        }
+
+        return $next['label'].' · '.$next['at']->format('d M, h:i A');
     }
 
     /**
@@ -2622,6 +2959,28 @@ class PipelineBoard extends Page implements HasActions, HasForms
         ?string $stageValue = null,
         ?string $stageLabel = null,
         array $details = [],
+        // Pipeline Board V2 (Calls column): four additive, Calls-only
+        // fields — every other lane leaves them at their empty defaults, so
+        // nothing here changes any other resource's card.
+        // `collapsedDetails`: shown unconditionally (unlike `details`,
+        // which stays behind the expand toggle) — F1's Contact/Phone.
+        array $collapsedDetails = [],
+        // `badges`: solid, semantic-color pills distinct from the existing
+        // outline `stageLabel`/`outcome` badges above — see
+        // pipeline-board-card.blade.php and callCardBadges().
+        array $badges = [],
+        // `quickActions`: [['label' => ..., 'action' => ..., 'arguments' => [...]]] —
+        // dispatched via $wire.mountAction(action, arguments), reusing the
+        // existing viewRecord/editRecord/createCompany actions verbatim
+        // (no new business logic).
+        array $quickActions = [],
+        // `validDestinations`: the lane keys this specific card may be
+        // dragged to right now, derived from crossDropSupported() itself
+        // (see callLane()) so the board's drag-highlight UX can never drift
+        // from the real eligibility rule. Null (the default) means "no
+        // destination-aware highlighting for this card" — every other
+        // lane's drag behavior is unchanged.
+        ?array $validDestinations = null,
     ): array {
         return [
             'resource' => $resource,
@@ -2685,6 +3044,13 @@ class PipelineBoard extends Page implements HasActions, HasForms
             // 23/27: neither becomes "overdue" merely because time passes;
             // staleness is a separate, already-differently-surfaced idea).
             'isOverdue' => $isOverdue,
+            'collapsedDetails' => array_values(array_filter(
+                $collapsedDetails,
+                fn (array $detail): bool => filled($detail['value'] ?? null),
+            )),
+            'badges' => $badges,
+            'quickActions' => $quickActions,
+            'validDestinations' => $validDestinations,
         ];
     }
 

@@ -33,6 +33,14 @@ class Lead extends Model
         'temperature',
         'requirement_details',
         'notes',
+        // Pipeline Board V2 (Calls column, locked design section D1): a
+        // human-readable identity for this opportunity, distinguishing it
+        // from any other independent Lead the same Prospect may have.
+        // Nullable at the DB level for backward compatibility with
+        // existing rows (see the migration's own docblock) — required only
+        // at the application layer for new Leads created through the V2
+        // Calls -> Lead modal.
+        'opportunity_title',
     ];
 
     protected function casts(): array

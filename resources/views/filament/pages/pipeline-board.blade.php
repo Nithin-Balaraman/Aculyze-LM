@@ -151,6 +151,17 @@
             document.addEventListener('alpine:init', () => {
                 Alpine.store('pipelineBoard', {
                     expandedCount: 0,
+                    // Pipeline Board V2 (Calls column): global drag-
+                    // destination-highlight state. `dragValidDestinations`
+                    // is null while nothing is being dragged, or while the
+                    // dragged card carries no server-computed eligibility
+                    // list (every non-Call lane today) — lanes fall back to
+                    // their existing plain hover behavior in that case, so
+                    // nothing about any other lane's drag UX changes. Only
+                    // a Call card (see pipeline-board-card.blade.php's
+                    // dragstart) currently sets a real array here.
+                    dragActive: false,
+                    dragValidDestinations: null,
                 });
             });
         }
