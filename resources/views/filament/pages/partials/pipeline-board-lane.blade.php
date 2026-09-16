@@ -11,20 +11,38 @@ which lane a card was dropped into, never which stage box. --}}
         data-lane="{{ $laneKey }}"
         x-data="{
             over: false,
-            // Pipeline Board V2: 'neutral' when nothing being dragged
-            // right now carries server-computed eligibility (every lane
-            // other than Calls, today — see PipelineBoard::callLane()'s
-            // own docblock) — this lane's drag/drop UX is then byte-for-
-            // byte identical to before this pass. 'valid'/'invalid' only
-            // apply once a card that DOES carry that data starts dragging.
-            get dragState() {
+            // Pipeline Board V2 bugfix: a `get dragState()` accessor
+            // defined inside x-data (reading $store.pipelineBoard from its
+            // body) does NOT reliably re-trigger this element's :class
+            // binding when the store mutates — confirmed empirically
+            // (dispatching a real dragstart correctly set
+            // $store.pipelineBoard.dragActive/dragValidDestinations, but
+            // no lane's class list changed until a native dragover/
+            // dragleave on THAT lane separately flipped `over`, which is
+            // tracked directly, not via a getter). Alpine's own dependency
+            // tracking for a bound directive (:class, x-on, ...) only
+            // reliably registers reactive reads that happen literally
+            // within that directive's OWN evaluated expression string —
+            // not reads buried inside a plain JS getter/method invoked
+            // from it. Fixed by reading $store.pipelineBoard directly
+            // inside each bound expression below (the same proven-working
+            // pattern `over` itself already used), via this one small
+            // non-getter helper so the condition isn't duplicated four
+            // times — a PLAIN METHOD called as isValidDestination() from
+            // within a directive's own expression is invoked synchronously
+            // during that directive's evaluation, unlike a getter accessed
+            // as a bare property from a DIFFERENT directive's expression.
+            isValidDestination() {
                 const store = $store.pipelineBoard;
 
-                if (! store.dragActive || store.dragValidDestinations === null) {
-                    return 'neutral';
-                }
+                return store.dragActive && store.dragValidDestinations !== null
+                    && store.dragValidDestinations.includes('{{ $laneKey }}');
+            },
+            isInvalidDestination() {
+                const store = $store.pipelineBoard;
 
-                return store.dragValidDestinations.includes('{{ $laneKey }}') ? 'valid' : 'invalid';
+                return store.dragActive && store.dragValidDestinations !== null
+                    && ! store.dragValidDestinations.includes('{{ $laneKey }}');
             },
         }"
         @if ($isDropTarget)
@@ -37,7 +55,7 @@ which lane a card was dropped into, never which stage box. --}}
                 if (! dragged.resource) return;
                 if (dragged.resource === '{{ $laneKey }}') {
                     $wire.mountAction('drop', { resource: dragged.resource, id: dragged.id });
-                } else if (dragState === 'invalid') {
+                } else if (isInvalidDestination()) {
                     // Locked design: an invalid destination disallows the
                     // transition outright — never even opens the modal.
                     // The server's own crossDropSupported() stays the
@@ -50,10 +68,10 @@ which lane a card was dropped into, never which stage box. --}}
                 }
             "
             :class="{
-                'ring-2 ring-brand-cyan ring-offset-1 ring-offset-white dark:ring-offset-gray-900': over && dragState !== 'invalid',
-                'pipeline-board-lane-nodrop': over && dragState === 'invalid',
-                'pipeline-board-lane-highlight': dragState === 'valid' && ! over,
-                'pipeline-board-lane-dimmed': dragState === 'invalid' && ! over,
+                'ring-2 ring-brand-cyan ring-offset-1 ring-offset-white dark:ring-offset-gray-900': over && ! isInvalidDestination(),
+                'pipeline-board-lane-nodrop': over && isInvalidDestination(),
+                'pipeline-board-lane-highlight': ! over && isValidDestination(),
+                'pipeline-board-lane-dimmed': ! over && isInvalidDestination(),
             }"
         @endif
         class="pipeline-board-lane flex flex-1 flex-col rounded-xl border p-2.5 transition"

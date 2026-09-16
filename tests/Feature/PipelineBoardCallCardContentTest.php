@@ -16,6 +16,7 @@ use App\Models\Prospect;
 use App\Models\User;
 use App\Support\Tenancy\Tenancy;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -169,6 +170,79 @@ class PipelineBoardCallCardContentTest extends TestCase
             foreach (['Create Follow-Up', 'Create Appointment', 'Create Lead'] as $forbidden) {
                 $this->assertFalse(in_array($forbidden, $labels, true));
             }
+        });
+    }
+
+    /**
+     * Manual browser validation defect fix: drag-start highlighting was
+     * previously wired through a `get dragState()` accessor defined inside
+     * a lane's own x-data, read bare (`dragState`) from a DIFFERENT
+     * directive's (:class) expression — this did not reliably re-trigger
+     * that binding when the global drag store mutated, confirmed
+     * empirically (dispatching a real `dragstart` correctly set
+     * $store.pipelineBoard.dragActive/dragValidDestinations, but no lane's
+     * class list changed until that SAME lane's own `over` flag flipped via
+     * a native dragover/dragleave). Fixed by reading the store directly
+     * inside each bound expression via plain methods (isValidDestination()/
+     * isInvalidDestination()), called explicitly from within :class/x-on's
+     * own evaluated strings rather than through an intermediary getter.
+     *
+     * PHPUnit can't execute real Alpine reactivity, so this is a markup-
+     * level regression guard: it asserts the rendered lane wiring reads the
+     * store directly inside the :class expression (not via a bare
+     * `dragState` property reference), and that the highlight/dimmed
+     * classes are gated on the store-derived state alone — never on `over`
+     * — so a drag-start highlight can never again be silently downgraded
+     * to "only shows once you're already hovering that exact lane".
+     */
+    public function test_lane_highlight_and_dimmed_classes_are_driven_by_the_store_not_only_by_hover(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $this->actingAs($user);
+            $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+            CallRecord::create([
+                'prospect_id' => $prospect->id, 'user_id' => $user->id,
+                'called_at' => now(), 'outcome' => CallOutcome::NoAnswer,
+            ]);
+
+            $html = Livewire::test(PipelineBoard::class)->html();
+
+            // The highlight/dimmed classes must be reachable WITHOUT `over`
+            // being true — i.e. gated on the store state alone, not
+            // "over && ...".
+            $this->assertStringContainsString("'pipeline-board-lane-highlight': ! over && isValidDestination()", $html);
+            $this->assertStringContainsString("'pipeline-board-lane-dimmed': ! over && isInvalidDestination()", $html);
+
+            // Regression guard against reintroducing the broken pattern:
+            // the store is read from inside a plain method (called with
+            // parens), not a lazily-bound getter — no bare `dragState`
+            // property reference inside the actual :class binding (a
+            // code comment elsewhere may still mention the retired name
+            // for history, so this checks the binding itself, not the
+            // whole page).
+            $this->assertStringNotContainsString("=> dragState !== 'invalid'", $html);
+            $this->assertStringNotContainsString("dragState === 'valid'", $html);
+            $this->assertStringContainsString('isValidDestination()', $html);
+            $this->assertStringContainsString('isInvalidDestination()', $html);
+
+            // The Call card's dragstart handler carries the real,
+            // server-computed destination list (not a placeholder) —
+            // proves the data the store-driven highlight depends on is
+            // actually present at drag start. Blade\Illuminate\Support\Js::from()
+            // renders this as a JSON.parse('...') call with every double
+            // quote escaped to " (confirmed against the actual
+            // rendered markup), not a literal JS array/string.
+            $escapedQuote = chr(92).'u0022';
+            $this->assertStringContainsString(
+                '$store.pipelineBoard.dragValidDestinations = JSON.parse(\'['
+                .$escapedQuote.'follow_up'.$escapedQuote.','
+                .$escapedQuote.'appointment'.$escapedQuote.','
+                .$escapedQuote.'lead'.$escapedQuote.']\')',
+                $html,
+            );
         });
     }
 }
