@@ -44,6 +44,43 @@ class PipelineBoardCallToLeadDestinationModalTest extends TestCase
         ]);
     }
 
+    /**
+     * Small usability fix: Contact Person/Designation/Phone open pre-filled
+     * from the exact Call being dragged. Still fully editable.
+     */
+    public function test_the_live_modal_prefills_contact_fields_from_the_dragged_call(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $this->actingAs($user);
+            $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+            $call = CallRecord::create([
+                'prospect_id' => $prospect->id,
+                'user_id' => $user->id,
+                'called_at' => now()->subDay(),
+                'outcome' => CallOutcome::NoAnswer,
+                'contact_person_spoken_to' => 'Ravi Kumar',
+                'designation' => 'IT Head',
+                'phone_called' => '9123456780',
+            ]);
+
+            Livewire::test(PipelineBoard::class)
+                ->mountAction('crossDrop', [
+                    'sourceResource' => 'call',
+                    'sourceId' => $call->id,
+                    'destResource' => 'lead',
+                    'destStage' => 'requirement_collection',
+                ])
+                ->assertActionDataSet([
+                    'contact_person_spoken_to' => 'Ravi Kumar',
+                    'designation' => 'IT Head',
+                    'phone_called' => '9123456780',
+                ]);
+        });
+    }
+
     public function test_the_resulting_lead_stores_opportunity_title_and_requirement_details(): void
     {
         $org = Organization::factory()->create();

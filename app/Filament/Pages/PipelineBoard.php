@@ -1233,18 +1233,24 @@ class PipelineBoard extends Page implements HasActions, HasForms
         // never a free outcome picker that could silently diverge from the
         // chosen lane.
         if ($sourceResource === 'call') {
+            // $source is guaranteed a CallRecord here — crossDropSupported()
+            // above already returned false otherwise (see its own
+            // `$sourceResource === 'call'` branch, which requires
+            // `$source instanceof CallRecord`).
+            $callSource = $source instanceof CallRecord ? $source : null;
+
             return match ($destResource) {
                 'follow_up' => [
                     Forms\Components\Section::make('Schedule Follow-Up')
-                        ->schema($this->callToFollowUpFormSchema()),
+                        ->schema($this->callToFollowUpFormSchema($callSource)),
                 ],
                 'appointment' => [
                     Forms\Components\Section::make('Create Appointment')
-                        ->schema($this->callToAppointmentFormSchema()),
+                        ->schema($this->callToAppointmentFormSchema($callSource)),
                 ],
                 'lead' => [
                     Forms\Components\Section::make('Create Lead')
-                        ->schema($this->callToLeadFormSchema()),
+                        ->schema($this->callToLeadFormSchema($callSource)),
                 ],
                 // Unreachable in practice — crossDropSupported() already
                 // refused Demo/Proposal as a Call destination before this
@@ -1557,7 +1563,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
      *
      * @return array<int, Forms\Components\Component>
      */
-    private function callToFollowUpFormSchema(): array
+    private function callToFollowUpFormSchema(?CallRecord $source): array
     {
         $allowedOutcomes = collect([
             CallOutcome::CallbackRequested,
@@ -1575,14 +1581,23 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 ->options($allowedOutcomes)
                 ->required()
                 ->live(),
+            // Small usability fix: pre-filled from the exact Call being
+            // dragged (contact_person_spoken_to/designation/phone_called),
+            // the same way "Record New Call"'s Company field is already
+            // pre-filled from the card's own Prospect — a starting point
+            // only, never disabled/locked, so a genuinely different contact
+            // this time can still be typed over it before submitting.
             Forms\Components\TextInput::make('contact_person_spoken_to')
                 ->label('Contact Person')
+                ->default($source?->contact_person_spoken_to)
                 ->maxLength(255),
             Forms\Components\TextInput::make('designation')
+                ->default($source?->designation)
                 ->maxLength(255),
             Forms\Components\TextInput::make('phone_called')
                 ->label('Phone')
                 ->tel()
+                ->default($source?->phone_called)
                 ->maxLength(20),
             // Reused verbatim — its own ->visible() already keys off
             // $get('outcome') === ProfileRequested, matching this dialog's
@@ -1627,7 +1642,21 @@ class PipelineBoard extends Page implements HasActions, HasForms
      *
      * @return array<int, Forms\Components\Component>
      */
-    private function callToAppointmentFormSchema(): array
+    /**
+     * $source is accepted (unused below) only for call-site symmetry with
+     * callToFollowUpFormSchema()/callToLeadFormSchema() — see the "Pre-fill
+     * Contact Person/Designation/Phone" enhancement request's own report
+     * for why this modal has no such fields to pre-fill in the first
+     * place: it never had Contact Person/Designation/Phone fields at all
+     * (locked design section 4's field list is exactly Appointment Date &
+     * Time/Mode/Person Meeting/Location/Additional Notes), and
+     * `appointment_person_meeting` is a deliberately DIFFERENT concept from
+     * the Call's own contact_person_spoken_to (see this method's other
+     * docblock note: "Person Meeting is intentionally distinct... may
+     * differ from who was spoken to on this call" — pre-filling it from
+     * contact_person_spoken_to would collapse that explicit distinction).
+     */
+    private function callToAppointmentFormSchema(?CallRecord $source): array
     {
         return [
             Forms\Components\DateTimePicker::make('called_at')
@@ -1678,7 +1707,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
      *
      * @return array<int, Forms\Components\Component>
      */
-    private function callToLeadFormSchema(): array
+    private function callToLeadFormSchema(?CallRecord $source): array
     {
         return [
             Forms\Components\DateTimePicker::make('called_at')
@@ -1691,14 +1720,20 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 ->maxLength(255)
                 ->placeholder('e.g. Inventory Automation, ERP Requirement, Cybersecurity Assessment')
                 ->helperText('Identifies this specific opportunity — a company may have more than one.'),
+            // Small usability fix: pre-filled from the exact Call being
+            // dragged — see callToFollowUpFormSchema()'s own comment for
+            // the same reasoning. Still fully editable.
             Forms\Components\TextInput::make('contact_person_spoken_to')
                 ->label('Contact Person')
+                ->default($source?->contact_person_spoken_to)
                 ->maxLength(255),
             Forms\Components\TextInput::make('designation')
+                ->default($source?->designation)
                 ->maxLength(255),
             Forms\Components\TextInput::make('phone_called')
                 ->label('Phone')
                 ->tel()
+                ->default($source?->phone_called)
                 ->maxLength(20),
             Forms\Components\Textarea::make('notes')
                 ->label('Requirement Details')

@@ -46,6 +46,46 @@ class PipelineBoardCallToFollowUpDestinationModalTest extends TestCase
         ]);
     }
 
+    /**
+     * Small usability fix: Contact Person/Designation/Phone open pre-filled
+     * from the exact Call being dragged, sparing the rep from retyping data
+     * the system already has — the same pattern already used for "Record
+     * New Call"'s Company field. Still fully editable (plain ->default(),
+     * never ->disabled()).
+     */
+    public function test_the_live_modal_prefills_contact_fields_from_the_dragged_call(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $this->actingAs($user);
+            $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+            $call = CallRecord::create([
+                'prospect_id' => $prospect->id,
+                'user_id' => $user->id,
+                'called_at' => now()->subDay(),
+                'outcome' => CallOutcome::NoAnswer,
+                'contact_person_spoken_to' => 'Priya Nair',
+                'designation' => 'Procurement Manager',
+                'phone_called' => '9876543210',
+            ]);
+
+            Livewire::test(PipelineBoard::class)
+                ->mountAction('crossDrop', [
+                    'sourceResource' => 'call',
+                    'sourceId' => $call->id,
+                    'destResource' => 'follow_up',
+                    'destStage' => 'pending',
+                ])
+                ->assertActionDataSet([
+                    'contact_person_spoken_to' => 'Priya Nair',
+                    'designation' => 'Procurement Manager',
+                    'phone_called' => '9876543210',
+                ]);
+        });
+    }
+
     public function test_callback_requested_creates_a_follow_up_with_optional_contact_mode(): void
     {
         $org = Organization::factory()->create();

@@ -47,6 +47,44 @@ class PipelineBoardCallToAppointmentDestinationModalTest extends TestCase
         ]);
     }
 
+    /**
+     * "Pre-fill Contact Person/Designation/Phone" enhancement request:
+     * this modal has no such fields — locked design section 4's field list
+     * is exactly Appointment Date & Time/Mode/Person Meeting/Location/
+     * Additional Notes, and `appointment_person_meeting` is deliberately a
+     * DIFFERENT concept from the Call's own contact_person_spoken_to (this
+     * class's own docblock: "may differ from who was spoken to on this
+     * call"). Guards against ever silently pre-filling Person Meeting from
+     * contact_person_spoken_to, which would collapse that explicit
+     * distinction.
+     */
+    public function test_the_live_modal_does_not_prefill_person_meeting_from_the_calls_contact_person(): void
+    {
+        $org = Organization::factory()->create();
+
+        Tenancy::runAs($org->id, function () use ($org) {
+            $user = User::factory()->create(['organization_id' => $org->id]);
+            $this->actingAs($user);
+            $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
+            $call = CallRecord::create([
+                'prospect_id' => $prospect->id,
+                'user_id' => $user->id,
+                'called_at' => now()->subDay(),
+                'outcome' => CallOutcome::NoAnswer,
+                'contact_person_spoken_to' => 'Someone Else Entirely',
+            ]);
+
+            Livewire::test(PipelineBoard::class)
+                ->mountAction('crossDrop', [
+                    'sourceResource' => 'call',
+                    'sourceId' => $call->id,
+                    'destResource' => 'appointment',
+                    'destStage' => 'appointment_made',
+                ])
+                ->assertActionDataSet(['appointment_person_meeting' => null]);
+        });
+    }
+
     public function test_the_resulting_appointment_receives_mode_person_meeting_location_and_notes(): void
     {
         $org = Organization::factory()->create();
