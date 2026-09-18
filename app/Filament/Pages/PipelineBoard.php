@@ -2832,7 +2832,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                     ['label' => 'Product/Service', 'value' => $demo->product_service],
                     ['label' => 'Purpose', 'value' => Str::limit($demo->purpose, 90)],
                     ['label' => 'Feedback', 'value' => Str::limit($demo->feedback, 90)],
-                    ['label' => 'Next action', 'value' => $demo->next_action],
+                    ['label' => 'Next action', 'value' => $demo->next_action?->getLabel()],
                 ],
             ))->values()->all(),
         ];
