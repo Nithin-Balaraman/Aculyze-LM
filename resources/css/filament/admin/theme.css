@@ -322,6 +322,18 @@
     scrollbar-gutter: stable;
 }
 
+/* Logo sizing refinement: Filament's own default header is a fixed `h-16`
+   (4rem) — fine for the original small 2.75rem-tall logo, but too short
+   once brandLogoHeight() (AdminPanelProvider) grew to 3.5rem for
+   legibility, since the `.fi-logo` backdrop plate below adds its own
+   0.375rem top/bottom padding on top of that (~4.25rem total). A plain
+   `.fi-sidebar-header { height: ... }` rule at this same specificity
+   overrides Tailwind's `h-16` utility class the same way the background/
+   box-shadow rule above already does, so no !important is needed. */
+.fi-sidebar-header {
+    height: 5rem;
+}
+
 /* The header (logo + collapse toggle) paints its own opaque
    bg-white/dark:bg-gray-900 by default — without this it renders as a
    solid box floating over the new navy gradient. The plain selector
@@ -372,6 +384,43 @@ img.fi-logo {
     padding: 0.375rem 0.75rem;
     box-shadow: 0 1px 3px rgba(15, 27, 61, 0.18);
     max-width: 100%;
+    width: auto;
+    /* Sizing refinement fix: Tailwind's Preflight resets every element to
+       `box-sizing: border-box`, which for a replaced element like <img>
+       means the browser fits Filament's own inline `height: Xrem` style
+       AROUND the padding above — i.e. it shrinks the actual rendered
+       logo to (height - padding), not "image at height, plus padding on
+       top." That squeezed the image enough to visibly clip the tagline
+       banner at the bottom of the lockup (confirmed via computed-style
+       inspection: a 3.5rem/56px height rendered the image content at
+       only 44px). `content-box` makes the padding add to the specified
+       height instead, exactly like the intended "plate around the
+       logo," not "logo squeezed inside the plate." */
+    box-sizing: content-box;
+}
+
+/* Sidebar-specific: the sidebar header is only 16rem wide (minus its own
+   px-6 padding and the collapse-toggle chevron button sharing the same
+   row) — the login page's plate padding above is generous because that
+   header has the whole card's width to itself. Slightly tighter
+   horizontal padding here leaves the chevron button clear room instead
+   of the two visually overlapping. */
+.fi-sidebar img.fi-logo {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+}
+
+/* Collapsed-sidebar icon (resources/views/vendor/filament-panels/
+   components/sidebar/index.blade.php override): the cropped, icon-only
+   "A" mark — public/images/aculyze_mark.png, the same asset already
+   derived for the favicon — reused here at a larger size. Unlike the
+   full lockup, this is a colored graphic (blue/cyan on transparent), not
+   dark text, so it already reads fine against the permanently-navy
+   sidebar with no backdrop-plate treatment needed. Roughly square source
+   (1560x1380) — a fixed height with `width: auto` keeps its own aspect
+   ratio without distortion. */
+.fi-logo-collapsed {
+    height: 2rem;
     width: auto;
 }
 

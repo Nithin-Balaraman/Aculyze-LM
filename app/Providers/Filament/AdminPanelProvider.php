@@ -78,15 +78,23 @@ class AdminPanelProvider extends PanelProvider
              * header AND the login page's centered header, so setting this
              * once here covers both placements — no separate login-page
              * work needed. brandLogoHeight() lets width scale automatically
-             * from the source's own ~3.15:1 aspect ratio (4345x1380),
-             * confirmed to fit comfortably inside the 16rem sidebar at this
-             * height (see theme.css's own comment on the resulting `.fi-
-             * logo` sizing/backdrop treatment for why a plain img alone
-             * wasn't enough here).
+             * from the source's own ~3.15:1 aspect ratio (4345x1380).
+             *
+             * Sizing refinement (follow-up to the initial pass): a single
+             * fixed height left the wordmark ("Aculyze Solutions LLP" +
+             * tagline) too small to read in both places. The login page has
+             * far more available width than the 16rem sidebar, so this is a
+             * Closure returning a bigger height there specifically —
+             * Filament's own supported mechanism for this (getBrandLogoHeight()
+             * evaluates it fresh on every render), rather than fighting the
+             * <img>'s inline height style with a CSS override/!important.
+             * The sidebar's own larger height (up from 2.75rem) is paired
+             * with a taller `.fi-sidebar-header` in theme.css so it isn't
+             * vertically clipped — see that rule's own comment.
              */
             ->brandName('Aculyze LM')
             ->brandLogo(asset('images/aculyze_logo.png'))
-            ->brandLogoHeight('2.75rem')
+            ->brandLogoHeight(fn () => request()->routeIs('filament.admin.auth.login') ? '6rem' : '3rem')
             ->favicon(asset('images/aculyze_favicon.png'))
             ->defaultAvatarProvider(InitialsAvatarProvider::class)
             /*
