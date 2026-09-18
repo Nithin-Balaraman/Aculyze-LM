@@ -219,6 +219,13 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * there's no separate Prospect-creation step left here to orchestrate.
      * CallRecordObserver fires exactly as it would from the real Call
      * Record create form, routing through CallRoutingService as usual.
+     *
+     * Atomicity fix: wrapped in DB::transaction() so CallRecordObserver's
+     * own nested routing transaction becomes a savepoint of this one — a
+     * routing failure now rolls back this Call Record insert too, instead
+     * of leaving a "processed_at still null" orphan behind while the user
+     * is shown a failure notification. Same composition
+     * FollowUp::completeWithCall() already relies on.
      */
     private function performCreateCompany(array $data): void
     {
@@ -227,7 +234,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
         $callData = collect($data)->only((new CallRecord)->getFillable())->all();
 
         try {
-            $call = CallRecord::create($callData);
+            $call = DB::transaction(fn () => CallRecord::create($callData));
         } catch (\LogicException $e) {
             Notification::make()->title("Couldn't log the call")->body($e->getMessage())->danger()->send();
             throw new Halt;
@@ -2125,6 +2132,12 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * The dragged Call Record itself is never touched — same as logging a
      * fresh call always would be, regardless of which existing call led the
      * rep to place this one.
+     *
+     * Atomicity fix: wrapped in DB::transaction() — see performCreateCompany()'s
+     * identical comment above. Previously this create() ran outside
+     * performCrossDrop()'s own transaction entirely (that transaction is
+     * only opened for non-'call' sources — see performCrossDrop()), so a
+     * routing failure here could leave a real, unrouted Call Record behind.
      */
     private function logNewCall(Model $source, array $data): void
     {
@@ -2136,7 +2149,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
         }
 
         try {
-            CallRecord::create([
+            DB::transaction(fn () => CallRecord::create([
                 'prospect_id' => $prospect->id,
                 'user_id' => auth()->id(),
                 'called_at' => $data['called_at'] ?? now(),
@@ -2169,7 +2182,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 'appointment_location' => $data['appointment_location'] ?? null,
                 'follow_up_contact_mode' => $data['follow_up_contact_mode'] ?? null,
                 'lead_opportunity_title' => $data['lead_opportunity_title'] ?? null,
-            ]);
+            ]));
         } catch (\LogicException $e) {
             Notification::make()->title("Couldn't log the call")->body($e->getMessage())->danger()->send();
             throw new Halt;
