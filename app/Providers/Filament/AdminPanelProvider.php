@@ -63,7 +63,31 @@ class AdminPanelProvider extends PanelProvider
              * looked correct as-is, so it's left unset here.
              */
             ->sidebarCollapsibleOnDesktop()
+            /*
+             * Official logo pass: brandName() is kept (never removed) since
+             * Filament still uses it for the logo <img>'s alt text/
+             * accessibility label even once brandLogo() is set — only the
+             * VISIBLE text fallback it used to render is replaced.
+             *
+             * Reuses the exact same asset already configured for the
+             * Proposal PDF letterhead (App\Support\Organization\
+             * OrganizationIdentityResolver / config('aculyze.
+             * organization_identity.logo_path')) — public/images/
+             * aculyze_logo.png. Filament renders the identical
+             * <x-filament-panels::logo> component in both the sidebar
+             * header AND the login page's centered header, so setting this
+             * once here covers both placements — no separate login-page
+             * work needed. brandLogoHeight() lets width scale automatically
+             * from the source's own ~3.15:1 aspect ratio (4345x1380),
+             * confirmed to fit comfortably inside the 16rem sidebar at this
+             * height (see theme.css's own comment on the resulting `.fi-
+             * logo` sizing/backdrop treatment for why a plain img alone
+             * wasn't enough here).
+             */
             ->brandName('Aculyze LM')
+            ->brandLogo(asset('images/aculyze_logo.png'))
+            ->brandLogoHeight('2.75rem')
+            ->favicon(asset('images/aculyze_favicon.png'))
             ->defaultAvatarProvider(InitialsAvatarProvider::class)
             /*
              * IBM Plex Sans is already bundled and loaded via

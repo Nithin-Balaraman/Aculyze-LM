@@ -342,9 +342,37 @@
    sidebar no longer follows the light/dark toggle, its own text can't
    either. Scoped to `.fi-sidebar .fi-logo` (not `.fi-logo` alone) so the
    login page's own centered logo, outside the sidebar and still
-   following the normal light/dark toggle, is unaffected. */
+   following the normal light/dark toggle, is unaffected. Dormant now that
+   brandLogo() renders an <img> instead of text (color has no effect on a
+   raster image) — kept as a harmless backstop for the text-fallback path
+   Filament's own logo.blade.php still has if brandLogo() is ever unset. */
 .fi-sidebar .fi-logo {
     color: #fff;
+}
+
+/* Official logo pass: the real Aculyze logo (public/images/aculyze_logo.png
+   — the same asset already used for the Proposal PDF letterhead) has a
+   transparent background and a dark-navy wordmark ("ACULYZE SOLUTIONS
+   LLP"). That reads fine on a light background, but two of this image's
+   three placements sit on a DARK background: the sidebar header (see
+   `.fi-sidebar` above — permanently navy in both light and dark site-wide
+   mode, not just in dark mode) and the login page's own header in dark
+   mode (`.fi-body`'s near-black `--dm-bg`). Dark-navy text would go
+   nearly illegible in both cases. Rather than reprocessing/recoloring the
+   source image (which the logo task explicitly asked not to do), this
+   gives the `<img>` itself a small, permanent light backdrop plate —
+   unconditional, not `:is(.dark)`-gated, since the sidebar needs it
+   regardless of site-wide theme and the login page needs it specifically
+   IN dark mode; a single always-on rule covers both correctly without
+   branching, and is barely visible as a very subtle card on the login
+   page's own near-white light-mode background. */
+img.fi-logo {
+    background-color: rgba(255, 255, 255, 0.96);
+    border-radius: 0.5rem;
+    padding: 0.375rem 0.75rem;
+    box-shadow: 0 1px 3px rgba(15, 27, 61, 0.18);
+    max-width: 100%;
+    width: auto;
 }
 
 /* Nav item label/icon default to a light-background palette
