@@ -34,8 +34,11 @@ enum DemoStatus: string implements HasColor, HasLabel
     {
         return match ($this) {
             self::Scheduled => 'warning',
-            self::Rescheduled => 'gray',
-            self::Cancelled => 'gray',
+            // Board-wide badge/contrast pass: same reasoning as
+            // FollowUpStatus's own Cancelled/Rescheduled fix — neither is a
+            // neutral non-event.
+            self::Rescheduled => 'warning',
+            self::Cancelled => 'danger',
             self::Completed => 'success',
         };
     }

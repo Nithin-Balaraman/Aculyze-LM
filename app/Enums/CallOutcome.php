@@ -52,7 +52,14 @@ enum CallOutcome: string implements HasColor, HasLabel
     public function getColor(): string|array|null
     {
         return match ($this) {
-            self::NoAnswer, self::SwitchedOff, self::NotReachable, self::Others => 'gray',
+            // Board-wide badge/contrast pass: these three mean "didn't
+            // connect / didn't work out" — the same "negative/terminal"
+            // category as Lost/Cancelled/Not Succeeded elsewhere on the
+            // board, not a neutral non-event, so they now read as danger
+            // (red) instead of flat gray. `Others` stays neutral gray — a
+            // genuine catch-all, not itself a negative outcome.
+            self::NoAnswer, self::SwitchedOff, self::NotReachable => 'danger',
+            self::Others => 'gray',
             self::CallbackRequested, self::ConcernedPersonNotAvailable, self::ProfileRequested => 'warning',
             self::AppointmentSet, self::NoCurrentRequirement => 'info',
             self::RequirementIdentified => 'success',

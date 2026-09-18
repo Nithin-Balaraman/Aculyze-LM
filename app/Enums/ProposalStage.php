@@ -32,7 +32,11 @@ enum ProposalStage: string implements HasColor, HasLabel
     {
         return match ($this) {
             self::BeingPrepared => 'gray',
-            self::Sent => 'info',
+            // Board-wide badge/contrast pass: "in progress" reads as the
+            // brand steel-blue `primary`, not `info` (reserved board-wide
+            // for the Commercial Version reference badge only, so a
+            // Proposal Sent card is never mistaken for a CV status chip).
+            self::Sent => 'primary',
             self::CustomerAccepted => 'success',
             self::CustomerRejected => 'danger',
         };

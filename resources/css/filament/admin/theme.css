@@ -1039,6 +1039,46 @@
     background-color: rgb(185, 28, 28);
 }
 
+/* Board-wide badge & contrast pass: three additional solid variants so
+   every lane (not just Calls) can render its own status/outcome badges
+   solid instead of the old pale outline style — same hook system, same
+   pattern, just three more color names. `primary` is the brand steel
+   blue (AdminPanelProvider's `primary` => #4174B9), used for "in
+   progress/active work" states board-wide (Visit/Discussion Conducted,
+   Demo Scheduled/Done, Proposal Sent, ...) — deliberately NOT the same
+   color as `info` (reserved exclusively for the Commercial Version
+   reference chip below, `.pipeline-board-badge-cyan`, so the two never
+   read as the same kind of thing). `coral`/`gold` mirror the exact brand
+   hex values already registered in AdminPanelProvider for Lost/Overdue
+   card flags, just with a solid background instead of the old outline
+   treatment. */
+.pipeline-board-badge-solid-primary {
+    background-color: rgb(65, 116, 185);
+    color: rgb(255, 255, 255);
+}
+
+.pipeline-board-badge-solid-coral {
+    background-color: rgb(240, 101, 60);
+    color: rgb(255, 255, 255);
+}
+
+.pipeline-board-badge-solid-gold {
+    background-color: rgb(201, 154, 61);
+    color: rgb(255, 255, 255);
+}
+
+:is(.dark) .pipeline-board-badge-solid-primary {
+    background-color: rgb(45, 82, 138);
+}
+
+:is(.dark) .pipeline-board-badge-solid-coral {
+    background-color: rgb(196, 74, 42);
+}
+
+:is(.dark) .pipeline-board-badge-solid-gold {
+    background-color: rgb(163, 122, 42);
+}
+
 /* Pipeline Board V2 (Calls column, locked design section F3): Calls-only
    quick actions (View Call / Edit Call / Record New Call) — a restrained
    bordered pill, deliberately less prominent than a primary action button

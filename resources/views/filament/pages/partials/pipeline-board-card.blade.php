@@ -109,24 +109,39 @@ round-trip, still fully local presentation state. --}}
 
     @if (($card['stageLabel'] ?? null) || $card['outcome'] || ($card['versionStatus'] ?? null) || $card['isLost'] || ($card['isOverdue'] ?? false) || ! empty($card['badges'] ?? []))
         <div class="flex flex-wrap items-center gap-1">
-            {{-- The record's own internal stage/status — a plain badge now
-            that nested per-stage lane containers are gone (see
-            PipelineBoard::stageBasedLane()/followUpLane()/demoLane()):
-            every lane is one flat card list per main pipeline stage, and
-            this is the only place that state is still shown. --}}
+            {{-- The record's own internal stage/status — every lane now
+            renders this as a solid, semantic-color badge (board-wide
+            badge/contrast pass) instead of the old flat, colorless
+            outline pill: nested per-stage lane containers are gone (see
+            PipelineBoard::stageBasedLane()/followUpLane()/demoLane()), and
+            this is the only place that state is still shown.
+            `stageColor` (every lane now supplies it) is that record's own
+            already-approved enum ->getColor() value, so "same status =
+            same color everywhere" holds without a second, driftable
+            mapping. A null/missing color (shouldn't occur any more, but
+            kept as a safe fallback) still renders the plain outline pill
+            exactly as before this pass. --}}
             @if ($card['stageLabel'] ?? null)
-                <span class="pipeline-board-badge w-fit rounded px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wide">
+                <span
+                    @class([
+                        'w-fit rounded px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wide',
+                        "pipeline-board-badge-solid pipeline-board-badge-solid-{$card['stageColor']}" => $card['stageColor'] ?? null,
+                        'pipeline-board-badge' => ! ($card['stageColor'] ?? null),
+                    ])
+                >
                     {{ strtoupper($card['stageLabel']) }}
                 </span>
             @endif
 
-            {{-- Pipeline Board V2 (Calls column, locked design section 10):
-            solid, high-contrast semantic badges — Calls-only today (see
-            PipelineBoard::callCardBadges()) — distinct from the outline
-            badges above/below. Each reuses its own enum's already-approved
-            ->getColor() value (gray/warning/info/success/danger), so "same
-            status = same color everywhere" holds without a second,
-            driftable color mapping. --}}
+            {{-- Pipeline Board V2 (Calls column, locked design section 10),
+            extended board-wide: solid, high-contrast semantic badges —
+            today used for Calls' own multi-badge outcome/profile-state
+            pair (see PipelineBoard::callCardBadges()) — distinct from the
+            stage/outcome badges above/below only in that a card can carry
+            more than one of these at once. Each reuses its own enum's
+            already-approved ->getColor() value, so "same status = same
+            color everywhere" holds without a second, driftable color
+            mapping. --}}
             @foreach ($card['badges'] ?? [] as $badge)
                 <span
                     @class([
@@ -136,13 +151,19 @@ round-trip, still fully local presentation state. --}}
                 >{{ strtoupper($badge['label']) }}</span>
             @endforeach
 
+            {{-- Proposal's Won/Hold/Lost and Demo's own outcome — same
+            solid-badge treatment, color read from that record's own
+            ProposalOutcome/DemoOutcome ->getColor() (see
+            PipelineBoard::proposalLane()/demoLane()) rather than a
+            hardcoded 'won'/'hold'/'lost' string match, so this can never
+            silently stop matching a color once it also started carrying
+            Demo's own (multi-value) outcome vocabulary. --}}
             @if ($card['outcome'])
                 <span
                     @class([
-                        'pipeline-board-badge w-fit rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide',
-                        'pipeline-board-badge-success' => $card['outcome'] === 'won',
-                        'pipeline-board-badge-gold' => $card['outcome'] === 'hold',
-                        'pipeline-board-badge-coral' => $card['outcome'] === 'lost',
+                        'w-fit rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide',
+                        "pipeline-board-badge-solid pipeline-board-badge-solid-{$card['outcomeColor']}" => $card['outcomeColor'] ?? null,
+                        'pipeline-board-badge' => ! ($card['outcomeColor'] ?? null),
                     ])
                 >
                     {{ strtoupper($card['outcome']) }}
@@ -161,12 +182,17 @@ round-trip, still fully local presentation state. --}}
                 >CV · {{ strtoupper($card['versionStatus']) }}</span>
             @endif
 
+            {{-- Board-wide badge/contrast pass: LOST/OVERDUE now render
+            solid (same brand coral/gold hex values as before, just with a
+            filled background instead of the old outline treatment) so
+            these two operationally important flags stand out exactly as
+            clearly as Calls' own solid badges already do. --}}
             @if ($card['isLost'])
-                <span class="pipeline-board-badge pipeline-board-badge-coral ms-auto w-fit shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide">LOST</span>
+                <span class="pipeline-board-badge-solid pipeline-board-badge-solid-coral ms-auto w-fit shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide">LOST</span>
             @elseif ($card['isOverdue'] ?? false)
                 {{-- LOST takes priority over OVERDUE when both could apply
                 to the same card. --}}
-                <span class="pipeline-board-badge pipeline-board-badge-gold ms-auto w-fit shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide">OVERDUE</span>
+                <span class="pipeline-board-badge-solid pipeline-board-badge-solid-gold ms-auto w-fit shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide">OVERDUE</span>
             @endif
         </div>
     @endif

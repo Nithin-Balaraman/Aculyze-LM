@@ -29,7 +29,10 @@ enum LeadStage: string implements HasColor, HasLabel
     {
         return match ($this) {
             self::RequirementCollection => 'gray',
-            self::DemoScheduledOrDone => 'info',
+            // Board-wide badge/contrast pass: "in progress" reads as the
+            // brand steel-blue `primary`, not `info` (reserved board-wide
+            // for the Commercial Version reference badge only).
+            self::DemoScheduledOrDone => 'primary',
             self::Validated => 'success',
         };
     }

@@ -34,7 +34,11 @@ enum AppointmentStage: string implements HasColor, HasLabel
     {
         return match ($this) {
             self::AppointmentMade => 'gray',
-            self::VisitConducted, self::DiscussionCompleted => 'info',
+            // Board-wide badge/contrast pass: "in progress" now reads as
+            // the brand steel-blue `primary` instead of `info` (reserved
+            // board-wide for the Commercial Version reference badge only,
+            // so the two never look like the same kind of thing).
+            self::VisitConducted, self::DiscussionCompleted => 'primary',
             self::Succeeded => 'success',
             self::NotSucceeded => 'danger',
         };

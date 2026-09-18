@@ -34,8 +34,13 @@ enum FollowUpStatus: string implements HasColor, HasLabel
         return match ($this) {
             self::Pending => 'warning',
             self::Completed => 'success',
-            self::Cancelled => 'gray',
-            self::Rescheduled => 'gray',
+            // Board-wide badge/contrast pass: Cancelled is a negative/
+            // terminal outcome (same category as Lost/Not Succeeded), and
+            // Rescheduled is a "needs attention" state (same category as
+            // Overdue) — neither is a neutral non-event, so neither stays
+            // flat gray any more.
+            self::Cancelled => 'danger',
+            self::Rescheduled => 'warning',
         };
     }
 

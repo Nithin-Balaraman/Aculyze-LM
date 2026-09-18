@@ -2779,6 +2779,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 isOverdue: $followUp->isOverdue(),
                 stageValue: $followUp->status->value,
                 stageLabel: $followUp->status->getLabel(),
+                stageColor: $followUp->status->getColor(),
                 details: [
                     ['label' => 'Reason', 'value' => $followUp->reason],
                     ['label' => 'Contact', 'value' => $followUp->prospect?->contact_person],
@@ -2812,11 +2813,21 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 prospect: $demo->prospect,
                 meta: $demo->demo_at?->format('d M, h:i A').' · '.$demo->mode->getLabel(),
                 url: DemoResource::getUrl('view', ['record' => $demo]),
-                outcome: $demo->outcome?->value,
+                // Board-wide badge/contrast pass: was `$demo->outcome?->value`
+                // — the raw snake_case enum value (e.g.
+                // "requirement_clarification_needed"), which the badge then
+                // rendered upper-cased with its underscores intact (e.g.
+                // "REQUIREMENT_CLARIFICATION_NEEDED") instead of a real
+                // label. Fixed alongside the badge-color change on the next
+                // line, since both read from the same `$demo->outcome`
+                // enum instance.
+                outcome: $demo->outcome?->getLabel(),
+                outcomeColor: $demo->outcome?->getColor(),
                 assignedTo: $demo->assignedEmployee?->name,
                 isOverdue: $demo->isOverdue(),
                 stageValue: $demo->status->value,
                 stageLabel: $demo->status->getLabel(),
+                stageColor: $demo->status->getColor(),
                 details: [
                     ['label' => 'Product/Service', 'value' => $demo->product_service],
                     ['label' => 'Purpose', 'value' => Str::limit($demo->purpose, 90)],
@@ -2906,7 +2917,16 @@ class PipelineBoard extends Page implements HasActions, HasForms
             isLost: fn (Proposal $proposal) => false, // Proposal has no is_lost flag — Lost lives on `outcome` (the card tag), not a lane concept.
             resourceKey: 'proposal',
             urlFor: fn (Proposal $proposal) => ProposalResource::getUrl('view', ['record' => $proposal]),
-            outcomeOf: fn (Proposal $proposal) => $proposal->outcome?->value,
+            // Board-wide badge/contrast pass: was `$proposal->outcome?->value`
+            // (the raw 'won'/'hold'/'lost' value) — harmless for Proposal
+            // specifically since those three words already read fine
+            // upper-cased, but the badge's color used to be hardcoded to
+            // exactly these three string literals in the Blade partial.
+            // Now reads the label + color off the same
+            // ProposalOutcome::getColor() every other Won/Hold/Lost
+            // reference in the app already uses, so this can never drift.
+            outcomeOf: fn (Proposal $proposal) => $proposal->outcome?->getLabel(),
+            outcomeColorOf: fn (Proposal $proposal) => $proposal->outcome?->getColor(),
             versionStatusOf: fn (Proposal $proposal) => $proposal->currentVersion
                 ? 'V'.$proposal->currentVersion->version_number.' '.$proposal->currentVersion->lifecycle_status->getLabel()
                 : null,
@@ -2959,8 +2979,15 @@ class PipelineBoard extends Page implements HasActions, HasForms
         // null, so their cards' primaryTitle stays null too (card()'s own
         // default), unchanged.
         ?\Closure $primaryTitleOf = null,
+        // Board-wide badge/contrast pass: Proposal-only (see
+        // proposalLane()) — every other caller leaves this null since only
+        // Proposal has an `outcome` concept here. Kept as a separate
+        // closure (not folded into $outcomeOf) so $outcomeOf can keep
+        // returning a plain display label without also being responsible
+        // for color.
+        ?\Closure $outcomeColorOf = null,
     ): array {
-        $cards = $records->map(function ($record) use ($resourceKey, $stageOf, $meta, $isLost, $urlFor, $outcomeOf, $versionStatusOf, $assignedToOf, $isOverdueOf, $detailsOf, $primaryTitleOf) {
+        $cards = $records->map(function ($record) use ($resourceKey, $stageOf, $meta, $isLost, $urlFor, $outcomeOf, $versionStatusOf, $assignedToOf, $isOverdueOf, $detailsOf, $primaryTitleOf, $outcomeColorOf) {
             $stage = $stageOf($record);
 
             return $this->card(
@@ -2976,8 +3003,17 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 isOverdue: $isOverdueOf ? $isOverdueOf($record) : false,
                 stageValue: $stage->value,
                 stageLabel: $stage->getLabel(),
+                // Board-wide badge/contrast pass: every resource passed
+                // through this shared method already has a real backed
+                // HasColor enum for its stage (AppointmentStage/LeadStage/
+                // ProposalStage — see this method's own docblock), so its
+                // solid badge color is read straight off the same $stage
+                // instance already resolved above, never a second,
+                // separately-maintained mapping.
+                stageColor: $stage->getColor(),
                 details: $detailsOf ? $detailsOf($record) : [],
                 primaryTitle: $primaryTitleOf ? $primaryTitleOf($record) : null,
+                outcomeColor: $outcomeColorOf ? $outcomeColorOf($record) : null,
             );
         });
 
@@ -3042,6 +3078,15 @@ class PipelineBoard extends Page implements HasActions, HasForms
         // company apart. Falls back to the company name in Blade when
         // null/blank — a card's headline is never left blank.
         ?string $primaryTitle = null,
+        // Board-wide badge/contrast pass: the semantic solid-badge color
+        // for `stageLabel`/`outcome` respectively — every lane now
+        // supplies these (derived straight from that lane's own already-
+        // computed status/outcome enum instance's ->getColor(), see
+        // stageBasedLane()/followUpLane()/demoLane()), so both badges
+        // render as the same solid pill treatment Calls already
+        // established, never a second color mapping maintained here.
+        ?string $stageColor = null,
+        ?string $outcomeColor = null,
     ): array {
         return [
             'resource' => $resource,
@@ -3074,6 +3119,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             'openCompanyUrl' => $prospect ? ProspectResource::getUrl('view', ['record' => $prospect]) : null,
             'isLost' => $isLost,
             'outcome' => $outcome,
+            'outcomeColor' => $outcomeColor,
             // Pipeline Board visual redesign: the record's own internal
             // stage/status, shown only as a small badge on the card now
             // that nested per-stage lane containers are gone (see
@@ -3083,6 +3129,7 @@ class PipelineBoard extends Page implements HasActions, HasForms
             // rendered); `stageLabel` is what the badge actually shows.
             'stageValue' => $stageValue,
             'stageLabel' => $stageLabel,
+            'stageColor' => $stageColor,
             // F6: a small read-only Commercial Version Status indicator,
             // null for every lane that has no commercial Version. The board
             // itself is deliberately NOT redesigned — grouping still keys
