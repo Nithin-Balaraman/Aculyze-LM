@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\Audit\AuditLogger;
 use App\Support\Organization\OrganizationIdentityResolver;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use LogicException;
 use Throwable;
@@ -392,17 +393,56 @@ class ProposalPdfArtifactService
 
     /**
      * Optional letterhead logo — base64-embedded so dompdf never needs
-     * filesystem/remote access at render time. Silently omitted (never
-     * fails generation) if the configured path is blank or unreadable —
-     * a logo is explicitly optional (locked Decision 2).
+     * filesystem/remote access at render time. Never fails generation — a
+     * logo is explicitly optional (locked Decision 2). Two distinct outcomes
+     * when there's no data URI:
+     * - $logoPath itself is blank/unset: nothing was ever configured, so
+     *   there's nothing to warn about — silent, as before.
+     * - $logoPath is set but couldn't actually be turned into a usable
+     *   image (wrong path, unreadable, unsupported extension): this is a
+     *   real misconfiguration, not an intentional absence, so it's logged —
+     *   see the incident where ACULYZE_ORG_LOGO_PATH was set to a
+     *   web-root-relative path ("/images/....png") and the PDF silently
+     *   generated with no logo and no error anywhere.
      */
     private function logoDataUri(?string $logoPath): ?string
     {
-        if (blank($logoPath) || ! is_file($logoPath) || ! is_readable($logoPath)) {
+        if (blank($logoPath)) {
             return null;
         }
 
-        $mime = match (strtolower(pathinfo($logoPath, PATHINFO_EXTENSION))) {
+        $dataUri = $this->tryBuildLogoDataUri($logoPath);
+
+        if ($dataUri === null) {
+            Log::warning('Proposal PDF letterhead logo is configured but could not be loaded — generating without it.', [
+                'configured_logo_path' => $logoPath,
+            ]);
+        }
+
+        return $dataUri;
+    }
+
+    /**
+     * $logoPath may be a real absolute filesystem path (works as-is), or a
+     * web-root-relative path such as "/images/logo.png" — the natural way
+     * to write ACULYZE_ORG_LOGO_PATH, but not something is_file()/
+     * file_get_contents() can resolve directly, since a leading "/" makes
+     * it absolute from the OS filesystem root, not from public/. Falls back
+     * to resolving it against public_path() before giving up.
+     */
+    private function tryBuildLogoDataUri(string $logoPath): ?string
+    {
+        $resolvedPath = match (true) {
+            is_file($logoPath) && is_readable($logoPath) => $logoPath,
+            is_file($publicPath = public_path(ltrim($logoPath, '/'))) && is_readable($publicPath) => $publicPath,
+            default => null,
+        };
+
+        if ($resolvedPath === null) {
+            return null;
+        }
+
+        $mime = match (strtolower(pathinfo($resolvedPath, PATHINFO_EXTENSION))) {
             'png' => 'image/png',
             'jpg', 'jpeg' => 'image/jpeg',
             'svg' => 'image/svg+xml',
@@ -413,7 +453,7 @@ class ProposalPdfArtifactService
             return null;
         }
 
-        $contents = @file_get_contents($logoPath);
+        $contents = @file_get_contents($resolvedPath);
 
         if ($contents === false) {
             return null;
