@@ -43,11 +43,23 @@
 <body>
 
 <table class="letterhead">
+    @if(!empty($logoDataUri))
+        <tr>
+            <td colspan="2">
+                {{-- Sized to the letterhead's own printable width (the
+                     table itself is width:100%, no side columns above
+                     this row), not the left column below it, so growing
+                     this can never collide with the "Commercial
+                     Proposal"/Proposal No/Version/Date block on the
+                     right — it sits on its own row entirely above both
+                     columns. height:auto preserves the source image's
+                     own aspect ratio; no distortion. --}}
+                <img src="{{ $logoDataUri }}" style="width: 50%; height: auto; margin-bottom: 8px;">
+            </td>
+        </tr>
+    @endif
     <tr>
         <td style="width: 60%;">
-            @if(!empty($logoDataUri))
-                <img src="{{ $logoDataUri }}" style="max-height: 40px; margin-bottom: 4px;">
-            @endif
             <div class="org-name">{{ $identity['legal_name'] }}</div>
             <div class="org-meta">
                 {{ $identity['registered_address'] }}<br>
