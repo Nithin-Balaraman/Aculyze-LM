@@ -60,7 +60,14 @@
     @endif
     <tr>
         <td style="width: 60%;">
-            <div class="org-name">{{ $identity['legal_name'] }}</div>
+            {{-- The legal_name text heading (e.g. "Aculyze Solutions LLP")
+                 is intentionally NOT repeated here — the logo image above
+                 already carries the company name as part of its own
+                 wordmark. Only shown as plain text when there is no logo
+                 at all, so the identity is never silently missing. --}}
+            @if(empty($logoDataUri))
+                <div class="org-name">{{ $identity['legal_name'] }}</div>
+            @endif
             <div class="org-meta">
                 {{ $identity['registered_address'] }}<br>
                 GSTIN: {{ $identity['gstin'] }}
