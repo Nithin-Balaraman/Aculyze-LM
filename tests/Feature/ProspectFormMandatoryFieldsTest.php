@@ -13,16 +13,26 @@ use Tests\TestCase;
 
 /**
  * Saji wants complete data captured on every Prospect record — every text
- * field on the Create/Edit form is mandatory, except Telephone/Mobile,
- * which only need at least one of the two filled (not both individually
- * required). This is a Filament FORM-level rule only — the bulk Excel
- * import (App\Filament\Pages\ImportProspects) is a separate, standalone
- * Livewire flow that calls Prospect::create() directly and never touches
+ * field on the Create/Edit form is mandatory, except:
+ * - Telephone/Mobile, which only need at least one of the two filled (not
+ *   both individually required);
+ * - Contact Person, Designation, and Email, made optional at Saji's direct
+ *   request (URGENT) once these were found to often be genuinely unknown
+ *   at the time a company is first added to the Database — see
+ *   ProspectFormOptionalContactFieldsTest for that rule's own dedicated
+ *   coverage.
+ * This is a Filament FORM-level rule only — the bulk Excel import
+ * (App\Filament\Pages\ImportProspects) is a separate, standalone Livewire
+ * flow that calls Prospect::create() directly and never touches
  * ProspectResource::form()/formSchema() at all, and Prospect itself has no
  * model-level saving() guard — confirmed before implementing, so import
  * rows that are missing some of these fields keep working exactly as
  * before (import already has its own, much narrower rule: Company Name is
- * the only thing it refuses to import without).
+ * the only thing it refuses to import without). The DB columns themselves
+ * (contact_person/designation/email) have always been nullable — confirmed
+ * via the original create_prospects_table migration and the live schema —
+ * so no migration was needed to make Contact Person/Designation/Email
+ * optional, only the form-level ->required() calls.
  */
 class ProspectFormMandatoryFieldsTest extends TestCase
 {
@@ -59,9 +69,6 @@ class ProspectFormMandatoryFieldsTest extends TestCase
     public static function textFieldProvider(): array
     {
         return [
-            ['contact_person'],
-            ['designation'],
-            ['email'],
             ['website'],
             ['industry'],
             ['source'],

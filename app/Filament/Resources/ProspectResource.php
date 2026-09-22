@@ -56,10 +56,8 @@ class ProspectResource extends Resource
                         ->maxLength(255)
                         ->columnSpanFull(),
                     Forms\Components\TextInput::make('contact_person')
-                        ->required()
                         ->maxLength(255),
                     Forms\Components\TextInput::make('designation')
-                        ->required()
                         ->maxLength(255),
                     // Neither is individually mandatory — Saji wants at
                     // least one real phone number on file, not both
@@ -82,7 +80,6 @@ class ProspectResource extends Resource
                         ->required(fn (Forms\Get $get) => blank($get('telephone')))
                         ->validationMessages(['required' => 'Provide at least one of Telephone or Mobile.']),
                     Forms\Components\TextInput::make('email')
-                        ->required()
                         ->email()
                         ->maxLength(255),
                     Forms\Components\TextInput::make('website')

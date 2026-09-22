@@ -47,12 +47,13 @@ class CallRecordCreateCompanyInlineTest extends TestCase
 
     /**
      * ProspectResource::formSchema() (reused verbatim by this inline
-     * "createProspect" action) now requires every text field except
-     * Telephone/Mobile (which need at least one of the two, not both) — see
-     * ProspectFormMandatoryFieldsTest for that resource's own dedicated
-     * coverage. These tests are about the inline-create/select mechanism
-     * itself, not field validation, so a complete baseline keeps them
-     * focused on that.
+     * "createProspect" action) requires every text field except
+     * Telephone/Mobile (which need at least one of the two, not both) and
+     * Contact Person/Designation/Email (optional at Saji's request) — see
+     * ProspectFormMandatoryFieldsTest and ProspectFormOptionalContactFieldsTest
+     * for that resource's own dedicated coverage. These tests are about the
+     * inline-create/select mechanism itself, not field validation, so a
+     * complete baseline keeps them focused on that.
      *
      * @param  array<string, mixed>  $overrides
      * @return array<string, mixed>
