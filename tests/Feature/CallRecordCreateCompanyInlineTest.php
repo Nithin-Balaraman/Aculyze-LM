@@ -7,6 +7,7 @@ use App\Models\Prospect;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -46,12 +47,16 @@ class CallRecordCreateCompanyInlineTest extends TestCase
     use RefreshDatabase;
 
     /**
-     * ProspectResource::formSchema() (reused verbatim by this inline
-     * "createProspect" action) requires every text field except
-     * Telephone/Mobile (which need at least one of the two, not both) and
-     * Contact Person/Designation/Email (optional at Saji's request) — see
-     * ProspectFormMandatoryFieldsTest and ProspectFormOptionalContactFieldsTest
-     * for that resource's own dedicated coverage. These tests are about the
+     * ProspectResource::formSchema(requireContactFields: true) — this one
+     * call site is the exception that turns Contact Person/Designation/
+     * Email back on: unlike the standalone Prospect Create/Edit pages
+     * (optional there, see ProspectFormOptionalContactFieldsTest), Saji
+     * wants these three mandatory specifically here, since a rep filling
+     * this in is already on the phone with the contact — see
+     * ProspectFormMandatoryFieldsTest for every other field's coverage and
+     * this file's own test_the_inline_modal_requires_contact_person_
+     * designation_and_email_even_though_the_standalone_pages_dont below for
+     * this field's dedicated coverage. These tests are about the
      * inline-create/select mechanism itself, not field validation, so a
      * complete baseline keeps them focused on that.
      *
@@ -108,6 +113,40 @@ class CallRecordCreateCompanyInlineTest extends TestCase
             ->assertFormSet([
                 'prospect_id' => Prospect::where('company_name', 'Another New Co')->value('id'),
             ]);
+    }
+
+    /**
+     * @return array<int, array<int, string>>
+     */
+    public static function contactFieldProvider(): array
+    {
+        return [
+            ['contact_person'],
+            ['designation'],
+            ['email'],
+        ];
+    }
+
+    /**
+     * The follow-up correction: these three are optional on the standalone
+     * Prospect Create/Edit pages (ProspectFormOptionalContactFieldsTest),
+     * but this inline modal is a deliberately narrower, separate context —
+     * ProspectResource::formSchema(requireContactFields: true) is the only
+     * caller that turns them back on.
+     */
+    #[DataProvider('contactFieldProvider')]
+    public function test_the_inline_modal_rejects_a_blank_contact_field_even_though_the_standalone_pages_allow_it(string $field): void
+    {
+        $employee = User::factory()->create();
+        $this->actingAs($employee);
+
+        Livewire::test(CreateCallRecord::class)
+            ->mountFormComponentAction('prospect_id', 'createProspect')
+            ->setFormComponentActionData($this->completeProspectData([$field => null]))
+            ->callMountedFormComponentAction()
+            ->assertHasFormComponentActionErrors([$field => 'required']);
+
+        $this->assertDatabaseCount('prospects', 0);
     }
 
     public function test_selecting_the_sentinel_value_resets_the_field_instead_of_saving_it_as_a_prospect(): void

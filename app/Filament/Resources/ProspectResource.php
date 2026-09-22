@@ -43,9 +43,18 @@ class ProspectResource extends Resource
      * field — the "+ Create new company…" search-dropdown row and the
      * standard createOptionForm "+" button both reuse this).
      *
+     * $requireContactFields controls Contact Person/Designation/Email
+     * only. They're optional on the standalone Prospect Create/Edit pages
+     * (Saji-requested — often genuinely unknown when a company is first
+     * added), but the inline "+ Create new company…" modal reached from
+     * the Call Record form is a separate, narrower context: a rep is
+     * already on the phone with this exact contact, so Saji wants these
+     * three captured right then, not left for someone to fill in later —
+     * see CallRecordResource::form(), the only caller that passes true.
+     *
      * @return array<int, Forms\Components\Component>
      */
-    public static function formSchema(): array
+    public static function formSchema(bool $requireContactFields = false): array
     {
         return [
             Forms\Components\Section::make('Company')
@@ -56,8 +65,10 @@ class ProspectResource extends Resource
                         ->maxLength(255)
                         ->columnSpanFull(),
                     Forms\Components\TextInput::make('contact_person')
+                        ->required($requireContactFields)
                         ->maxLength(255),
                     Forms\Components\TextInput::make('designation')
+                        ->required($requireContactFields)
                         ->maxLength(255),
                     // Neither is individually mandatory — Saji wants at
                     // least one real phone number on file, not both
@@ -80,6 +91,7 @@ class ProspectResource extends Resource
                         ->required(fn (Forms\Get $get) => blank($get('telephone')))
                         ->validationMessages(['required' => 'Provide at least one of Telephone or Mobile.']),
                     Forms\Components\TextInput::make('email')
+                        ->required($requireContactFields)
                         ->email()
                         ->maxLength(255),
                     Forms\Components\TextInput::make('website')

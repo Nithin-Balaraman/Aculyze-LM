@@ -227,7 +227,14 @@ class CallRecordResource extends Resource
                             ->registerActions([
                                 Forms\Components\Actions\Action::make('createProspect')
                                     ->modalHeading('Add Company to Database')
-                                    ->form(ProspectResource::formSchema())
+                                    // Contact Person/Designation/Email are
+                                    // required here specifically — unlike
+                                    // the standalone Prospect Create/Edit
+                                    // pages — since a rep filling this in
+                                    // is already on the phone with the
+                                    // contact (see ProspectResource::
+                                    // formSchema()'s own docblock).
+                                    ->form(ProspectResource::formSchema(requireContactFields: true))
                                     ->action(function (array $data, Set $set) {
                                         $data['created_by'] = auth()->id();
                                         $prospect = Prospect::create($data);

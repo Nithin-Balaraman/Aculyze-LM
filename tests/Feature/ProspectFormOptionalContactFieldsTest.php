@@ -19,10 +19,16 @@ use Tests\TestCase;
  * genuinely unknown when a company is first added to the Database, so
  * these three (and only these three — see ProspectFormMandatoryFieldsTest
  * for every other field's unchanged ->required() coverage) are no longer
- * mandatory on Create or Edit. Both pages share the exact same
- * ProspectResource::formSchema(), so a single edit there covers Create,
- * Edit, and the "+ Create new company…" inline modal reused from
- * CallRecordResource (see CallRecordCreateCompanyInlineTest) all at once.
+ * mandatory on the standalone Create/Edit pages specifically.
+ *
+ * Follow-up correction: ProspectResource::formSchema() takes a
+ * $requireContactFields param (default false) precisely because Create/
+ * Edit (this file, param left at its default) and the "+ Create new
+ * company…" inline modal reused from CallRecordResource (param forced
+ * true — see CallRecordCreateCompanyInlineTest) are no longer meant to
+ * behave identically here — a rep filling in the inline modal is already
+ * on the phone with the contact, so Saji wants these three mandatory
+ * there specifically.
  *
  * The prospects.contact_person/designation/email columns have been
  * nullable at the database level since the very first migration
