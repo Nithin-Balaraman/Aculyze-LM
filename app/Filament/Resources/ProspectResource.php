@@ -277,6 +277,36 @@ class ProspectResource extends Resource
     }
 
     /**
+     * The Back action's color. It previously used 'info' (the same brand
+     * cyan token as EditAction's implicit default — 'primary', unset on
+     * EditAction, falls through to Filament's own default, confirmed via
+     * EditAction::make()->getColor() === null), and cyan sits close
+     * enough to primary's steel blue in hue that the two read as "the
+     * same kind of button" at a glance — exactly what was reported.
+     *
+     * Every ->color() already in active use across this app's own
+     * Filament actions was tallied before picking a replacement:
+     * gray (~12 uses, the established "plain secondary" choice, but
+     * rejected here — going back to it would undo the earlier, explicit
+     * request to make Back stand out, not blend in), danger/success/
+     * warning (Filament's own semantic reds/greens/ambers — wrong meaning
+     * for a harmless navigation action), info/primary/accent/slateblue/
+     * navy (all blue-family — the exact problem being fixed), and coral
+     * (this app's own registered brand token, but already a strong,
+     * active "Mark Lost" signal on 2 real buttons — AppointmentResource
+     * and LeadResource — reusing it for Back would misleadingly suggest
+     * something negative).
+     *
+     * 'gold' is what's left: a real, already-registered brand color
+     * (AdminPanelProvider's colors(), #C99A3D) — not a one-off hex value —
+     * warm and clearly distinct in hue from Edit's cool blue, and, unlike
+     * coral, never used as an actual action color anywhere in this app
+     * today (only as a badge/tag accent), so adopting it here doesn't
+     * collide with an existing "this button does X" expectation.
+     */
+    public const BACK_BUTTON_COLOR = 'gold';
+
+    /**
      * Shared by both pages' "Back" header action: intercepts a plain left-
      * click and, only when the browser tab actually has somewhere to go
      * back TO (history.length !== 1 — 1 means a fresh tab/bookmark, the

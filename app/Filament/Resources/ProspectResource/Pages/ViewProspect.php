@@ -77,14 +77,14 @@ class ViewProspect extends ViewRecord
             // docblock: real browser history.back() is the primary
             // mechanism (works correctly however many hops deep), with
             // ->url() to the Prospects list as the fallback for a fresh
-            // tab/bookmark or no-JS. ->color('info') reuses this app's own
-            // established pattern for a distinct-but-secondary
-            // icon+label action (see e.g. LeadResource's "Update Status"/
-            // "Schedule Demo"), rather than a one-off color.
+            // tab/bookmark or no-JS. ->color(BACK_BUTTON_COLOR) — see that
+            // constant's own docblock for why gold specifically, not
+            // 'info' (too close to Edit's own blue-family default) or a
+            // one-off hex value.
             Actions\Action::make('back')
                 ->label('Back')
                 ->icon('heroicon-o-arrow-uturn-left')
-                ->color('info')
+                ->color(ProspectResource::BACK_BUTTON_COLOR)
                 ->url(fn () => ProspectResource::getBackFallbackUrl())
                 ->extraAttributes(['x-on:click' => ProspectResource::BACK_BUTTON_CLICK_HANDLER]),
             Actions\EditAction::make(),

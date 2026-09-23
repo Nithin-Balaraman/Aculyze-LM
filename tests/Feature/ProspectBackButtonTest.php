@@ -115,27 +115,59 @@ class ProspectBackButtonTest extends TestCase
     }
 
     /**
-     * Give the Back button some color: reuses this app's own established
-     * pattern for a distinct-but-secondary icon+label action (->color(
-     * 'info'), the same brand cyan already used by e.g. LeadResource's
-     * "Update Status"/"Schedule Demo" and ProposalResource's "Continue")
-     * rather than a new, one-off color.
+     * Color, corrected: 'info' (cyan) sat too close in hue to Edit's own
+     * implicit default color ('primary', steel blue — confirmed via
+     * EditAction::make()->getColor() === null, so it falls through to
+     * Filament's own default) to read as visually distinct at a glance.
+     * 'gold' is ProspectResource::BACK_BUTTON_COLOR — a real, already-
+     * registered brand token (AdminPanelProvider's colors(), #C99A3D),
+     * not a one-off hex value, chosen after ruling out every other color
+     * already active on this app's Filament actions: gray (the
+     * established "plain secondary" choice, but rejected — would undo
+     * the earlier explicit request to make Back stand out), danger/
+     * success/warning (wrong semantics for harmless navigation), every
+     * other blue-family token (info/primary/accent/slateblue/navy — the
+     * exact problem being fixed), and coral (this app's own active
+     * "Mark Lost" signal on 2 real buttons — reusing it here would
+     * misleadingly suggest something negative). See
+     * BACK_BUTTON_COLOR's own docblock for the full reasoning.
      */
-    public function test_view_page_back_button_uses_the_apps_established_secondary_action_color(): void
+    public function test_view_page_back_button_uses_the_chosen_distinct_color(): void
     {
         $this->actingAdmin();
         $prospect = Prospect::factory()->create();
 
         Livewire::test(ViewProspect::class, ['record' => $prospect->getRouteKey()])
-            ->assertActionHasColor('back', 'info');
+            ->assertActionHasColor('back', ProspectResource::BACK_BUTTON_COLOR)
+            ->assertActionDoesNotHaveColor('back', 'info');
     }
 
-    public function test_edit_page_back_button_uses_the_apps_established_secondary_action_color(): void
+    public function test_edit_page_back_button_uses_the_chosen_distinct_color(): void
     {
         $this->actingAdmin();
         $prospect = Prospect::factory()->create();
 
         Livewire::test(EditProspect::class, ['record' => $prospect->getRouteKey()])
-            ->assertActionHasColor('back', 'info');
+            ->assertActionHasColor('back', ProspectResource::BACK_BUTTON_COLOR)
+            ->assertActionDoesNotHaveColor('back', 'info');
+    }
+
+    /**
+     * The whole point of this change, checked directly on the page where
+     * both buttons actually sit side by side: Back's color must not equal
+     * whatever Edit's own (implicit-default, unset ->color() — see
+     * BACK_BUTTON_COLOR's own docblock) color resolves to.
+     */
+    public function test_back_and_edit_buttons_do_not_share_a_color_on_the_view_page(): void
+    {
+        $this->actingAdmin();
+        $prospect = Prospect::factory()->create();
+
+        $test = Livewire::test(ViewProspect::class, ['record' => $prospect->getRouteKey()]);
+
+        $backColor = $test->instance()->getAction('back')->getColor();
+        $editColor = $test->instance()->getAction('edit')->getColor();
+
+        $this->assertNotSame($backColor, $editColor);
     }
 }

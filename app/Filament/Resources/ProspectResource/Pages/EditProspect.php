@@ -20,7 +20,7 @@ class EditProspect extends EditRecord
             Actions\Action::make('back')
                 ->label('Back')
                 ->icon('heroicon-o-arrow-uturn-left')
-                ->color('info')
+                ->color(ProspectResource::BACK_BUTTON_COLOR)
                 ->url(fn () => ProspectResource::getBackFallbackUrl())
                 ->extraAttributes(['x-on:click' => ProspectResource::BACK_BUTTON_CLICK_HANDLER]),
             Actions\ViewAction::make(),
