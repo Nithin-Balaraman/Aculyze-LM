@@ -277,50 +277,73 @@ class ProspectResource extends Resource
     }
 
     /**
-     * Shared by ViewProspect's and EditProspect's own "Back" header action —
-     * this app has no existing "return to wherever I came from" pattern
-     * (confirmed before writing this: ViewCommercialVersion's own "Back"
-     * action is a fixed, hardcoded destination — always its Proposal's
-     * Commercial Version page — not history-based, since it only ever has
-     * one logical parent; a Prospect's View/Edit page has several real
-     * entry points instead — the Database list, a Pipeline Board card's
-     * "Open Company" link, and global search results today, plus whatever
-     * else links here in the future — so a fixed destination would be
-     * wrong here specifically).
+     * Shared by both pages' "Back" header action: intercepts a plain left-
+     * click and, only when the browser tab actually has somewhere to go
+     * back TO (history.length !== 1 — 1 means a fresh tab/bookmark, the
+     * one case this task asked to still fall back from), replaces it with
+     * real history.back(). No existing Filament-Action-plus-Alpine
+     * convention for client-side-only navigation exists anywhere in this
+     * app (confirmed before writing this) — the closest relative is
+     * pipeline-board-card.blade.php's own plain
+     * x-on:click="window.location = '...'" for the same kind of
+     * programmatic navigation, just via a fixed URL instead of history.
      *
-     * url()->previous() is Laravel's own built-in mechanism for this: it
-     * prefers the request's Referer header, falling back to the last
-     * GET request's URL already tracked in the session by Illuminate\
-     * Session\Middleware\StartSession (confirmed this panel never enables
-     * ->spa()/wire:navigate, so every Filament page transition is a plain,
-     * full GET — exactly what that middleware expects; no SPA/ajax
-     * edge case to work around here).
+     * Deliberately layered ON TOP of a real ->url() (see
+     * getBackFallbackUrl()) rather than replacing it outright:
+     * - Left-click with real history present: this handler fires,
+     *   preventDefault() stops the plain link navigation, history.back()
+     *   runs instead.
+     * - Left-click with no history (history.length === 1): the condition
+     *   is false, nothing is prevented, so the anchor's own normal href
+     *   (the Prospects list) takes over exactly as a plain link would.
+     * - Middle-click / "open in new tab" / no-JS: browsers never run
+     *   click-JS for those, so the real <a href> alone decides — again
+     *   the Prospects list, a reasonable landing page for a fresh tab
+     *   that has no history of its own to go back through anyway.
      *
-     * Two edge cases handled explicitly, both confirmed by tracing the
-     * framework's own behavior rather than assumed:
-     * - No real previous page at all (a bookmark, or the very first
-     *   request in a session) — previous() would otherwise fall back to
-     *   the site root; passing the Prospects list explicitly here as its
-     *   own $fallback argument is the sensible fallback instead.
-     * - A same-page refresh — the browser sends no Referer for a plain
-     *   reload, and the session's own stored "previous URL" for THIS
-     *   request is this exact page's own URL (set when it first loaded),
-     *   so an unguarded previous() would make "Back" link to itself. Only
-     *   caught by explicitly comparing against the current request's own
-     *   full URL — the framework provides no other signal for this.
-     * A previous page that's since become invalid (e.g. its record was
-     * deleted) is deliberately NOT special-cased beyond this: Back simply
-     * links there like a normal URL, and Filament's own existing 404
-     * handling takes over if it's clicked — identical to a real browser's
-     * own back button pointing at a since-deleted page, never a crash or
-     * a loop.
+     * `!== 1` rather than `> 1`: getExtraAttributes() runs every value
+     * through Blade's ComponentAttributeBag::merge(), which HTML-escapes
+     * strings, and the action's own Blade view then prints that
+     * already-escaped value as an attribute, escaping it a SECOND time —
+     * `>` becomes `&gt;` then `&amp;gt;`, which the browser only ever
+     * decodes once (back to `&gt;`, never valid JS), so Alpine silently
+     * failed to evaluate the expression at all and every click fell
+     * straight through to the plain fallback href — confirmed directly by
+     * inspecting the real rendered attribute in a browser, not assumed.
+     * history.length is always >= 1 in a real tab, so `!== 1` is an exact
+     * equivalent of `> 1` here and avoids the unsafe character entirely.
      */
-    public static function getBackUrl(): string
-    {
-        $previous = url()->previous(static::getUrl('index'));
+    public const BACK_BUTTON_CLICK_HANDLER = <<<'JS'
+        if (window.history.length !== 1) {
+            $event.preventDefault();
+            window.history.back();
+        }
+        JS;
 
-        return $previous === request()->fullUrl()
-            ? static::getUrl('index')
-            : $previous;
+    /**
+     * The fallback destination for ViewProspect's and EditProspect's own
+     * "Back" header action — used only when there's no real browser
+     * history to go back to (a fresh tab/bookmark) or JavaScript is
+     * unavailable. See BACK_BUTTON_CLICK_HANDLER above for why the
+     * *primary* Back mechanism is client-side history.back() rather than
+     * anything computed here.
+     *
+     * Multi-hop bug fix: this used to be computed from url()->previous()
+     * (Referer header / session's last-tracked GET). That correctly
+     * returns to wherever you came from for exactly ONE hop, then breaks:
+     * previous() only ever tracks a single last-URL slot, not a real
+     * stack, and each Back click is itself a new page load that
+     * immediately overwrites that slot with the page just left. Traced
+     * through an actual List -> View -> Edit -> Back -> Back sequence to
+     * confirm: the second Back read the value the FIRST Back's own page
+     * load had just written (the Edit page it came from), not anything
+     * further back — producing an infinite View/Edit ping-pong that never
+     * reaches the list. A real, arbitrarily-deep history stack is
+     * something only the browser itself keeps, which is exactly what
+     * history.back() reads.
+     */
+    public static function getBackFallbackUrl(): string
+    {
+        return static::getUrl('index');
     }
 }

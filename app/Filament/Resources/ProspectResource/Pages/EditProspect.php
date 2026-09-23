@@ -13,15 +13,16 @@ class EditProspect extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            // See ProspectResource::getBackUrl()'s own docblock — same
-            // history-based mechanism as ViewProspect's identical action,
-            // shared via that one static method so both pages can never
-            // drift apart on this.
+            // See ProspectResource::BACK_BUTTON_CLICK_HANDLER's own
+            // docblock — identical mechanism/styling as ViewProspect's own
+            // Back action, shared via that one constant/method so both
+            // pages can never drift apart on this.
             Actions\Action::make('back')
                 ->label('Back')
                 ->icon('heroicon-o-arrow-uturn-left')
-                ->color('gray')
-                ->url(fn () => ProspectResource::getBackUrl()),
+                ->color('info')
+                ->url(fn () => ProspectResource::getBackFallbackUrl())
+                ->extraAttributes(['x-on:click' => ProspectResource::BACK_BUTTON_CLICK_HANDLER]),
             Actions\ViewAction::make(),
             Actions\DeleteAction::make(),
         ];

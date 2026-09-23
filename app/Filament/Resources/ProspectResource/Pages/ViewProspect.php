@@ -73,16 +73,20 @@ class ViewProspect extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
-            // See ProspectResource::getBackUrl()'s own docblock for why
-            // this is history-based (Referer/session previous-URL) rather
-            // than a fixed destination — this page has several real entry
-            // points (Database list, Pipeline Board, global search), not
-            // one fixed parent.
+            // See ProspectResource::BACK_BUTTON_CLICK_HANDLER's own
+            // docblock: real browser history.back() is the primary
+            // mechanism (works correctly however many hops deep), with
+            // ->url() to the Prospects list as the fallback for a fresh
+            // tab/bookmark or no-JS. ->color('info') reuses this app's own
+            // established pattern for a distinct-but-secondary
+            // icon+label action (see e.g. LeadResource's "Update Status"/
+            // "Schedule Demo"), rather than a one-off color.
             Actions\Action::make('back')
                 ->label('Back')
                 ->icon('heroicon-o-arrow-uturn-left')
-                ->color('gray')
-                ->url(fn () => ProspectResource::getBackUrl()),
+                ->color('info')
+                ->url(fn () => ProspectResource::getBackFallbackUrl())
+                ->extraAttributes(['x-on:click' => ProspectResource::BACK_BUTTON_CLICK_HANDLER]),
             Actions\EditAction::make(),
         ];
     }
