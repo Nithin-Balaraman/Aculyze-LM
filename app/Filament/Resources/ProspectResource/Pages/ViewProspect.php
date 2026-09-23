@@ -5,6 +5,7 @@ namespace App\Filament\Resources\ProspectResource\Pages;
 use App\Filament\Resources\ProspectResource;
 use App\Filament\Widgets\ProspectAppointmentsTable;
 use App\Filament\Widgets\ProspectCallRecordsTable;
+use App\Filament\Widgets\ProspectDemosTable;
 use App\Filament\Widgets\ProspectFollowUpsTable;
 use App\Filament\Widgets\ProspectLeadsTable;
 use App\Filament\Widgets\ProspectProposalsTable;
@@ -25,17 +26,20 @@ use Filament\Resources\Pages\ViewRecord;
  * getGlobalSearchResultUrl()) — the company's own details (a read-only
  * infolist, collapsed by default; the company name itself is the page's
  * own heading instead, so it stays visible regardless of that collapse
- * state) plus five mini-tables below, one per resource that can reference
+ * state) plus six mini-tables below, one per resource that can reference
  * a Prospect, each scoped to just this company and reusing that
- * resource's own column set (see {Resource}::columns()).
+ * resource's own column set (see {Resource}::columns()). Demo is the
+ * sixth (added later — see ProspectDemosTable's own docblock for why it
+ * filters by prospect_id directly, the same as every other one of these,
+ * despite also carrying a lead_id).
  *
- * Period + Employee drive all five mini-tables together via a single
+ * Period + Employee drive all six mini-tables together via a single
  * shared $filters array and InteractsWithPageFilters, the same mechanism
  * KpiBand already uses on the dashboards.
  *
  * This page overrides its own Blade view (rather than composing getHeader()
  * /getFooterWidgets() individually) so the layout — details, then filters,
- * then the five tables — is explicit and doesn't fight Filament's page
+ * then the six tables — is explicit and doesn't fight Filament's page
  * template: getHeader() specifically is a mutually-exclusive alternative to
  * the standard title/breadcrumbs/header-actions bar (see
  * vendor/filament/filament/resources/views/components/page/index.blade.php),
@@ -198,6 +202,7 @@ class ViewProspect extends ViewRecord
             ProspectFollowUpsTable::class,
             ProspectAppointmentsTable::class,
             ProspectLeadsTable::class,
+            ProspectDemosTable::class,
             ProspectProposalsTable::class,
         ];
     }

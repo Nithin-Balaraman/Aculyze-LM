@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Enums\CallOutcome;
+use App\Enums\DemoMode;
+use App\Enums\DemoStatus;
 use App\Enums\FollowUpStatus;
 use App\Enums\LeadStage;
 use App\Enums\ProposalStage;
@@ -13,11 +15,13 @@ use App\Filament\Resources\ProspectResource\Pages\ListProspects;
 use App\Filament\Resources\ProspectResource\Pages\ViewProspect;
 use App\Filament\Widgets\ProspectAppointmentsTable;
 use App\Filament\Widgets\ProspectCallRecordsTable;
+use App\Filament\Widgets\ProspectDemosTable;
 use App\Filament\Widgets\ProspectFollowUpsTable;
 use App\Filament\Widgets\ProspectLeadsTable;
 use App\Filament\Widgets\ProspectProposalsTable;
 use App\Models\Appointment;
 use App\Models\CallRecord;
+use App\Models\Demo;
 use App\Models\FollowUp;
 use App\Models\Lead;
 use App\Models\Proposal;
@@ -30,7 +34,7 @@ use Tests\TestCase;
 
 /**
  * Clicking a company from the global search bar now lands on a read-only
- * View page (details + five mini-tables) instead of jumping straight to
+ * View page (details + six mini-tables) instead of jumping straight to
  * Edit — see ProspectResource::getGlobalSearchResultUrl() and
  * ViewProspect. This is deliberately a global-search-only change: every
  * other way of reaching a Prospect (the Database list's own row actions)
@@ -157,6 +161,7 @@ class ProspectViewPageTest extends TestCase
             'Follow-Ups — Acme Textiles',
             'Appointments — Acme Textiles',
             'Leads — Acme Textiles',
+            'Demos — Acme Textiles',
             'Proposals — Acme Textiles',
         ] as $heading) {
             $this->assertSame(
@@ -189,6 +194,9 @@ class ProspectViewPageTest extends TestCase
         $otherLead = Lead::create(['prospect_id' => $otherCompany->id, 'assigned_to' => $admin->id, 'created_by' => $admin->id, 'stage' => LeadStage::RequirementCollection, 'temperature' => 'warm']);
         Proposal::create(['lead_id' => $otherLead->id, 'prospect_id' => $otherCompany->id, 'assigned_to' => $admin->id, 'created_by' => $admin->id, 'stage' => ProposalStage::BeingPrepared]);
 
+        $thisDemo = Demo::create(['lead_id' => $thisLead->id, 'prospect_id' => $thisCompany->id, 'assigned_to' => $admin->id, 'created_by' => $admin->id, 'demo_at' => now()->addDay(), 'mode' => DemoMode::Online, 'meeting_link' => 'https://meet.example.com/demo', 'status' => DemoStatus::Scheduled]);
+        Demo::create(['lead_id' => $otherLead->id, 'prospect_id' => $otherCompany->id, 'assigned_to' => $admin->id, 'created_by' => $admin->id, 'demo_at' => now()->addDay(), 'mode' => DemoMode::Online, 'meeting_link' => 'https://meet.example.com/demo', 'status' => DemoStatus::Scheduled]);
+
         $this->actingAs($admin);
 
         Livewire::test(ProspectCallRecordsTable::class, ['record' => $thisCompany, 'filters' => []])
@@ -210,6 +218,10 @@ class ProspectViewPageTest extends TestCase
         Livewire::test(ProspectProposalsTable::class, ['record' => $thisCompany, 'filters' => []])
             ->assertCanSeeTableRecords([$thisProposal])
             ->assertCanNotSeeTableRecords([Proposal::where('prospect_id', $otherCompany->id)->first()]);
+
+        Livewire::test(ProspectDemosTable::class, ['record' => $thisCompany, 'filters' => []])
+            ->assertCanSeeTableRecords([$thisDemo])
+            ->assertCanNotSeeTableRecords([Demo::where('prospect_id', $otherCompany->id)->first()]);
     }
 
     public function test_mini_tables_do_not_show_the_redundant_company_column(): void
@@ -325,6 +337,7 @@ class ProspectViewPageTest extends TestCase
             ProspectFollowUpsTable::class,
             ProspectAppointmentsTable::class,
             ProspectLeadsTable::class,
+            ProspectDemosTable::class,
             ProspectProposalsTable::class,
         ];
     }
@@ -340,7 +353,7 @@ class ProspectViewPageTest extends TestCase
      * which the PHP test harness can't reliably exercise across components
      * (see class docblock note below).
      */
-    public function test_updated_filters_resets_the_table_on_all_five_mini_table_widgets(): void
+    public function test_updated_filters_resets_the_table_on_all_six_mini_table_widgets(): void
     {
         foreach ($this->miniTableWidgetClasses() as $widgetClass) {
             $widget = Mockery::mock($widgetClass)->makePartial();
@@ -356,7 +369,7 @@ class ProspectViewPageTest extends TestCase
      * content only appears after a follow-up request — an extra hop the
      * already cross-component filter reactivity doesn't need.
      */
-    public function test_all_five_mini_table_widgets_are_not_lazy(): void
+    public function test_all_six_mini_table_widgets_are_not_lazy(): void
     {
         foreach ($this->miniTableWidgetClasses() as $widgetClass) {
             $reflection = new \ReflectionClass($widgetClass);
@@ -373,7 +386,7 @@ class ProspectViewPageTest extends TestCase
      * table's `reason` column was the only one left searchable once Company
      * is excluded, which is why it alone had shown a search bar.
      */
-    public function test_all_five_mini_table_widgets_disable_search(): void
+    public function test_all_six_mini_table_widgets_disable_search(): void
     {
         $admin = User::factory()->admin()->create();
         $prospect = Prospect::factory()->create(['assigned_to' => $admin->id, 'created_by' => $admin->id]);

@@ -1,6 +1,6 @@
 {{--
     Full page layout: details (collapsed infolist) → Period/Employee
-    filters → the five mini-tables. A custom view rather than composing
+    filters → the six mini-tables. A custom view rather than composing
     getHeader()/getFooterWidgets() piecemeal, so this ordering is explicit
     and doesn't fight Filament's own page template — see ViewProspect's
     class docblock for why getHeader() specifically isn't usable here.
@@ -10,7 +10,7 @@
     generic page/index.blade.php template, which already renders
     getVisibleFooterWidgets() itself immediately after this slot, using
     the same getWidgetData()/getFooterWidgetsColumns(). Rendering them
-    again here duplicated all five widgets on every page load, and since
+    again here duplicated all six widgets on every page load, and since
     Filament's widgets.blade.php keys each @livewire() call only by
     "{$widgetClass}-{$widgetKey}" (see vendor/filament/widgets/resources/
     views/components/widgets.blade.php), both copies got identical
