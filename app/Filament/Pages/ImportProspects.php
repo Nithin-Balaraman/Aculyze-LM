@@ -2,8 +2,10 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Resources\ProspectResource;
 use App\Models\Prospect;
 use App\Models\User;
+use Filament\Actions;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -124,6 +126,49 @@ class ImportProspects extends Page
         // policies/authorization), so opening it here doesn't widen any
         // other Prospect permission.
         abort_unless(auth()->check(), 403);
+    }
+
+    /**
+     * Sole real entry point: the "Import from Excel" header action on the
+     * Database (Prospect) list — confirmed by this page's own class
+     * docblock and by grepping the app for any other reference to this
+     * route. Same mechanism as every other Prospect page's Back action
+     * (see ProspectResource::BACK_BUTTON_CLICK_HANDLER's docblock) — no
+     * adjustment needed: this plain Filament\Pages\Page already composes
+     * the same action-mounting traits (Filament\Pages\BasePage implements
+     * HasActions via InteractsWithActions) that ViewRecord/EditRecord/
+     * CreateRecord build on, and its Blade view already renders through
+     * the standard <x-filament-panels::page> wrapper that displays header
+     * actions, so nothing else needed changing to make this render here.
+     *
+     * Deliberately exits the ENTIRE flow (browser history.back(), landing
+     * on the Database list) rather than stepping back one internal wizard
+     * stage — backToUpload()/backToMapping() below already own "go back
+     * one stage within the import," wired to their own dedicated buttons
+     * at each step; giving this header-level Back a second, different
+     * meaning ("step back one stage") would collide with those and read
+     * as two inconsistent behaviors both labeled "Back" on the same page.
+     * No unsaved-progress warning, consistent with every other Prospect
+     * page's Back today (a plain navigate-away). Checked what's actually
+     * at stake rather than assuming: processMapping() already writes
+     * every non-duplicate row to the database immediately, before the
+     * user ever reaches the duplicates/summary step — those rows are
+     * never at risk. The one real thing Back can abandon mid-flow is a
+     * batch of *unresolved* duplicates (flagged for the interactive
+     * per-row review, but not yet updated/added) — those simply never
+     * get imported if left unresolved, same as if the user just closed
+     * the tab; nothing partially-written or corrupted either way.
+     */
+    protected function getHeaderActions(): array
+    {
+        return [
+            Actions\Action::make('back')
+                ->label('Back')
+                ->icon('heroicon-o-arrow-uturn-left')
+                ->color(ProspectResource::BACK_BUTTON_COLOR)
+                ->url(fn () => ProspectResource::getBackFallbackUrl())
+                ->extraAttributes(['x-on:click' => ProspectResource::BACK_BUTTON_CLICK_HANDLER]),
+        ];
     }
 
     public static function canAccess(): bool

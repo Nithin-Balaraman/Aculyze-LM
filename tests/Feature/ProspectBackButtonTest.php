@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Filament\Pages\ImportProspects;
 use App\Filament\Resources\ProspectResource;
+use App\Filament\Resources\ProspectResource\Pages\CreateProspect;
 use App\Filament\Resources\ProspectResource\Pages\EditProspect;
 use App\Filament\Resources\ProspectResource\Pages\ViewProspect;
 use App\Models\Prospect;
@@ -41,6 +43,11 @@ use Tests\TestCase;
  * actually attached. The real multi-hop sequence (List -> View -> Edit ->
  * Back -> Back -> Back landing on Edit, then View, then List) is verified
  * separately via real-browser Playwright QA — see the task's own report.
+ *
+ * Extended to Create Prospect and Import Prospects, both single-entry-
+ * point pages reached only from the Database list ("New prospect" /
+ * "Import from Excel") — same coverage shape as View/Edit above, since
+ * it's the exact same shared mechanism.
  */
 class ProspectBackButtonTest extends TestCase
 {
@@ -169,5 +176,54 @@ class ProspectBackButtonTest extends TestCase
         $editColor = $test->instance()->getAction('edit')->getColor();
 
         $this->assertNotSame($backColor, $editColor);
+    }
+
+    /**
+     * Extended to Create Prospect and Import Prospects — same exact
+     * mechanism/color, reused verbatim rather than a second
+     * implementation (see CreateProspect::getHeaderActions()' and
+     * ImportProspects::getHeaderActions()' own docblocks for the entry-
+     * point confirmation and reasoning behind each).
+     */
+    public function test_create_page_back_button_falls_back_to_the_database_list(): void
+    {
+        $this->actingAdmin();
+        $listUrl = ProspectResource::getUrl('index');
+
+        Livewire::test(CreateProspect::class)
+            ->assertActionHasUrl('back', $listUrl)
+            ->assertActionHasColor('back', ProspectResource::BACK_BUTTON_COLOR);
+    }
+
+    public function test_create_page_back_button_has_the_history_back_click_handler(): void
+    {
+        $this->actingAdmin();
+
+        $action = Livewire::test(CreateProspect::class)->instance()->getAction('back');
+
+        $handler = $action->getExtraAttributes()['x-on:click'] ?? '';
+        $this->assertStringContainsString('window.history.length', $handler);
+        $this->assertStringContainsString('window.history.back();', $handler);
+    }
+
+    public function test_import_page_back_button_falls_back_to_the_database_list(): void
+    {
+        $this->actingAdmin();
+        $listUrl = ProspectResource::getUrl('index');
+
+        Livewire::test(ImportProspects::class)
+            ->assertActionHasUrl('back', $listUrl)
+            ->assertActionHasColor('back', ProspectResource::BACK_BUTTON_COLOR);
+    }
+
+    public function test_import_page_back_button_has_the_history_back_click_handler(): void
+    {
+        $this->actingAdmin();
+
+        $action = Livewire::test(ImportProspects::class)->instance()->getAction('back');
+
+        $handler = $action->getExtraAttributes()['x-on:click'] ?? '';
+        $this->assertStringContainsString('window.history.length', $handler);
+        $this->assertStringContainsString('window.history.back();', $handler);
     }
 }
