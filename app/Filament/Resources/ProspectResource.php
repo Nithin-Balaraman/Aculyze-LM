@@ -222,12 +222,19 @@ class ProspectResource extends Resource
                         ->visible(fn () => auth()->user()->isAdmin()),
                 ]),
             ])
+            // Delete/Deselect as standalone toolbar buttons, not nested in a
+            // "Bulk actions" dropdown — a plain array (no BulkActionGroup
+            // wrapper) is exactly what makes Filament render each one as
+            // its own directly-visible button instead of collapsing them
+            // behind a single dropdown trigger. Neither action's own
+            // config (visibility, confirmation dialog, dehydration, etc.)
+            // is affected by this — only how they're grouped for display.
+            // Prospects-table-only change; every other resource keeps its
+            // existing BulkActionGroup([...]) pattern untouched.
             ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    TableBulkActions::deselectAll(),
-                    Tables\Actions\DeleteBulkAction::make()
-                        ->visible(fn () => auth()->user()->isAdmin()),
-                ]),
+                TableBulkActions::deselectAll(),
+                Tables\Actions\DeleteBulkAction::make()
+                    ->visible(fn () => auth()->user()->isAdmin()),
             ])
             ->defaultSort('created_at', 'desc')
             ->emptyStateHeading('No prospects yet.')

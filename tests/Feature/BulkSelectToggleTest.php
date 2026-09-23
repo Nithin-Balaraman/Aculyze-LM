@@ -9,6 +9,7 @@ use App\Filament\Resources\ProspectResource\Pages\ListProspects;
 use App\Models\Prospect;
 use App\Models\User;
 use Filament\Facades\Filament;
+use Filament\Tables\Actions\ActionGroup;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -84,12 +85,16 @@ class BulkSelectToggleTest extends TestCase
 
     /**
      * "Deselect all" moved from a standalone link in the selection-
-     * indicator bar into a real entry in the "Bulk actions" dropdown (see
-     * App\Support\TableBulkActions::deselectAll()). It's a no-op action
-     * that relies on BulkAction's built-in deselectRecordsAfterCompletion()
-     * to actually clear the selection.
+     * indicator bar into a real bulk action (see App\Support\
+     * TableBulkActions::deselectAll()) — a "Bulk actions" dropdown entry on
+     * every other resource, but a standalone toolbar button specifically on
+     * Prospects (see ProspectResource::table()'s own comment on why). It's
+     * a no-op action either way, relying on BulkAction's built-in
+     * deselectRecordsAfterCompletion() to actually clear the selection —
+     * this test exercises the action itself, not its container, so it's
+     * unaffected by that layout difference.
      */
-    public function test_admin_can_deselect_all_via_the_bulk_actions_dropdown(): void
+    public function test_admin_can_deselect_all_via_the_bulk_action(): void
     {
         $admin = User::factory()->admin()->create();
         $this->actingAs($admin);
@@ -114,5 +119,36 @@ class BulkSelectToggleTest extends TestCase
 
         Livewire::test(ListLeads::class)
             ->assertTableBulkActionHidden('deselectAll');
+    }
+
+    /**
+     * "Pull Delete/Deselect out of Bulk actions dropdown" (Prospects-only):
+     * Table::getBulkActions() returns exactly what ->bulkActions() was
+     * given, so a top-level array with no ActionGroup/BulkActionGroup
+     * wrapper is precisely what makes Filament render each one as its own
+     * standalone button instead of collapsing them behind one dropdown
+     * trigger — see ProspectResource::table()'s own comment. This is a
+     * layout-only assertion: it says nothing about either action's
+     * visibility/confirmation/behavior, which the other tests in this
+     * class and DeleteActionsAdminOnlyTest already cover.
+     */
+    public function test_prospects_bulk_actions_are_standalone_not_grouped_in_a_dropdown(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $bulkActions = Livewire::test(ListProspects::class)
+            ->instance()
+            ->getTable()
+            ->getBulkActions();
+
+        $this->assertCount(2, $bulkActions);
+
+        foreach ($bulkActions as $bulkAction) {
+            $this->assertNotInstanceOf(ActionGroup::class, $bulkAction);
+        }
+
+        $names = collect($bulkActions)->map(fn ($action) => $action->getName())->all();
+        $this->assertEqualsCanonicalizing(['deselectAll', 'delete'], $names);
     }
 }
