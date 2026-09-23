@@ -154,21 +154,57 @@ class ProspectResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            // Company Name search is now BLENDED, not prefix-only: a
+            // plain '%term%' WHERE already covers both "starts with" and
+            // "contains elsewhere" (a prefix match is just a substring
+            // match at position 0), so the WHERE itself didn't need to
+            // change from a single LIKE. What changes is ranking —
+            // starts-with results must sort before contains-only ones.
+            //
+            // That ranking CANNOT live inside the column's own
+            // ->searchable(query: ...) closure (contrary to how it might
+            // look like it should work): Filament calls that closure with
+            // the query object from inside a ->where(function ($query) {
+            // ... }) group (Concerns\CanSearchRecords::
+            // applyGlobalSearchToTableQuery()), and Laravel's own
+            // Query\Builder::whereNested()/forNestedWhere() build that
+            // group using a completely separate, throwaway Builder
+            // instance — addNestedWhereQuery() copies only its `wheres`
+            // and bindings back onto the real query, never its `orders`.
+            // Confirmed directly (not assumed): calling ->orderByRaw()
+            // inside such a closure produces zero ORDER BY in the final
+            // ->toSql(), and the real query's ->orders stays null.
+            //
+            // The ranking is added here instead, via ->modifyQueryUsing(),
+            // which runs on the table's real top-level query. Per
+            // Concerns\HasRecords::filterTableQuery()/
+            // getFilteredSortedTableQuery(), search is applied before
+            // sorting (applySearchToTableQuery() then, separately and
+            // later, applySortingToTableQuery()) — and CanSortRecords
+            // only ever calls ->orderBy() (additive), never ->reorder()
+            // (which would wipe prior orders). So an order-by added here,
+            // before that later step runs, always ends up FIRST/primary,
+            // with the table's defaultSort('created_at', 'desc') — or
+            // whatever column a user has actively clicked to sort by —
+            // preserved as the secondary tie-breaker, exactly as before.
+            // This also means ranking naturally applies only while a
+            // search term is present: with no term, this closure is a
+            // no-op and sorting is untouched.
+            ->modifyQueryUsing(function (Builder $query, $livewire): Builder {
+                $search = $livewire->getTableSearch();
+
+                if (filled($search)) {
+                    $query->orderByRaw(
+                        'case when company_name like ? then 0 else 1 end',
+                        ["{$search}%"],
+                    );
+                }
+
+                return $query;
+            })
             ->columns([
-                // Company Name is the only searchable column here, and the
-                // match is a PREFIX match ("Ac" finds "Aculyze...", not a
-                // company with "ac" buried mid-name), like an address book
-                // — not Filament's own default LIKE '%term%' substring
-                // scan. The custom ->searchable(query: ...) closure fully
-                // replaces Filament's default column-search behaviour for
-                // this column (see Filament\Tables\Columns\Concerns\
-                // InteractsWithTableQuery::applySearchConstraint(): a
-                // closure short-circuits the whole default LIKE '%..%'
-                // branch, so no '%' is ever prepended). Case-insensitivity
-                // holds for free from the column's own utf8mb4_unicode_ci
-                // collation, the same as every other column in this table.
-                //
-                // The other 7 columns (contact_person, telephone, email,
+                // Company Name is the only searchable column here. The
+                // other 7 columns (contact_person, telephone, email,
                 // industry, city, address, locality) intentionally lost
                 // ->searchable() here — see this method's own history for
                 // why: a plain substring OR-search across all 8 columns
@@ -179,7 +215,7 @@ class ProspectResource extends Resource
                 // top-nav global search is untouched — it was already
                 // company_name-only via $recordTitleAttribute.
                 Tables\Columns\TextColumn::make('company_name')
-                    ->searchable(query: fn (Builder $query, string $search): Builder => $query->where('company_name', 'like', "{$search}%"))
+                    ->searchable(query: fn (Builder $query, string $search): Builder => $query->where('company_name', 'like', "%{$search}%"))
                     ->sortable()
                     ->weight('bold'),
                 Tables\Columns\TextColumn::make('contact_person')
