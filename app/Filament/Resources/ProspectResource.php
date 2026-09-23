@@ -154,6 +154,22 @@ class ProspectResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            // Root cause of the "search returns unrelated-looking rows"
+            // report: 6 of the 8 ->searchable() columns below (contact
+            // person, email, industry, city, address, locality) are
+            // ->toggleable(isToggledHiddenByDefault: true) — hidden from
+            // the table unless the user opts in. A LIKE '%term%' match
+            // against one of those hidden columns is completely correct
+            // (confirmed directly against the dev DB: e.g. searching "x"
+            // legitimately matches the repeated industry value
+            // "Textiles"), but with only Company/Telephone visible by
+            // default, the matching text is nowhere on screen, so the
+            // result looks unrelated to the search term. This description
+            // is the fix: it's a real, always-visible line (independent of
+            // ->searchPlaceholder(), which disappears once typing starts,
+            // i.e. exactly when a user is confused by results on screen),
+            // not a change to which columns are searched or how.
+            ->description('Also searches Contact Person, Email, Industry, City, Address and Locality — even when those columns are hidden. Use the column-toggle button to reveal them.')
             ->columns([
                 Tables\Columns\TextColumn::make('company_name')
                     ->searchable()
