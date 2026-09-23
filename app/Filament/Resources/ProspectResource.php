@@ -32,6 +32,23 @@ class ProspectResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'company_name';
 
+    /**
+     * Every ->toggleable() column name below, all with
+     * isToggledHiddenByDefault: true (kept in sync with table() by a
+     * dedicated test). Used by ListProspects to compute the true default
+     * toggle state (every one of these false/hidden) WITHOUT calling
+     * $this->getTable() — needed specifically because that default has to
+     * be resolved before the table itself has been constructed (see
+     * ListProspects::bootedInteractsWithTable()'s own docblock for why).
+     *
+     * @var array<int, string>
+     */
+    public const TOGGLEABLE_COLUMNS = [
+        'contact_person', 'designation', 'mobile', 'email', 'website',
+        'industry', 'source', 'city', 'state', 'locality', 'address',
+        'pincode', 'created_at',
+    ];
+
     public static function form(Form $form): Form
     {
         return $form->schema(static::formSchema());
@@ -220,18 +237,40 @@ class ProspectResource extends Resource
                     ->weight('bold'),
                 Tables\Columns\TextColumn::make('contact_person')
                     ->toggleable(isToggledHiddenByDefault: true),
+                // designation/mobile/website/state/pincode/source: genuine
+                // gaps found investigating toggle-columns completeness —
+                // each is a real, non-computed Prospect column, used on
+                // both the create/edit form and ViewProspect's own
+                // infolist, with no design reason found to exclude it here
+                // (unlike gstin/billing_address/billing_state and the
+                // creator relation, which are absent from ViewProspect too
+                // and scoped elsewhere — see this method's own history/PR
+                // notes). Added alongside their natural companion column,
+                // hidden by default like every other toggleable column.
+                Tables\Columns\TextColumn::make('designation')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('telephone')
                     ->label('Telephone'),
+                Tables\Columns\TextColumn::make('mobile')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('email')
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('website')
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('industry')
                     ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('source')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('city')
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('state')
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('locality')
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('address')
                     ->limit(40)
                     ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('locality')
+                Tables\Columns\TextColumn::make('pincode')
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('assignedEmployee.name')
                     ->label('Assigned To')
@@ -243,13 +282,67 @@ class ProspectResource extends Resource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
+            // Every toggleable column above now has a matching filter that
+            // automatically follows its column's toggle state: visible
+            // only while the column is shown, via ->visible(fn ($livewire)
+            // => ! $livewire->isTableColumnToggledHidden($column)) — the
+            // exact same method Filament itself already uses to decide
+            // whether the COLUMN is hidden, so this can never drift out of
+            // sync with the toggle-columns dropdown. The other half of the
+            // "hiding clears the value, not just the control" requirement
+            // lives in ListProspects::updatedToggledTableColumns(), which
+            // sweeps every toggleable column's filter state the moment it
+            // becomes hidden — a filter's ->visible(false) alone would
+            // otherwise leave its value silently still in $tableFilters,
+            // still affecting the query underneath a control the user can
+            // no longer even see.
+            //
+            // 'assigned_to' is intentionally untouched: it filters the
+            // "Assigned To" column, which is NOT toggleable (always
+            // visible by design), so it stays admin-only-visible and
+            // permanently available regardless of any toggle state — the
+            // one "currently-fixed, always-visible filter" this task asked
+            // to confirm doesn't conflict with the toggle-following ones.
             ->filters([
                 Tables\Filters\SelectFilter::make('assigned_to')
                     ->label('Assigned Employee')
                     ->relationship('assignedEmployee', 'name')
                     ->visible(fn () => auth()->user()->isAdmin()),
-                Tables\Filters\SelectFilter::make('industry')
-                    ->options(fn () => Prospect::query()->whereNotNull('industry')->distinct()->pluck('industry', 'industry')),
+                static::categorySelectFilter('industry'),
+                static::containsTextFilter('contact_person', 'Contact Person'),
+                static::containsTextFilter('designation', 'Designation'),
+                static::containsTextFilter('mobile', 'Mobile'),
+                static::containsTextFilter('email', 'Email'),
+                static::containsTextFilter('website', 'Website'),
+                static::categorySelectFilter('source', 'Source'),
+                static::categorySelectFilter('city'),
+                static::categorySelectFilter('state'),
+                static::containsTextFilter('locality', 'Locality'),
+                static::containsTextFilter('address', 'Address'),
+                static::containsTextFilter('pincode', 'Pincode'),
+                Tables\Filters\Filter::make('created_at')
+                    ->label('Created At')
+                    ->form([
+                        Forms\Components\DatePicker::make('created_from')->label('From'),
+                        Forms\Components\DatePicker::make('created_until')->label('Until'),
+                    ])
+                    ->query(fn (Builder $query, array $data): Builder => $query
+                        ->when($data['created_from'] ?? null, fn (Builder $q, $date) => $q->whereDate('created_at', '>=', $date))
+                        ->when($data['created_until'] ?? null, fn (Builder $q, $date) => $q->whereDate('created_at', '<=', $date)))
+                    ->indicateUsing(function (array $data): array {
+                        $indicators = [];
+
+                        if ($data['created_from'] ?? null) {
+                            $indicators[] = 'Created from '.\Illuminate\Support\Carbon::parse($data['created_from'])->toFormattedDateString();
+                        }
+
+                        if ($data['created_until'] ?? null) {
+                            $indicators[] = 'Created until '.\Illuminate\Support\Carbon::parse($data['created_until'])->toFormattedDateString();
+                        }
+
+                        return $indicators;
+                    })
+                    ->visible(static::visibleWhenColumnToggledOn('created_at')),
             ])
             ->actions([
                 Tables\Actions\ActionGroup::make([
@@ -292,6 +385,55 @@ class ProspectResource extends Resource
             ->emptyStateHeading('No prospects yet.')
             ->emptyStateDescription('Add a company to start the pipeline — every call starts here.')
             ->emptyStateIcon('heroicon-o-building-office-2');
+    }
+
+    /**
+     * Shared by every toggle-following filter below: visible only while
+     * its own column is currently shown. `$livewire` is auto-injected by
+     * Filament's own evaluate() (matched by parameter name, exactly like
+     * every other ->visible()/->query() closure already in this file) and
+     * exposes isTableColumnToggledHidden() — the same method the toggle
+     * columns dropdown itself is driven by, so this can never disagree
+     * with what the user actually sees toggled on/off.
+     */
+    private static function visibleWhenColumnToggledOn(string $column): \Closure
+    {
+        return fn ($livewire): bool => ! $livewire->isTableColumnToggledHidden($column);
+    }
+
+    /**
+     * A "contains" text filter for a free-text column (name, address,
+     * phone number, …) — mirrors the shape of a plain TextInput search,
+     * not an exact match, since none of these columns have a small fixed
+     * set of values.
+     */
+    private static function containsTextFilter(string $column, string $label): Tables\Filters\Filter
+    {
+        return Tables\Filters\Filter::make($column)
+            ->label($label)
+            ->form([
+                Forms\Components\TextInput::make('value')->label($label),
+            ])
+            ->query(fn (Builder $query, array $data): Builder => $query->when(
+                filled($data['value'] ?? null),
+                fn (Builder $q) => $q->where($column, 'like', '%'.$data['value'].'%'),
+            ))
+            ->indicateUsing(fn (array $data): ?string => filled($data['value'] ?? null) ? "{$label}: {$data['value']}" : null)
+            ->visible(static::visibleWhenColumnToggledOn($column));
+    }
+
+    /**
+     * A Select-from-distinct-values filter for a column that behaves like
+     * a category (industry, source, city, state) — the same pattern the
+     * pre-existing 'industry' filter already used, just reused here and
+     * given the toggle-following ->visible().
+     */
+    private static function categorySelectFilter(string $column, ?string $label = null): Tables\Filters\SelectFilter
+    {
+        return Tables\Filters\SelectFilter::make($column)
+            ->label($label ?? str($column)->headline())
+            ->options(fn () => Prospect::query()->whereNotNull($column)->distinct()->pluck($column, $column))
+            ->visible(static::visibleWhenColumnToggledOn($column));
     }
 
     public static function getRelations(): array

@@ -12,6 +12,7 @@ use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\DB;
@@ -357,6 +358,12 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
     public function assignedProspects(): HasMany
     {
         return $this->hasMany(Prospect::class, 'assigned_to');
+    }
+
+    /** This user's saved Prospects-table column-toggle state (see ProspectTableColumnPreference's own docblock). */
+    public function prospectTableColumnPreference(): HasOne
+    {
+        return $this->hasOne(ProspectTableColumnPreference::class);
     }
 
     public function createdProspects(): HasMany
