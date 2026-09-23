@@ -10,43 +10,28 @@ use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
- * Investigated as "search for 'x' returns prospects that don't contain
- * 'x' anywhere, while 'z' behaves correctly." The search mechanism itself
- * (Filament's per-column ->searchable() on ProspectResource::table(),
- * a plain WHERE (col LIKE '%term%' OR ...) across company_name,
- * contact_person, telephone, email, industry, city, address, locality —
- * confirmed via ->toSql(), no FULLTEXT index exists on this table at
- * all) is correct and behaves identically for every letter: every
- * returned row genuinely contains the searched letter in at least one
- * searchable column.
+ * Supersedes the prior investigation's fix (a persistent description
+ * explaining an 8-column substring search — see git history). That
+ * explained a search that has since been deliberately replaced: the
+ * Prospects table search is now Company Name only, prefix match — like
+ * an address book/contacts list. See ProspectResource::table()'s own
+ * comment on the company_name column for the exact mechanism
+ * (->searchable(query: ...), which fully replaces Filament's own default
+ * LIKE '%term%' column-search branch — confirmed directly against
+ * Filament\Tables\Columns\Concerns\InteractsWithTableQuery::
+ * applySearchConstraint()).
  *
- * The reported inconsistency is not a query bug. 6 of the 8 searchable
- * columns are ->toggleable(isToggledHiddenByDefault: true), so only
- * Company Name and Telephone are visible by default. `industry` is one
- * of a small fixed set of values (see ProspectFactory: Textiles,
- * Precision Engineering, Industrial Automation), so a letter that
- * happens to appear in one of those (e.g. the "x" in "Textiles")
- * legitimately matches many rows at once, all via a column that's
- * invisible unless toggled on — which is what made "x" look broken. "z"
- * only appeared to "behave correctly" because its matches happened to be
- * spread across more varied values that session; the same hidden-column
- * mechanism applies to it too (see the genuine-match assertion below).
- *
- * Fix applied: Table::description() (see ProspectResource::table()) — a
- * persistent hint, not ->searchPlaceholder() (which disappears the
- * moment a user types, i.e. exactly when they're looking at confusing
- * results).
+ * The other 7 previously-searchable columns (contact_person, telephone,
+ * email, industry, city, address, locality) no longer participate in
+ * this search box at all. The top-nav global search is a separate
+ * mechanism (ProspectResource::$recordTitleAttribute = 'company_name')
+ * and was already company_name-only, so it is unaffected either way.
  */
 class ProspectTableSearchTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const SEARCHABLE_COLUMNS = [
-        'company_name', 'contact_person', 'telephone', 'email',
-        'industry', 'city', 'address', 'locality',
-    ];
-
-    private function ownerAndProspects(): User
+    private function owner(): User
     {
         $owner = User::factory()->create();
         $this->actingAs($owner);
@@ -54,108 +39,90 @@ class ProspectTableSearchTest extends TestCase
         return $owner;
     }
 
-    /**
-     * The exact originally-reported scenario: a single "x" match sitting
-     * only in a hidden-by-default column (industry) must still be a
-     * genuine substring match, not a spurious/unrelated row.
-     */
-    public function test_x_search_only_returns_rows_genuinely_containing_x(): void
+    public function test_prefix_match_finds_company_starting_with_the_term(): void
     {
-        $owner = $this->ownerAndProspects();
-
-        $matches = Prospect::factory()->create([
-            'assigned_to' => $owner->id, 'created_by' => $owner->id,
-            'company_name' => 'Ashford Supplies',
-            'industry' => 'Textiles',
-            'contact_person' => 'Priya Kumar',
-            'telephone' => '+91 90000 00001',
-            'email' => 'priya@example.com',
-            'city' => 'Chennai',
-            'address' => '12 Anna Salai',
-            'locality' => 'Nungambakkam',
-        ]);
-        $noMatch = Prospect::factory()->create([
-            'assigned_to' => $owner->id, 'created_by' => $owner->id,
-            'company_name' => 'Acme Supplies',
-            'industry' => 'Precision Engineering',
-            'contact_person' => 'Arjun Menon',
-            'telephone' => '+91 90000 00002',
-            'email' => 'arjun@acme.co.in',
-            'city' => 'Chennai',
-            'address' => '14 Anna Salai',
-            'locality' => 'Adyar',
-        ]);
-
-        $test = Livewire::test(ListProspects::class);
-        $test->set('tableSearch', 'x');
-        $records = $test->instance()->getTable()->getRecords();
-
-        $test->assertCanSeeTableRecords([$matches]);
-        $test->assertCanNotSeeTableRecords([$noMatch]);
-
-        foreach ($records as $record) {
-            $genuine = false;
-            foreach (self::SEARCHABLE_COLUMNS as $column) {
-                if (stripos((string) $record->{$column}, 'x') !== false) {
-                    $genuine = true;
-                    break;
-                }
-            }
-            $this->assertTrue($genuine, "Prospect #{$record->id} matched 'x' search without containing 'x' in any searchable column.");
-        }
-    }
-
-    /**
-     * Control, run the same assertion for several other single-character
-     * terms (not just x/z) against real factory-shaped data.
-     */
-    public function test_single_character_searches_return_only_genuine_matches(): void
-    {
-        $owner = $this->ownerAndProspects();
-        Prospect::factory()->count(15)->create(['assigned_to' => $owner->id, 'created_by' => $owner->id]);
-
-        foreach (['a', 'e', 'q', 'j', 'w', 'x', 'z'] as $letter) {
-            $test = Livewire::test(ListProspects::class);
-            $test->set('tableSearch', $letter);
-            $records = $test->instance()->getTable()->getRecords();
-
-            foreach ($records as $record) {
-                $genuine = false;
-                foreach (self::SEARCHABLE_COLUMNS as $column) {
-                    if (stripos((string) $record->{$column}, $letter) !== false) {
-                        $genuine = true;
-                        break;
-                    }
-                }
-                $this->assertTrue($genuine, "Letter '{$letter}': Prospect #{$record->id} matched without a genuine substring in any searchable column.");
-            }
-        }
-    }
-
-    /** A match can legitimately live only in a hidden-by-default column. */
-    public function test_search_matches_a_column_hidden_by_default(): void
-    {
-        $owner = $this->ownerAndProspects();
-        $prospect = Prospect::factory()->create([
-            'assigned_to' => $owner->id, 'created_by' => $owner->id,
-            'company_name' => 'Acme Corp',
-            'contact_person' => 'Zara Ibrahim',
-            'telephone' => '+91 90000 00003',
-        ]);
+        $owner = $this->owner();
+        $aculyze = Prospect::factory()->create(['assigned_to' => $owner->id, 'created_by' => $owner->id, 'company_name' => 'Aculyze Solutions LLP']);
+        $other = Prospect::factory()->create(['assigned_to' => $owner->id, 'created_by' => $owner->id, 'company_name' => 'Precision Engineering Co']);
 
         Livewire::test(ListProspects::class)
-            ->set('tableSearch', 'zara')
-            ->assertCanSeeTableRecords([$prospect]);
+            ->set('tableSearch', 'Ac')
+            ->assertCanSeeTableRecords([$aculyze])
+            ->assertCanNotSeeTableRecords([$other]);
     }
 
-    /** The fix: a persistent, always-visible explanation of search scope. */
-    public function test_table_has_a_persistent_search_scope_description(): void
+    /**
+     * The core behavior change: a term that appears mid-name (not as a
+     * prefix) must NOT match — this is the difference between the old
+     * substring search and the new address-book-style prefix search.
+     */
+    public function test_term_appearing_mid_name_does_not_match(): void
     {
-        $this->ownerAndProspects();
+        $owner = $this->owner();
+        $prospect = Prospect::factory()->create(['assigned_to' => $owner->id, 'created_by' => $owner->id, 'company_name' => 'Precision Engineering Co']);
+
+        // "cision" is a genuine substring of "Precision" but not a prefix.
+        Livewire::test(ListProspects::class)
+            ->set('tableSearch', 'cision')
+            ->assertCanNotSeeTableRecords([$prospect]);
+    }
+
+    /**
+     * The exact originally-reported scenario: a term that only matches
+     * other (now non-searchable) columns must return nothing, not the
+     * old cross-column matches.
+     */
+    public function test_search_no_longer_matches_other_columns(): void
+    {
+        $owner = $this->owner();
+        $prospect = Prospect::factory()->create([
+            'assigned_to' => $owner->id, 'created_by' => $owner->id,
+            'company_name' => 'Acme Supplies',
+            'industry' => 'Textiles',
+            'contact_person' => 'Zara Ibrahim',
+            'email' => 'zara@example.com',
+            'city' => 'Coimbatore',
+            'address' => '218 Antonio Expressway',
+            'locality' => 'fort',
+            'telephone' => '+91 90000 00099',
+        ]);
+
+        foreach (['Textiles', 'Zara', 'example', 'Expressway', 'Coimbatore', 'fort', '90000'] as $term) {
+            Livewire::test(ListProspects::class)
+                ->set('tableSearch', $term)
+                ->assertCanNotSeeTableRecords([$prospect]);
+        }
+    }
+
+    public function test_search_is_case_insensitive(): void
+    {
+        $owner = $this->owner();
+        $prospect = Prospect::factory()->create(['assigned_to' => $owner->id, 'created_by' => $owner->id, 'company_name' => 'Aculyze Solutions LLP']);
+
+        foreach (['ac', 'AC', 'Ac', 'aC'] as $term) {
+            Livewire::test(ListProspects::class)
+                ->set('tableSearch', $term)
+                ->assertCanSeeTableRecords([$prospect]);
+        }
+    }
+
+    public function test_empty_search_shows_everything(): void
+    {
+        $owner = $this->owner();
+        $prospects = Prospect::factory()->count(5)->create(['assigned_to' => $owner->id, 'created_by' => $owner->id]);
+
+        Livewire::test(ListProspects::class)
+            ->set('tableSearch', '')
+            ->assertCanSeeTableRecords($prospects);
+    }
+
+    /** The superseded description text must not still be presented as current behavior. */
+    public function test_table_no_longer_carries_the_superseded_search_scope_description(): void
+    {
+        $this->owner();
 
         $description = Livewire::test(ListProspects::class)->instance()->getTable()->getDescription();
 
-        $this->assertNotNull($description);
-        $this->assertStringContainsString('Industry', $description);
+        $this->assertNull($description);
     }
 }

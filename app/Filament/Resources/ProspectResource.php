@@ -154,48 +154,48 @@ class ProspectResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            // Root cause of the "search returns unrelated-looking rows"
-            // report: 6 of the 8 ->searchable() columns below (contact
-            // person, email, industry, city, address, locality) are
-            // ->toggleable(isToggledHiddenByDefault: true) — hidden from
-            // the table unless the user opts in. A LIKE '%term%' match
-            // against one of those hidden columns is completely correct
-            // (confirmed directly against the dev DB: e.g. searching "x"
-            // legitimately matches the repeated industry value
-            // "Textiles"), but with only Company/Telephone visible by
-            // default, the matching text is nowhere on screen, so the
-            // result looks unrelated to the search term. This description
-            // is the fix: it's a real, always-visible line (independent of
-            // ->searchPlaceholder(), which disappears once typing starts,
-            // i.e. exactly when a user is confused by results on screen),
-            // not a change to which columns are searched or how.
-            ->description('Also searches Contact Person, Email, Industry, City, Address and Locality — even when those columns are hidden. Use the column-toggle button to reveal them.')
             ->columns([
+                // Company Name is the only searchable column here, and the
+                // match is a PREFIX match ("Ac" finds "Aculyze...", not a
+                // company with "ac" buried mid-name), like an address book
+                // — not Filament's own default LIKE '%term%' substring
+                // scan. The custom ->searchable(query: ...) closure fully
+                // replaces Filament's default column-search behaviour for
+                // this column (see Filament\Tables\Columns\Concerns\
+                // InteractsWithTableQuery::applySearchConstraint(): a
+                // closure short-circuits the whole default LIKE '%..%'
+                // branch, so no '%' is ever prepended). Case-insensitivity
+                // holds for free from the column's own utf8mb4_unicode_ci
+                // collation, the same as every other column in this table.
+                //
+                // The other 7 columns (contact_person, telephone, email,
+                // industry, city, address, locality) intentionally lost
+                // ->searchable() here — see this method's own history for
+                // why: a plain substring OR-search across all 8 columns
+                // made results look unrelated to the query whenever a hit
+                // landed in one of the 6 columns hidden by default (e.g.
+                // "x" matching the shared "Textiles" industry value). This
+                // is scoped to the table's own search box only; the
+                // top-nav global search is untouched — it was already
+                // company_name-only via $recordTitleAttribute.
                 Tables\Columns\TextColumn::make('company_name')
-                    ->searchable()
+                    ->searchable(query: fn (Builder $query, string $search): Builder => $query->where('company_name', 'like', "{$search}%"))
                     ->sortable()
                     ->weight('bold'),
                 Tables\Columns\TextColumn::make('contact_person')
-                    ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('telephone')
-                    ->label('Telephone')
-                    ->searchable(),
+                    ->label('Telephone'),
                 Tables\Columns\TextColumn::make('email')
-                    ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('industry')
-                    ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('city')
-                    ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('address')
-                    ->searchable()
                     ->limit(40)
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('locality')
-                    ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('assignedEmployee.name')
                     ->label('Assigned To')
