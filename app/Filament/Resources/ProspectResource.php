@@ -275,4 +275,52 @@ class ProspectResource extends Resource
     {
         return static::getUrl('view', ['record' => $record]);
     }
+
+    /**
+     * Shared by ViewProspect's and EditProspect's own "Back" header action —
+     * this app has no existing "return to wherever I came from" pattern
+     * (confirmed before writing this: ViewCommercialVersion's own "Back"
+     * action is a fixed, hardcoded destination — always its Proposal's
+     * Commercial Version page — not history-based, since it only ever has
+     * one logical parent; a Prospect's View/Edit page has several real
+     * entry points instead — the Database list, a Pipeline Board card's
+     * "Open Company" link, and global search results today, plus whatever
+     * else links here in the future — so a fixed destination would be
+     * wrong here specifically).
+     *
+     * url()->previous() is Laravel's own built-in mechanism for this: it
+     * prefers the request's Referer header, falling back to the last
+     * GET request's URL already tracked in the session by Illuminate\
+     * Session\Middleware\StartSession (confirmed this panel never enables
+     * ->spa()/wire:navigate, so every Filament page transition is a plain,
+     * full GET — exactly what that middleware expects; no SPA/ajax
+     * edge case to work around here).
+     *
+     * Two edge cases handled explicitly, both confirmed by tracing the
+     * framework's own behavior rather than assumed:
+     * - No real previous page at all (a bookmark, or the very first
+     *   request in a session) — previous() would otherwise fall back to
+     *   the site root; passing the Prospects list explicitly here as its
+     *   own $fallback argument is the sensible fallback instead.
+     * - A same-page refresh — the browser sends no Referer for a plain
+     *   reload, and the session's own stored "previous URL" for THIS
+     *   request is this exact page's own URL (set when it first loaded),
+     *   so an unguarded previous() would make "Back" link to itself. Only
+     *   caught by explicitly comparing against the current request's own
+     *   full URL — the framework provides no other signal for this.
+     * A previous page that's since become invalid (e.g. its record was
+     * deleted) is deliberately NOT special-cased beyond this: Back simply
+     * links there like a normal URL, and Filament's own existing 404
+     * handling takes over if it's clicked — identical to a real browser's
+     * own back button pointing at a since-deleted page, never a crash or
+     * a loop.
+     */
+    public static function getBackUrl(): string
+    {
+        $previous = url()->previous(static::getUrl('index'));
+
+        return $previous === request()->fullUrl()
+            ? static::getUrl('index')
+            : $previous;
+    }
 }

@@ -73,6 +73,16 @@ class ViewProspect extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            // See ProspectResource::getBackUrl()'s own docblock for why
+            // this is history-based (Referer/session previous-URL) rather
+            // than a fixed destination — this page has several real entry
+            // points (Database list, Pipeline Board, global search), not
+            // one fixed parent.
+            Actions\Action::make('back')
+                ->label('Back')
+                ->icon('heroicon-o-arrow-uturn-left')
+                ->color('gray')
+                ->url(fn () => ProspectResource::getBackUrl()),
             Actions\EditAction::make(),
         ];
     }
