@@ -321,6 +321,250 @@ class ImportProspectsTest extends TestCase
         $this->assertTrue($test->instance()->allDuplicatesResolved());
     }
 
+    // --- "Apply to all" bug fix + Skip option batch. The bug: bulk-apply
+    // correctly updated duplicateResolutions server-side all along (see
+    // allDuplicatesResolved() assertions above, which already proved
+    // that) — the actual defect was that the per-row radio inputs never
+    // rendered an explicit checked attribute for ANY value, so when
+    // applyBulkResolution() changed the value via a DIFFERENT Livewire
+    // action than the radio's own change event, the re-rendered HTML was
+    // byte-identical to before and Livewire's morph had nothing to diff,
+    // so the browser's real checked state silently never updated. Fixed
+    // by deriving @checked() directly from server state on every render.
+    // These tests assert against the actual rendered HTML's checked
+    // attribute, not just the underlying array, since that's exactly
+    // what the bug hid and a plain assertSet() on the array wouldn't
+    // have caught. ---
+
+    /**
+     * @return array<int, string> the resolution values ('update'/'new'/
+     * 'skip'/null) whose radio is actually rendered `checked` for each
+     * pending-duplicate index, in order — read straight from the raw
+     * HTML so a regression of the @checked() fix would fail this test.
+     */
+    private function checkedResolutionsFromHtml(string $html, int $count): array
+    {
+        $result = [];
+
+        for ($i = 0; $i < $count; $i++) {
+            $result[$i] = null;
+
+            foreach (['update', 'new', 'skip'] as $value) {
+                $pattern = '/wire:model\.live="duplicateResolutions\.'.$i.'"\s+value="'.$value.'"\s+checked/';
+
+                if (preg_match($pattern, $html)) {
+                    $result[$i] = $value;
+                }
+            }
+        }
+
+        return $result;
+    }
+
+    public function test_bulk_apply_update_visibly_checks_every_unresolved_row(): void
+    {
+        $admin = User::factory()->admin()->create();
+        Prospect::factory()->create(['company_name' => 'Sunrise Plastics', 'telephone' => '+91 98765 43210']);
+        Prospect::factory()->create(['company_name' => 'Coastal Foods', 'telephone' => '+91 91111 22222']);
+        Prospect::factory()->create(['company_name' => 'Northern Textiles', 'telephone' => '+91 93333 44444']);
+        $this->actingAs($admin);
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([
+                $this->legacyRow(),
+                $this->legacyRow(['Company Name' => 'Coastal Foods', 'Contact Number' => '+91 91111 22222']),
+                $this->legacyRow(['Company Name' => 'Northern Textiles', 'Contact Number' => '+91 93333 44444']),
+            ]))
+            ->call('processUpload')
+            ->call('confirmHeaderRow')
+            ->call('processMapping')
+            ->assertSet('step', 'duplicates');
+
+        $this->assertSame([null, null, null], $this->checkedResolutionsFromHtml($test->html(), 3));
+
+        $test->set('bulkResolution', 'update')->call('applyBulkResolution');
+
+        $this->assertSame(['update', 'update', 'update'], $this->checkedResolutionsFromHtml($test->html(), 3));
+    }
+
+    public function test_bulk_apply_add_new_visibly_checks_every_unresolved_row(): void
+    {
+        $admin = User::factory()->admin()->create();
+        Prospect::factory()->create(['company_name' => 'Sunrise Plastics', 'telephone' => '+91 98765 43210']);
+        Prospect::factory()->create(['company_name' => 'Coastal Foods', 'telephone' => '+91 91111 22222']);
+        $this->actingAs($admin);
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([
+                $this->legacyRow(),
+                $this->legacyRow(['Company Name' => 'Coastal Foods', 'Contact Number' => '+91 91111 22222']),
+            ]))
+            ->call('processUpload')
+            ->call('confirmHeaderRow')
+            ->call('processMapping')
+            ->assertSet('step', 'duplicates');
+
+        $test->set('bulkResolution', 'new')->call('applyBulkResolution');
+
+        $this->assertSame(['new', 'new'], $this->checkedResolutionsFromHtml($test->html(), 2));
+    }
+
+    public function test_bulk_apply_skip_visibly_checks_every_unresolved_row(): void
+    {
+        $admin = User::factory()->admin()->create();
+        Prospect::factory()->create(['company_name' => 'Sunrise Plastics', 'telephone' => '+91 98765 43210']);
+        Prospect::factory()->create(['company_name' => 'Coastal Foods', 'telephone' => '+91 91111 22222']);
+        $this->actingAs($admin);
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([
+                $this->legacyRow(),
+                $this->legacyRow(['Company Name' => 'Coastal Foods', 'Contact Number' => '+91 91111 22222']),
+            ]))
+            ->call('processUpload')
+            ->call('confirmHeaderRow')
+            ->call('processMapping')
+            ->assertSet('step', 'duplicates');
+
+        $test->set('bulkResolution', 'skip')->call('applyBulkResolution');
+
+        $this->assertSame(['skip', 'skip'], $this->checkedResolutionsFromHtml($test->html(), 2));
+    }
+
+    /**
+     * A bulk-apply sets a default for every UNRESOLVED row — an
+     * individual row must still be changeable afterward for a one-off
+     * exception, and that change must itself visibly check correctly.
+     */
+    public function test_individual_row_can_override_a_bulk_applied_choice_afterward(): void
+    {
+        $admin = User::factory()->admin()->create();
+        Prospect::factory()->create(['company_name' => 'Sunrise Plastics', 'telephone' => '+91 98765 43210']);
+        Prospect::factory()->create(['company_name' => 'Coastal Foods', 'telephone' => '+91 91111 22222']);
+        $this->actingAs($admin);
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([
+                $this->legacyRow(),
+                $this->legacyRow(['Company Name' => 'Coastal Foods', 'Contact Number' => '+91 91111 22222']),
+            ]))
+            ->call('processUpload')
+            ->call('confirmHeaderRow')
+            ->call('processMapping')
+            ->assertSet('step', 'duplicates');
+
+        $test->set('bulkResolution', 'update')->call('applyBulkResolution');
+        $this->assertSame(['update', 'update'], $this->checkedResolutionsFromHtml($test->html(), 2));
+
+        // Override row 1 individually to Skip instead.
+        $test->set('duplicateResolutions.1', 'skip');
+        $this->assertSame(['update', 'skip'], $this->checkedResolutionsFromHtml($test->html(), 2));
+        $this->assertSame('update', $test->get('duplicateResolutions')[0]);
+    }
+
+    /**
+     * A bulk-apply must never overwrite a row the admin already resolved
+     * individually — the existing "only fill in unresolved rows"
+     * behavior, unaffected by this batch, re-verified alongside it.
+     */
+    public function test_bulk_apply_does_not_override_an_already_resolved_row(): void
+    {
+        $admin = User::factory()->admin()->create();
+        Prospect::factory()->create(['company_name' => 'Sunrise Plastics', 'telephone' => '+91 98765 43210']);
+        Prospect::factory()->create(['company_name' => 'Coastal Foods', 'telephone' => '+91 91111 22222']);
+        $this->actingAs($admin);
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([
+                $this->legacyRow(),
+                $this->legacyRow(['Company Name' => 'Coastal Foods', 'Contact Number' => '+91 91111 22222']),
+            ]))
+            ->call('processUpload')
+            ->call('confirmHeaderRow')
+            ->call('processMapping')
+            ->assertSet('step', 'duplicates');
+
+        $test->set('duplicateResolutions.0', 'skip');
+        $test->set('bulkResolution', 'update')->call('applyBulkResolution');
+
+        $this->assertSame(['skip', 'update'], $this->checkedResolutionsFromHtml($test->html(), 2));
+    }
+
+    /**
+     * The locked decision: Skip means do nothing. No partial write, no
+     * orphaned record — the existing record must be byte-for-byte
+     * unchanged and no new Prospect created for that row.
+     */
+    public function test_skip_leaves_the_existing_record_completely_untouched_and_creates_nothing(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $existing = Prospect::factory()->create([
+            'company_name' => 'Sunrise Plastics',
+            'telephone' => '+91 98765 43210',
+            'contact_person' => 'Original Contact',
+            'email' => 'original@sunriseplastics.test',
+        ]);
+        $originalUpdatedAt = $existing->updated_at;
+        $this->actingAs($admin);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow()]))
+            ->call('processUpload')
+            ->call('confirmHeaderRow')
+            ->call('processMapping')
+            ->assertSet('step', 'duplicates')
+            ->set('duplicateResolutions.0', 'skip')
+            ->call('completeImport')
+            ->assertSet('step', 'summary')
+            ->assertSet('summary.skipped', 1)
+            ->assertSet('summary.updated', 0)
+            ->assertSet('summary.addedDespiteDuplicate', 0);
+
+        // Exactly one Prospect (the pre-existing one) — nothing new added.
+        $this->assertSame(1, Prospect::count());
+
+        $existing->refresh();
+        $this->assertSame('Original Contact', $existing->contact_person);
+        $this->assertSame('original@sunriseplastics.test', $existing->email);
+        $this->assertTrue($originalUpdatedAt->equalTo($existing->updated_at));
+    }
+
+    /**
+     * The completion summary must correctly count all three outcomes
+     * independently when a batch mixes them.
+     */
+    public function test_completion_summary_correctly_counts_all_three_outcomes(): void
+    {
+        $admin = User::factory()->admin()->create();
+        Prospect::factory()->create(['company_name' => 'Sunrise Plastics', 'telephone' => '+91 98765 43210']);
+        Prospect::factory()->create(['company_name' => 'Coastal Foods', 'telephone' => '+91 91111 22222']);
+        Prospect::factory()->create(['company_name' => 'Northern Textiles', 'telephone' => '+91 93333 44444']);
+        $this->actingAs($admin);
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([
+                $this->legacyRow(),
+                $this->legacyRow(['Company Name' => 'Coastal Foods', 'Contact Number' => '+91 91111 22222']),
+                $this->legacyRow(['Company Name' => 'Northern Textiles', 'Contact Number' => '+91 93333 44444']),
+            ]))
+            ->call('processUpload')
+            ->call('confirmHeaderRow')
+            ->call('processMapping')
+            ->assertSet('step', 'duplicates');
+
+        $test->set('duplicateResolutions.0', 'update')
+            ->set('duplicateResolutions.1', 'new')
+            ->set('duplicateResolutions.2', 'skip')
+            ->call('completeImport')
+            ->assertSet('step', 'summary')
+            ->assertSet('summary.updated', 1)
+            ->assertSet('summary.addedDespiteDuplicate', 1)
+            ->assertSet('summary.skipped', 1);
+
+        // 3 pre-existing + 1 genuinely new (the "add as new anyway" row).
+        $this->assertSame(4, Prospect::count());
+    }
+
     /**
      * UX Fixes Batch Issue 2: every real mapping destination — not just
      * Company Name/Contact/Phone/Email checked above — must reach its

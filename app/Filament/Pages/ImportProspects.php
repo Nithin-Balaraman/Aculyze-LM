@@ -148,17 +148,18 @@ class ImportProspects extends Page
     /** @var array<int, array<string, mixed>> */
     public array $pendingDuplicates = [];
 
-    /** @var array<int, string> index => 'update'|'new' */
+    /** @var array<int, string> index => 'update'|'new'|'skip' */
     public array $duplicateResolutions = [];
 
     public string $bulkResolution = '';
 
-    /** @var array{total: int, imported: int, updated: int, addedDespiteDuplicate: int, failed: array<int, array{row: int, reason: string}>, warnings: array<int, array{row: int, messages: array<int, string>}>} */
+    /** @var array{total: int, imported: int, updated: int, addedDespiteDuplicate: int, skipped: int, failed: array<int, array{row: int, reason: string}>, warnings: array<int, array{row: int, messages: array<int, string>}>} */
     public array $summary = [
         'total' => 0,
         'imported' => 0,
         'updated' => 0,
         'addedDespiteDuplicate' => 0,
+        'skipped' => 0,
         'failed' => [],
         'warnings' => [],
     ];
@@ -472,7 +473,7 @@ class ImportProspects extends Page
         }
 
         $this->uploadError = '';
-        $this->summary = ['total' => count($this->rows), 'imported' => 0, 'updated' => 0, 'addedDespiteDuplicate' => 0, 'failed' => [], 'warnings' => []];
+        $this->summary = ['total' => count($this->rows), 'imported' => 0, 'updated' => 0, 'addedDespiteDuplicate' => 0, 'skipped' => 0, 'failed' => [], 'warnings' => []];
         $this->pendingDuplicates = [];
 
         $usersByName = User::query()->get()->keyBy(fn (User $user) => Str::lower(trim($user->name)));
@@ -616,7 +617,7 @@ class ImportProspects extends Page
 
     public function applyBulkResolution(): void
     {
-        if (! in_array($this->bulkResolution, ['update', 'new'], true)) {
+        if (! in_array($this->bulkResolution, ['update', 'new', 'skip'], true)) {
             return;
         }
 
@@ -658,9 +659,19 @@ class ImportProspects extends Page
             } elseif ($resolution === 'new') {
                 DB::transaction(fn () => Prospect::create($duplicate['incoming']));
                 $this->summary['addedDespiteDuplicate']++;
+            } elseif ($resolution === 'skip') {
+                // Skip means do nothing: the existing record is untouched,
+                // no new record is created — exactly as if this row had
+                // never been in the uploaded file. No DB write at all, so
+                // there's nothing to wrap in a transaction here.
+                $this->summary['skipped']++;
             }
 
-            if (! empty($duplicate['warnings'])) {
+            // A skipped row's incoming data was never written anywhere, so
+            // warnings about that data (e.g. an unmatched Assigned Owner
+            // name) would be misleading noise about a write that never
+            // happened — suppressed for 'skip' specifically.
+            if ($resolution !== 'skip' && ! empty($duplicate['warnings'])) {
                 $this->summary['warnings'][] = ['row' => $duplicate['rowNumber'], 'messages' => $duplicate['warnings']];
             }
         }
@@ -691,6 +702,6 @@ class ImportProspects extends Page
         $this->autoMatchedHeaders = [];
         $this->pendingDuplicates = [];
         $this->duplicateResolutions = [];
-        $this->summary = ['total' => 0, 'imported' => 0, 'updated' => 0, 'addedDespiteDuplicate' => 0, 'failed' => [], 'warnings' => []];
+        $this->summary = ['total' => 0, 'imported' => 0, 'updated' => 0, 'addedDespiteDuplicate' => 0, 'skipped' => 0, 'failed' => [], 'warnings' => []];
     }
 }

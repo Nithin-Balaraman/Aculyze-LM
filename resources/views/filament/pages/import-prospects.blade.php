@@ -144,6 +144,7 @@
                     <option value="">Choose…</option>
                     <option value="update">Update existing record</option>
                     <option value="new">Add as new record anyway</option>
+                    <option value="skip">Skip these rows</option>
                 </select>
                 <x-filament::button size="sm" color="gray" wire:click="applyBulkResolution">Apply</x-filament::button>
             </div>
@@ -171,14 +172,46 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="mt-3 flex gap-4 text-sm">
+                        <div class="mt-3 flex flex-wrap gap-4 text-sm">
                             <label class="flex items-center gap-2">
-                                <input type="radio" wire:model.live="duplicateResolutions.{{ $index }}" value="update" />
+                                {{-- The explicit @checked() here (rather than relying on
+                                wire:model.live's own implicit binding) is the fix for the
+                                "Apply to all" bug: without it, this radio's rendered HTML
+                                never contains a checked attribute for ANY value of
+                                duplicateResolutions[$index], so when applyBulkResolution()
+                                changes that value from a DIFFERENT Livewire action (not
+                                this input's own change event), the re-rendered HTML is
+                                byte-identical to before and Livewire's morph has nothing
+                                to diff — the DOM's checked state silently never updates.
+                                Deriving checked directly from server state on every
+                                render makes the HTML (and therefore the morph) actually
+                                reflect whichever value duplicateResolutions[$index] holds,
+                                whether it got there via this radio or via bulk-apply. --}}
+                                <input
+                                    type="radio"
+                                    wire:model.live="duplicateResolutions.{{ $index }}"
+                                    value="update"
+                                    @checked(($duplicateResolutions[$index] ?? null) === 'update')
+                                />
                                 Update the existing record with this data
                             </label>
                             <label class="flex items-center gap-2">
-                                <input type="radio" wire:model.live="duplicateResolutions.{{ $index }}" value="new" />
+                                <input
+                                    type="radio"
+                                    wire:model.live="duplicateResolutions.{{ $index }}"
+                                    value="new"
+                                    @checked(($duplicateResolutions[$index] ?? null) === 'new')
+                                />
                                 Add as a new record anyway
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input
+                                    type="radio"
+                                    wire:model.live="duplicateResolutions.{{ $index }}"
+                                    value="skip"
+                                    @checked(($duplicateResolutions[$index] ?? null) === 'skip')
+                                />
+                                Skip this row
                             </label>
                         </div>
                     </div>
@@ -219,7 +252,7 @@
                     <div class="text-xs uppercase text-gray-400">Failed</div>
                 </div>
                 <div>
-                    <div class="font-mono text-2xl font-semibold text-gray-950 dark:text-white">{{ $summary['updated'] + $summary['addedDespiteDuplicate'] }}</div>
+                    <div class="font-mono text-2xl font-semibold text-gray-950 dark:text-white">{{ $summary['updated'] + $summary['addedDespiteDuplicate'] + $summary['skipped'] }}</div>
                     <div class="text-xs uppercase text-gray-400">Duplicates Handled</div>
                 </div>
             </div>
@@ -228,6 +261,7 @@
                 <div>New records created: <strong>{{ $summary['imported'] }}</strong></div>
                 <div>Existing records updated: <strong>{{ $summary['updated'] }}</strong></div>
                 <div>Added as new despite matching an existing record: <strong>{{ $summary['addedDespiteDuplicate'] }}</strong></div>
+                <div>Skipped (left untouched): <strong>{{ $summary['skipped'] }}</strong></div>
             </dl>
 
             @if (count($summary['failed']))
