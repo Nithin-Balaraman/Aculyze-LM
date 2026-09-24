@@ -201,7 +201,7 @@ class ProspectResource extends Resource
             // only ever calls ->orderBy() (additive), never ->reorder()
             // (which would wipe prior orders). So an order-by added here,
             // before that later step runs, always ends up FIRST/primary,
-            // with the table's defaultSort('created_at', 'desc') — or
+            // with the table's defaultSort('updated_at', 'desc') — or
             // whatever column a user has actively clicked to sort by —
             // preserved as the secondary tie-breaker, exactly as before.
             // This also means ranking naturally applies only while a
@@ -381,7 +381,13 @@ class ProspectResource extends Resource
                 Tables\Actions\DeleteBulkAction::make()
                     ->visible(fn () => auth()->user()->isAdmin()),
             ])
-            ->defaultSort('created_at', 'desc')
+            // Most recently updated first. This also covers "most recently
+            // added": a new Prospect's updated_at equals its created_at at
+            // the moment of creation, so it lands at the top same as
+            // before — but anything later edited (status change, a call
+            // logged, details updated) correctly jumps back to the top
+            // too, which plain created_at never did.
+            ->defaultSort('updated_at', 'desc')
             ->emptyStateHeading('No prospects yet.')
             ->emptyStateDescription('Add a company to start the pipeline — every call starts here.')
             ->emptyStateIcon('heroicon-o-building-office-2');

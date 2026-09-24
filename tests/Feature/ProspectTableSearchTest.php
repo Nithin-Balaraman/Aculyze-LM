@@ -152,7 +152,7 @@ class ProspectTableSearchTest extends TestCase
             ->toSql();
 
         $this->assertStringNotContainsString('case when', $sql);
-        $this->assertStringContainsString('order by `created_at` desc', $sql);
+        $this->assertStringContainsString('order by `updated_at` desc', $sql);
     }
 
     /** Ranking must combine with, not replace, an actively user-applied column sort. */
