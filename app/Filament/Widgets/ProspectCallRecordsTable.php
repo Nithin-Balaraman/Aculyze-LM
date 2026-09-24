@@ -12,15 +12,21 @@ use Filament\Widgets\TableWidget as BaseWidget;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * One of the five mini-tables on the Prospect View page (see
- * ViewProspect::getFooterWidgets()) — this company's Call Records only,
- * reusing CallRecordResource::columns() (minus the Company column, which
- * is redundant here since the whole page is already scoped to one
- * company) so this can never drift from the resource's own main list.
- * $record is auto-injected by ViewRecord's own getWidgetData(); Period +
- * (admin-only) Employee come from the page's shared filters form via
- * InteractsWithPageFilters, the same mechanism KpiBand already uses on the
- * dashboards.
+ * One of six activity tabs on the Prospect View page (see
+ * ViewProspect::infolist() — mounted via Filament\Infolists\Components\
+ * Livewire inside its own Tab, not getFooterWidgets(), since Phase:
+ * tab-restructure) — this company's Call Records only, reusing
+ * CallRecordResource::columns() (minus the Company column, which is
+ * redundant here since the whole page is already scoped to one company)
+ * so this can never drift from the resource's own main list. $record is
+ * auto-injected by Infolists\Components\Livewire::getComponentProperties()
+ * (the infolist's own record); Period + (admin-only) Employee come from
+ * the page's shared filters form via InteractsWithPageFilters, the same
+ * mechanism KpiBand already uses on the dashboards — its $filters prop
+ * being Livewire's own #[Reactive] is what keeps this table correctly
+ * re-filtering as the Period/Employee selects change, exactly as it did
+ * under the old getFooterWidgets() mechanism (empirically verified via
+ * Playwright before the other five widgets were migrated the same way).
  */
 class ProspectCallRecordsTable extends BaseWidget
 {

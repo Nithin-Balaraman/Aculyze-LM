@@ -12,8 +12,9 @@ use Filament\Widgets\TableWidget as BaseWidget;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * One of the five mini-tables on the Prospect View page (see
- * ViewProspect::getFooterWidgets()) — this company's Appointments only,
+ * One of six activity tabs on the Prospect View page (see
+ * ViewProspect::infolist(), mounted via Filament\Infolists\Components\
+ * Livewire inside its own Tab) — this company's Appointments only,
  * reusing AppointmentResource::columns() (minus Company). See
  * ProspectCallRecordsTable's docblock for the shared record/filters
  * mechanism.

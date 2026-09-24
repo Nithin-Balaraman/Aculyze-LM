@@ -12,13 +12,14 @@ use Filament\Widgets\TableWidget as BaseWidget;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * The sixth mini-table on the Prospect View page (see ViewProspect::
- * getFooterWidgets()) — this company's Demos only, reusing
+ * One of six activity tabs on the Prospect View page (see
+ * ViewProspect::infolist(), mounted via Filament\Infolists\Components\
+ * Livewire inside its own Tab) — this company's Demos only, reusing
  * DemoResource::columns() (minus Company). Demo belongs directly to
  * Prospect (demos.prospect_id, confirmed against the actual migration —
  * it is NOT reached only via Lead, despite also carrying a lead_id), so
  * this filters by prospect_id directly, the same as every other one of
- * these five widgets. See ProspectCallRecordsTable's docblock for the
+ * these six widgets. See ProspectCallRecordsTable's docblock for the
  * shared record/filters mechanism.
  */
 class ProspectDemosTable extends BaseWidget

@@ -11,40 +11,70 @@ use App\Filament\Widgets\ProspectLeadsTable;
 use App\Filament\Widgets\ProspectProposalsTable;
 use App\Models\User;
 use App\Support\DashboardPeriod;
+use App\Support\Filament\SectionTabs;
 use Filament\Actions;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
+use Filament\Infolists\Components\Livewire as InfolistLivewire;
 use Filament\Infolists\Components\Section;
+use Filament\Infolists\Components\Tabs\Tab;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Pages\ViewRecord;
 
 /**
  * The global search landing page for a company (see ProspectResource::
- * getGlobalSearchResultUrl()) — the company's own details (a read-only
- * infolist, collapsed by default; the company name itself is the page's
- * own heading instead, so it stays visible regardless of that collapse
- * state) plus six mini-tables below, one per resource that can reference
- * a Prospect, each scoped to just this company and reusing that
- * resource's own column set (see {Resource}::columns()). Demo is the
- * sixth (added later — see ProspectDemosTable's own docblock for why it
- * filters by prospect_id directly, the same as every other one of these,
- * despite also carrying a lead_id).
+ * getGlobalSearchResultUrl()) — 7 tabs, matching the pattern already
+ * built for Commercial Version (see App\Support\Filament\SectionTabs):
+ * Overview | Call Records | Follow-Ups | Appointments | Leads | Demos |
+ * Proposals. Reactivity across a tab switch/filter change was spiked
+ * first with Call Records alone before the other five were migrated —
+ * see git history for that spike's own empirical Playwright verification
+ * (Infolists\Components\Livewire's #[Reactive] $filters prop behaves
+ * identically to Filament's own widgets-footer mechanism it replaced).
  *
- * Period + Employee drive all six mini-tables together via a single
- * shared $filters array and InteractsWithPageFilters, the same mechanism
- * KpiBand already uses on the dashboards.
+ * Company details are the "Overview" tab's content — EXPANDED by default
+ * (the old ->collapsed() only made sense competing with six stacked
+ * tables on one page; alone in its own tab, there's nothing to collapse
+ * against).
+ *
+ * Period + Employee drive every activity tab's mini-table together via a
+ * single shared $filters array and InteractsWithPageFilters, the same
+ * mechanism KpiBand already uses on the dashboards — unchanged by the tab
+ * restructure; only how each table is mounted into the page changed (each
+ * is now an Infolists\Components\Livewire entry inside its own Tab,
+ * rather than a getFooterWidgets() entry — that mechanism is gone from
+ * this page entirely now that every table lives in a tab).
+ *
+ * Each of the six InfolistLivewire entries below carries an explicit,
+ * unique ->key(...). Without one, Filament's own Livewire component
+ * (vendor/filament/infolists/.../livewire.blade.php) omits the Livewire
+ * @livewire key entirely, and Livewire's DOM-morph cannot reliably tell
+ * six sibling nested components apart across a parent-triggered re-render
+ * (all six share the same property shape — toggledTableColumns,
+ * tableRecordsPerPage, etc.). Found only at full 6-widget scale via real
+ * Playwright QA (not by the 2-tab spike, and not by any PHPUnit test,
+ * since Livewire::test() never exercises a client-side DOM morph): after
+ * changing Period/Employee, the active tab's content silently swapped to a
+ * different tab's data while the tab label stayed correctly highlighted.
+ * Explicit unique keys are the same fix Filament's own widgets-footer
+ * mechanism already relied on ("{$widgetClass}-{$widgetKey}").
  *
  * This page overrides its own Blade view (rather than composing getHeader()
- * /getFooterWidgets() individually) so the layout — details, then filters,
- * then the six tables — is explicit and doesn't fight Filament's page
- * template: getHeader() specifically is a mutually-exclusive alternative to
- * the standard title/breadcrumbs/header-actions bar (see
- * vendor/filament/filament/resources/views/components/page/index.blade.php),
- * so using it to render the filters form here previously made the Edit
- * header action disappear entirely.
+ * /getFooterWidgets() individually) so the layout is explicit and doesn't
+ * fight Filament's page template: getHeader() specifically is a
+ * mutually-exclusive alternative to the standard title/breadcrumbs/
+ * header-actions bar (see vendor/filament/filament/resources/views/
+ * components/page/index.blade.php), so using it to render the filters
+ * form here previously made the Edit header action disappear entirely.
+ * The filters form sits directly above the tab bar (Filament's Tabs
+ * component has no slot between its label row and each tab's own
+ * content, so a literal "between the tab row and the content" placement
+ * isn't achievable without overriding a vendor view) — functionally
+ * identical either way: always visible regardless of the active tab,
+ * governs every activity tab uniformly, has no effect while on Overview.
  */
 class ViewProspect extends ViewRecord
 {
@@ -104,27 +134,56 @@ class ViewProspect extends ViewRecord
     {
         return $infolist
             ->schema([
-                Section::make('Company Details')
-                    ->collapsible()
-                    ->collapsed()
-                    ->columns(2)
-                    ->schema([
-                        TextEntry::make('contact_person')->placeholder('—'),
-                        TextEntry::make('designation')->placeholder('—'),
-                        TextEntry::make('telephone')->placeholder('—'),
-                        TextEntry::make('mobile')->placeholder('—'),
-                        TextEntry::make('email')->placeholder('—'),
-                        TextEntry::make('website')->placeholder('—'),
-                        TextEntry::make('industry')->placeholder('—'),
-                        TextEntry::make('source')->placeholder('—'),
-                        TextEntry::make('address')->placeholder('—')->columnSpanFull(),
-                        TextEntry::make('locality')->placeholder('—'),
-                        TextEntry::make('city')->placeholder('—'),
-                        TextEntry::make('state')->placeholder('—'),
-                        TextEntry::make('pincode')->placeholder('—'),
-                        TextEntry::make('assignedEmployee.name')->label('Assigned Employee')->placeholder('Unassigned'),
-                        TextEntry::make('notes')->placeholder('—')->columnSpanFull(),
+                SectionTabs::make('prospect-view-tabs', [
+                    Tab::make('Overview')->schema([$this->companyDetailsSection()]),
+                    Tab::make('Call Records')->schema([
+                        InfolistLivewire::make(ProspectCallRecordsTable::class, ['filters' => $this->filters])
+                            ->key('prospect-view-call-records-widget'),
                     ]),
+                    Tab::make('Follow-Ups')->schema([
+                        InfolistLivewire::make(ProspectFollowUpsTable::class, ['filters' => $this->filters])
+                            ->key('prospect-view-follow-ups-widget'),
+                    ]),
+                    Tab::make('Appointments')->schema([
+                        InfolistLivewire::make(ProspectAppointmentsTable::class, ['filters' => $this->filters])
+                            ->key('prospect-view-appointments-widget'),
+                    ]),
+                    Tab::make('Leads')->schema([
+                        InfolistLivewire::make(ProspectLeadsTable::class, ['filters' => $this->filters])
+                            ->key('prospect-view-leads-widget'),
+                    ]),
+                    Tab::make('Demos')->schema([
+                        InfolistLivewire::make(ProspectDemosTable::class, ['filters' => $this->filters])
+                            ->key('prospect-view-demos-widget'),
+                    ]),
+                    Tab::make('Proposals')->schema([
+                        InfolistLivewire::make(ProspectProposalsTable::class, ['filters' => $this->filters])
+                            ->key('prospect-view-proposals-widget'),
+                    ]),
+                ]),
+            ]);
+    }
+
+    private function companyDetailsSection(): Section
+    {
+        return Section::make('Company Details')
+            ->columns(2)
+            ->schema([
+                TextEntry::make('contact_person')->placeholder('—'),
+                TextEntry::make('designation')->placeholder('—'),
+                TextEntry::make('telephone')->placeholder('—'),
+                TextEntry::make('mobile')->placeholder('—'),
+                TextEntry::make('email')->placeholder('—'),
+                TextEntry::make('website')->placeholder('—'),
+                TextEntry::make('industry')->placeholder('—'),
+                TextEntry::make('source')->placeholder('—'),
+                TextEntry::make('address')->placeholder('—')->columnSpanFull(),
+                TextEntry::make('locality')->placeholder('—'),
+                TextEntry::make('city')->placeholder('—'),
+                TextEntry::make('state')->placeholder('—'),
+                TextEntry::make('pincode')->placeholder('—'),
+                TextEntry::make('assignedEmployee.name')->label('Assigned Employee')->placeholder('Unassigned'),
+                TextEntry::make('notes')->placeholder('—')->columnSpanFull(),
             ]);
     }
 
@@ -172,43 +231,5 @@ class ViewProspect extends ViewRecord
     public function getFiltersForm(): Form
     {
         return $this->getForm('filtersForm');
-    }
-
-    /**
-     * Filament's own Dashboard page (see vendor/filament/filament/
-     * resources/views/pages/dashboard.blade.php) explicitly merges
-     * `filters` into the widget data it passes down, rather than relying
-     * solely on Livewire's parent/child reactive-prop sync — mirrored
-     * here for the same reason: it's the proven, working mechanism,
-     * not an assumption about implicit reactivity.
-     *
-     * @return array<string, mixed>
-     */
-    public function getWidgetData(): array
-    {
-        return [
-            ...parent::getWidgetData(),
-            'filters' => $this->filters,
-        ];
-    }
-
-    /**
-     * @return array<class-string>
-     */
-    protected function getFooterWidgets(): array
-    {
-        return [
-            ProspectCallRecordsTable::class,
-            ProspectFollowUpsTable::class,
-            ProspectAppointmentsTable::class,
-            ProspectLeadsTable::class,
-            ProspectDemosTable::class,
-            ProspectProposalsTable::class,
-        ];
-    }
-
-    public function getFooterWidgetsColumns(): int|string|array
-    {
-        return 1;
     }
 }

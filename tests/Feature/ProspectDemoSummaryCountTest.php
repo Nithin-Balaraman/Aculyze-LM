@@ -15,9 +15,9 @@ use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
- * Demo is the sixth mini-table on the Prospect View page (see
- * ViewProspect::getFooterWidgets() and ProspectDemosTable) — added
- * because it was missing from the original five. Demo carries its own
+ * Demo is one of six activity tabs on the Prospect View page (see
+ * ViewProspect::infolist() and ProspectDemosTable) — added because it
+ * was missing from the original five. Demo carries its own
  * prospect_id (confirmed against the demos table migration, not assumed
  * from its also-present lead_id), so the count here is a flat count of
  * every Demo belonging to this Prospect directly, regardless of which of

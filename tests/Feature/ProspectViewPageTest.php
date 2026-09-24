@@ -34,11 +34,23 @@ use Tests\TestCase;
 
 /**
  * Clicking a company from the global search bar now lands on a read-only
- * View page (details + six mini-tables) instead of jumping straight to
- * Edit — see ProspectResource::getGlobalSearchResultUrl() and
+ * View page (7 tabs: Overview + one per activity type) instead of jumping
+ * straight to Edit — see ProspectResource::getGlobalSearchResultUrl() and
  * ViewProspect. This is deliberately a global-search-only change: every
  * other way of reaching a Prospect (the Database list's own row actions)
  * is untouched.
+ *
+ * Tab-navigation mechanics themselves (default tab, ?section= resolution,
+ * fallback for an unknown section key) are covered separately in
+ * ProspectViewSectionNavigationTest.php, mirroring how
+ * ViewCommercialVersionSectionNavigationTest.php is split out from the
+ * rest of that page's tests. This file covers the mini-tables' own
+ * content/scoping/filter correctness — each is instantiated directly as
+ * an isolated Livewire component (Livewire::test($widgetClass, [...]))
+ * wherever that's sufficient, since Phase: tab-restructure changed only
+ * how each table is *mounted* into the page (Infolists\Components\
+ * Livewire inside a Tab, not getFooterWidgets()) — not the table classes
+ * themselves, their query logic, or InteractsWithPageFilters.
  */
 class ProspectViewPageTest extends TestCase
 {
@@ -133,19 +145,22 @@ class ProspectViewPageTest extends TestCase
     }
 
     /**
-     * <x-filament-panels::page> IS Filament's generic page template (see
-     * vendor/filament/filament/resources/views/components/page/index.blade.
-     * php) — it already renders getVisibleFooterWidgets() itself right
-     * after the page's slot, using the page's own getWidgetData(). The
-     * page's own view must not *also* render the footer widgets inside
-     * that slot, or every widget mounts twice with an identical Livewire
-     * key each (Filament's widgets.blade.php keys each @livewire() call by
-     * "{$widgetClass}-{$widgetKey}" alone) — an invalid duplicate-key state
-     * that, in the browser, broke the Period/Employee filters' reactive
-     * DOM updates as well as visibly doubling the widgets. This asserts
-     * against the actual rendered HTML precisely because that's the one
-     * thing a single-widget-in-isolation test (see the other tests in this
-     * file) structurally cannot catch.
+     * getFooterWidgets() is gone from this page entirely (Phase:
+     * tab-restructure Step 2) — every mini-table now mounts exactly once,
+     * as an Infolists\Components\Livewire entry inside its own Tab. This
+     * guards against that regressing: Filament's Infolist Tabs renders
+     * every tab's content into the DOM up front (all six mini-tables are
+     * genuinely mounted and reactive even before their tab is ever
+     * clicked — confirmed directly via Playwright: switching Period while
+     * on an inactive tab still re-filters it), toggling only *visibility*
+     * client-side, so a real double-mount here would surface exactly the
+     * way the old getFooterWidgets()-plus-manual-render bug did: a
+     * duplicate heading and duplicate Livewire key for one table. This
+     * asserts against the actual rendered HTML precisely because that's
+     * the one thing a single-widget-in-isolation test (see the other
+     * tests in this file) structurally cannot catch — plus the Company
+     * Details section itself (the Overview tab's own content), which a
+     * footer-widget architecture never had to guard at all.
      */
     public function test_the_view_page_does_not_render_each_mini_table_widget_twice(): void
     {
@@ -155,6 +170,8 @@ class ProspectViewPageTest extends TestCase
         $this->actingAs($admin);
 
         $html = Livewire::test(ViewProspect::class, ['record' => $prospect->getRouteKey()])->html();
+
+        $this->assertSame(1, substr_count($html, 'Company Details'), 'The Overview tab\'s Company Details section should appear exactly once.');
 
         foreach ([
             'Call Records — Acme Textiles',
@@ -263,6 +280,64 @@ class ProspectViewPageTest extends TestCase
             ->assertCanSeeTableRecords([$today, $lastWeek]);
     }
 
+    /**
+     * Closes the test-coverage gap the tab-restructure investigation
+     * found: Period was previously only directly query-tested for Call
+     * Records above. This covers the other five.
+     *
+     * Backdating via a raw DB update (not passing 'created_at' to
+     * create()) matters: Eloquent's HasTimestamps::updateTimestamps()
+     * silently overwrites any 'created_at' passed in create()'s own
+     * attributes array with now() — confirmed directly while first
+     * reproducing this during the original investigation, where every
+     * "old" fixture record built that way ended up with today's
+     * timestamp regardless, making every one of these five look "broken"
+     * as a false positive. A raw DB::table(...)->update() after creation
+     * bypasses that entirely.
+     */
+    public function test_period_filter_scopes_the_remaining_five_mini_tables(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $prospect = Prospect::factory()->create(['assigned_to' => $admin->id, 'created_by' => $admin->id]);
+
+        $todayFollowUp = FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $admin->id, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+        $oldFollowUp = FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $admin->id, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+        \DB::table('follow_ups')->where('id', $oldFollowUp->id)->update(['created_at' => now()->subWeek()]);
+
+        $todayAppointment = Appointment::create(['prospect_id' => $prospect->id, 'assigned_to' => $admin->id, 'created_by' => $admin->id, 'appointment_at' => now()->addDay(), 'stage' => 'appointment_made']);
+        $oldAppointment = Appointment::create(['prospect_id' => $prospect->id, 'assigned_to' => $admin->id, 'created_by' => $admin->id, 'appointment_at' => now()->addDay(), 'stage' => 'appointment_made']);
+        \DB::table('appointments')->where('id', $oldAppointment->id)->update(['created_at' => now()->subWeek()]);
+
+        $todayLead = Lead::create(['prospect_id' => $prospect->id, 'assigned_to' => $admin->id, 'created_by' => $admin->id, 'stage' => LeadStage::RequirementCollection, 'temperature' => 'warm']);
+        $oldLead = Lead::create(['prospect_id' => $prospect->id, 'assigned_to' => $admin->id, 'created_by' => $admin->id, 'stage' => LeadStage::RequirementCollection, 'temperature' => 'warm']);
+        \DB::table('leads')->where('id', $oldLead->id)->update(['created_at' => now()->subWeek()]);
+
+        $todayDemo = Demo::create(['prospect_id' => $prospect->id, 'lead_id' => $todayLead->id, 'assigned_to' => $admin->id, 'created_by' => $admin->id, 'demo_at' => now()->addDay(), 'mode' => DemoMode::Online, 'meeting_link' => 'https://meet.example.com/1', 'status' => DemoStatus::Scheduled]);
+        $oldDemo = Demo::create(['prospect_id' => $prospect->id, 'lead_id' => $oldLead->id, 'assigned_to' => $admin->id, 'created_by' => $admin->id, 'demo_at' => now()->addDay(), 'mode' => DemoMode::Online, 'meeting_link' => 'https://meet.example.com/2', 'status' => DemoStatus::Scheduled]);
+        \DB::table('demos')->where('id', $oldDemo->id)->update(['created_at' => now()->subWeek()]);
+
+        $todayProposal = Proposal::create(['prospect_id' => $prospect->id, 'lead_id' => $todayLead->id, 'assigned_to' => $admin->id, 'created_by' => $admin->id, 'stage' => ProposalStage::BeingPrepared]);
+        $oldProposal = Proposal::create(['prospect_id' => $prospect->id, 'lead_id' => $oldLead->id, 'assigned_to' => $admin->id, 'created_by' => $admin->id, 'stage' => ProposalStage::BeingPrepared]);
+        \DB::table('proposals')->where('id', $oldProposal->id)->update(['created_at' => now()->subWeek()]);
+
+        $this->actingAs($admin);
+
+        Livewire::test(ProspectFollowUpsTable::class, ['record' => $prospect, 'filters' => ['period' => 'today']])
+            ->assertCanSeeTableRecords([$todayFollowUp])->assertCanNotSeeTableRecords([$oldFollowUp]);
+
+        Livewire::test(ProspectAppointmentsTable::class, ['record' => $prospect, 'filters' => ['period' => 'today']])
+            ->assertCanSeeTableRecords([$todayAppointment])->assertCanNotSeeTableRecords([$oldAppointment]);
+
+        Livewire::test(ProspectLeadsTable::class, ['record' => $prospect, 'filters' => ['period' => 'today']])
+            ->assertCanSeeTableRecords([$todayLead])->assertCanNotSeeTableRecords([$oldLead]);
+
+        Livewire::test(ProspectDemosTable::class, ['record' => $prospect, 'filters' => ['period' => 'today']])
+            ->assertCanSeeTableRecords([$todayDemo])->assertCanNotSeeTableRecords([$oldDemo]);
+
+        Livewire::test(ProspectProposalsTable::class, ['record' => $prospect, 'filters' => ['period' => 'today']])
+            ->assertCanSeeTableRecords([$todayProposal])->assertCanNotSeeTableRecords([$oldProposal]);
+    }
+
     public function test_employee_filter_is_visible_for_admins_and_hidden_for_regular_employees(): void
     {
         $admin = User::factory()->admin()->create();
@@ -297,6 +372,55 @@ class ProspectViewPageTest extends TestCase
         Livewire::test(ProspectAppointmentsTable::class, ['record' => $prospect, 'filters' => ['employee_id' => $nithin->id]])
             ->assertCanSeeTableRecords([$nithinsAppointment])
             ->assertCanNotSeeTableRecords([$kuralsAppointment]);
+    }
+
+    /**
+     * Closes the test-coverage gap the tab-restructure investigation
+     * found: Employee was previously only directly query-tested for
+     * Appointments above. This covers the other five — note the
+     * ownership column genuinely differs by resource (user_id for Call
+     * Records and Follow-Ups, assigned_to for Leads/Demos/Proposals),
+     * confirmed against each widget's own ->query() rather than assumed
+     * uniform.
+     */
+    public function test_employee_filter_scopes_the_remaining_five_mini_tables(): void
+    {
+        $nithin = User::factory()->create();
+        $kural = User::factory()->create();
+        $admin = User::factory()->admin()->create();
+        $prospect = Prospect::factory()->create(['assigned_to' => $admin->id, 'created_by' => $admin->id]);
+
+        $nithinsCall = CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $nithin->id, 'called_at' => now(), 'outcome' => CallOutcome::NoAnswer]);
+        $kuralsCall = CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $kural->id, 'called_at' => now(), 'outcome' => CallOutcome::NoAnswer]);
+
+        $nithinsFollowUp = FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $nithin->id, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+        $kuralsFollowUp = FollowUp::create(['prospect_id' => $prospect->id, 'user_id' => $kural->id, 'follow_up_at' => now()->addDay(), 'reason' => 'Callback', 'status' => FollowUpStatus::Pending]);
+
+        $nithinsLead = Lead::create(['prospect_id' => $prospect->id, 'assigned_to' => $nithin->id, 'created_by' => $admin->id, 'stage' => LeadStage::RequirementCollection, 'temperature' => 'warm']);
+        $kuralsLead = Lead::create(['prospect_id' => $prospect->id, 'assigned_to' => $kural->id, 'created_by' => $admin->id, 'stage' => LeadStage::RequirementCollection, 'temperature' => 'warm']);
+
+        $nithinsDemo = Demo::create(['prospect_id' => $prospect->id, 'lead_id' => $nithinsLead->id, 'assigned_to' => $nithin->id, 'created_by' => $admin->id, 'demo_at' => now()->addDay(), 'mode' => DemoMode::Online, 'meeting_link' => 'https://meet.example.com/1', 'status' => DemoStatus::Scheduled]);
+        $kuralsDemo = Demo::create(['prospect_id' => $prospect->id, 'lead_id' => $kuralsLead->id, 'assigned_to' => $kural->id, 'created_by' => $admin->id, 'demo_at' => now()->addDay(), 'mode' => DemoMode::Online, 'meeting_link' => 'https://meet.example.com/2', 'status' => DemoStatus::Scheduled]);
+
+        $nithinsProposal = Proposal::create(['prospect_id' => $prospect->id, 'lead_id' => $nithinsLead->id, 'assigned_to' => $nithin->id, 'created_by' => $admin->id, 'stage' => ProposalStage::BeingPrepared]);
+        $kuralsProposal = Proposal::create(['prospect_id' => $prospect->id, 'lead_id' => $kuralsLead->id, 'assigned_to' => $kural->id, 'created_by' => $admin->id, 'stage' => ProposalStage::BeingPrepared]);
+
+        $this->actingAs($admin);
+
+        Livewire::test(ProspectCallRecordsTable::class, ['record' => $prospect, 'filters' => ['employee_id' => $nithin->id]])
+            ->assertCanSeeTableRecords([$nithinsCall])->assertCanNotSeeTableRecords([$kuralsCall]);
+
+        Livewire::test(ProspectFollowUpsTable::class, ['record' => $prospect, 'filters' => ['employee_id' => $nithin->id]])
+            ->assertCanSeeTableRecords([$nithinsFollowUp])->assertCanNotSeeTableRecords([$kuralsFollowUp]);
+
+        Livewire::test(ProspectLeadsTable::class, ['record' => $prospect, 'filters' => ['employee_id' => $nithin->id]])
+            ->assertCanSeeTableRecords([$nithinsLead])->assertCanNotSeeTableRecords([$kuralsLead]);
+
+        Livewire::test(ProspectDemosTable::class, ['record' => $prospect, 'filters' => ['employee_id' => $nithin->id]])
+            ->assertCanSeeTableRecords([$nithinsDemo])->assertCanNotSeeTableRecords([$kuralsDemo]);
+
+        Livewire::test(ProspectProposalsTable::class, ['record' => $prospect, 'filters' => ['employee_id' => $nithin->id]])
+            ->assertCanSeeTableRecords([$nithinsProposal])->assertCanNotSeeTableRecords([$kuralsProposal]);
     }
 
     public function test_a_regular_employee_viewing_this_page_only_sees_their_own_records_in_each_mini_table(): void
