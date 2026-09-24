@@ -164,10 +164,25 @@ class ViewProspect extends ViewRecord
             ]);
     }
 
+    /**
+     * ->inlineLabel() is Filament's own built-in label-left/value-right
+     * row layout (see vendor/filament/infolists/resources/views/
+     * components/entry-wrapper/index.blade.php: a plain CSS grid,
+     * sm:grid-cols-3, label in the first column and value spanning the
+     * remaining two — no <table>, no visible cell borders). Set once on
+     * the Section, it cascades to every child TextEntry automatically via
+     * Concerns\HasInlineLabel::hasInlineLabel()'s container/parent
+     * fallback chain, so no per-field ->inlineLabel() calls are needed.
+     * ->columns(2) is dropped — inlineLabel's own per-row grid already
+     * gives each field its two columns (label, value); keeping the
+     * Section-level 2-up grid on top of that would have paired two
+     * unrelated fields' label/value rows side by side instead of one
+     * full-width row per field.
+     */
     private function companyDetailsSection(): Section
     {
         return Section::make('Company Details')
-            ->columns(2)
+            ->inlineLabel()
             ->schema([
                 TextEntry::make('contact_person')->placeholder('—'),
                 TextEntry::make('designation')->placeholder('—'),
@@ -177,13 +192,13 @@ class ViewProspect extends ViewRecord
                 TextEntry::make('website')->placeholder('—'),
                 TextEntry::make('industry')->placeholder('—'),
                 TextEntry::make('source')->placeholder('—'),
-                TextEntry::make('address')->placeholder('—')->columnSpanFull(),
+                TextEntry::make('address')->placeholder('—'),
                 TextEntry::make('locality')->placeholder('—'),
                 TextEntry::make('city')->placeholder('—'),
                 TextEntry::make('state')->placeholder('—'),
                 TextEntry::make('pincode')->placeholder('—'),
                 TextEntry::make('assignedEmployee.name')->label('Assigned Employee')->placeholder('Unassigned'),
-                TextEntry::make('notes')->placeholder('—')->columnSpanFull(),
+                TextEntry::make('notes')->placeholder('—'),
             ]);
     }
 
