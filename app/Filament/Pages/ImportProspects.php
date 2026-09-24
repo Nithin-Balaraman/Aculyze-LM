@@ -615,6 +615,20 @@ class ImportProspects extends Page
             ->all();
     }
 
+    /**
+     * "Apply to all" is a repeatable action: every click sets EVERY row
+     * to the chosen value unconditionally, overwriting any prior state —
+     * whether that state came from an earlier bulk-apply or an
+     * individual per-row click. Previously this only filled in rows
+     * with no resolution yet (`! isset($this->duplicateResolutions[$index])`),
+     * which meant a second bulk-apply with a different choice found
+     * every row already "resolved" from the first click and silently did
+     * nothing — confirmed as the root cause via
+     * `applyBulkResolution()`'s own `isset()` guard. The admin remains
+     * free to override an individual row again AFTER using Apply; this
+     * only changes what Apply itself does, not the ability to tweak
+     * afterward.
+     */
     public function applyBulkResolution(): void
     {
         if (! in_array($this->bulkResolution, ['update', 'new', 'skip'], true)) {
@@ -622,9 +636,7 @@ class ImportProspects extends Page
         }
 
         foreach (array_keys($this->pendingDuplicates) as $index) {
-            if (! isset($this->duplicateResolutions[$index])) {
-                $this->duplicateResolutions[$index] = $this->bulkResolution;
-            }
+            $this->duplicateResolutions[$index] = $this->bulkResolution;
         }
     }
 

@@ -463,11 +463,16 @@ class ImportProspectsTest extends TestCase
     }
 
     /**
-     * A bulk-apply must never overwrite a row the admin already resolved
-     * individually — the existing "only fill in unresolved rows"
-     * behavior, unaffected by this batch, re-verified alongside it.
+     * Locked decision (post-fed2f61 follow-up): "Apply to all" is a
+     * repeatable, unconditional action — every click overwrites EVERY
+     * row to the chosen value, including a row the admin already
+     * resolved individually. This is a deliberate behavior change from
+     * the original "only fill in unresolved rows" design, which was the
+     * confirmed root cause of a second bulk-apply doing nothing (every
+     * row looked "already resolved" from the first click's own isset()
+     * guard, so a later bulk-apply's loop body never ran for any row).
      */
-    public function test_bulk_apply_does_not_override_an_already_resolved_row(): void
+    public function test_bulk_apply_overwrites_an_already_individually_resolved_row(): void
     {
         $admin = User::factory()->admin()->create();
         Prospect::factory()->create(['company_name' => 'Sunrise Plastics', 'telephone' => '+91 98765 43210']);
@@ -487,7 +492,46 @@ class ImportProspectsTest extends TestCase
         $test->set('duplicateResolutions.0', 'skip');
         $test->set('bulkResolution', 'update')->call('applyBulkResolution');
 
-        $this->assertSame(['skip', 'update'], $this->checkedResolutionsFromHtml($test->html(), 2));
+        $this->assertSame(['update', 'update'], $this->checkedResolutionsFromHtml($test->html(), 2));
+    }
+
+    /**
+     * The exact bug reported: a SECOND bulk-apply with a different value
+     * must still take effect on every row, not just the first click.
+     * Reproduces the original defect directly against
+     * applyBulkResolution()'s own isset() guard (removed by this fix).
+     */
+    public function test_bulk_apply_is_repeatable_across_a_sequence_of_different_values(): void
+    {
+        $admin = User::factory()->admin()->create();
+        Prospect::factory()->create(['company_name' => 'Sunrise Plastics', 'telephone' => '+91 98765 43210']);
+        Prospect::factory()->create(['company_name' => 'Coastal Foods', 'telephone' => '+91 91111 22222']);
+        Prospect::factory()->create(['company_name' => 'Northern Textiles', 'telephone' => '+91 93333 44444']);
+        $this->actingAs($admin);
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([
+                $this->legacyRow(),
+                $this->legacyRow(['Company Name' => 'Coastal Foods', 'Contact Number' => '+91 91111 22222']),
+                $this->legacyRow(['Company Name' => 'Northern Textiles', 'Contact Number' => '+91 93333 44444']),
+            ]))
+            ->call('processUpload')
+            ->call('confirmHeaderRow')
+            ->call('processMapping')
+            ->assertSet('step', 'duplicates');
+
+        $test->set('bulkResolution', 'update')->call('applyBulkResolution');
+        $this->assertSame(['update', 'update', 'update'], $this->checkedResolutionsFromHtml($test->html(), 3));
+
+        // Second bulk-apply, a different value: under the old ! isset()
+        // guard every row already looked "resolved" from the first click
+        // and this would have silently done nothing.
+        $test->set('bulkResolution', 'skip')->call('applyBulkResolution');
+        $this->assertSame(['skip', 'skip', 'skip'], $this->checkedResolutionsFromHtml($test->html(), 3));
+
+        // Third bulk-apply, yet another different value.
+        $test->set('bulkResolution', 'new')->call('applyBulkResolution');
+        $this->assertSame(['new', 'new', 'new'], $this->checkedResolutionsFromHtml($test->html(), 3));
     }
 
     /**
