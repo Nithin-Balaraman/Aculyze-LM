@@ -198,7 +198,24 @@ class ViewProspect extends ViewRecord
                 TextEntry::make('state')->placeholder('—'),
                 TextEntry::make('pincode')->placeholder('—'),
                 TextEntry::make('assignedEmployee.name')->label('Assigned Employee')->placeholder('Unassigned'),
-                TextEntry::make('notes')->placeholder('—'),
+                // Imported rows concatenate every unmapped column into
+                // this field as one line per column, joined with real
+                // newlines (see ImportProspects::processMapping()). A
+                // plain TextEntry renders as ordinary HTML, which
+                // collapses \n into a space, so those lines ran together
+                // as one block. white-space: pre-line preserves single
+                // newlines as real line breaks while still collapsing
+                // redundant runs of spaces/tabs like normal text — a
+                // manually-typed single-paragraph note is unaffected.
+                // Deliberately not ->markdown(): imported values are
+                // untrusted free text that may contain literal markdown
+                // syntax characters (*, #, _, etc.) it would be wrong to
+                // reinterpret as formatting, and CommonMark's default
+                // "soft break" for a single \n wouldn't even reliably
+                // produce a line break in the first place.
+                TextEntry::make('notes')
+                    ->placeholder('—')
+                    ->extraAttributes(['style' => 'white-space: pre-line']),
             ]);
     }
 

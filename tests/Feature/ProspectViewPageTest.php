@@ -109,6 +109,50 @@ class ProspectViewPageTest extends TestCase
     }
 
     /**
+     * Imported rows concatenate every unmapped column into Notes as one
+     * line per column, joined with real newlines (see ImportProspects::
+     * processMapping()). A plain TextEntry renders as ordinary HTML,
+     * which collapses \n into a space — this asserts the entry actually
+     * carries white-space: pre-line so the browser preserves those line
+     * breaks, and that the raw newline-joined text is genuinely present
+     * in the response (not just visually plausible).
+     */
+    public function test_notes_entry_preserves_line_breaks_from_imported_multi_line_values(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $prospect = Prospect::factory()->create([
+            'notes' => "Imported from legacy sheet:\nLead Status: Warm\nPriority: High",
+        ]);
+
+        $this->actingAs($admin);
+
+        $response = $this->get(ProspectResource::getUrl('view', ['record' => $prospect]));
+
+        $response->assertSee('white-space: pre-line', false);
+        $response->assertSee('Lead Status: Warm');
+        $response->assertSee('Priority: High');
+    }
+
+    /**
+     * A manually-typed single-paragraph note has no newlines to preserve
+     * in the first place, so white-space: pre-line must be a no-op for
+     * it — still just one line, no odd spacing introduced.
+     */
+    public function test_notes_entry_still_displays_a_normal_single_line_note_correctly(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $prospect = Prospect::factory()->create([
+            'notes' => 'Follow up after PO confirmation.',
+        ]);
+
+        $this->actingAs($admin);
+
+        $response = $this->get(ProspectResource::getUrl('view', ['record' => $prospect]));
+
+        $response->assertSee('Follow up after PO confirmation.');
+    }
+
+    /**
      * Root cause of the Period/Employee filters silently doing nothing in
      * the browser: $filters started, and stayed, raw PHP null — nothing
      * ever filled the filters form with its own resolved defaults (unlike
