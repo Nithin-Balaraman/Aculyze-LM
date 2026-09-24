@@ -43,25 +43,52 @@ class ImportProspects extends Page
     protected static ?string $title = 'Import Prospects from Excel';
 
     /**
-     * Column -> Prospect-field suggestions, matched case-insensitively
-     * against the uploaded file's header row. Columns not listed here (or
-     * not confidently matched) default to being folded into the Notes
-     * catch-all rather than silently dropped.
+     * Each target field's own technical name and current UI label (see
+     * TARGET_OPTIONS below) are ALWAYS recognized as auto-mapping guesses
+     * — mirroring Filament's own Import feature (Filament\Actions\Imports\
+     * ImportColumn::getGuesses(), which builds its guess list from a
+     * column's name + label the same way) rather than inventing a new
+     * mechanism. This replaces the previous single hardcoded
+     * FIELD_SUGGESTIONS dictionary, whose keys were actually the LEGACY
+     * SHEET's own historical column phrasings ('contact number', 'mobile
+     * number', 'email address', 'full location', 'source sheet') — not
+     * this app's own field labels. A user typing the label they see in
+     * this very page's dropdown ("Telephone", "Mobile", "Email",
+     * "Address", "Source") got silently defaulted to Notes, because that
+     * literal text was never in the dictionary. See guessesForField()
+     * and guessFieldFor() below for the actual matching logic.
      *
      * @var array<string, string>
      */
-    private const FIELD_SUGGESTIONS = [
-        'company name' => 'company_name',
-        'contact person' => 'contact_person',
-        'contact number' => 'telephone',
-        'mobile number' => 'mobile',
-        'email address' => 'email',
-        'website' => 'website',
-        'industry' => 'industry',
-        'city' => 'city',
-        'full location' => 'address',
-        'source sheet' => 'source',
-        'assigned owner' => 'assigned_owner',
+    private const FIELD_LABELS = [
+        'company_name' => 'Company Name',
+        'contact_person' => 'Contact Person',
+        'telephone' => 'Telephone',
+        'mobile' => 'Mobile',
+        'email' => 'Email',
+        'website' => 'Website',
+        'industry' => 'Industry',
+        'city' => 'City',
+        'address' => 'Address',
+        'source' => 'Source',
+        'assigned_owner' => 'Assigned Owner',
+    ];
+
+    /**
+     * Additional historical phrasings worth recognizing alongside a
+     * field's own name/label, so the original legacy sheet format (see
+     * ImportProspectsTest::LEGACY_HEADERS) keeps auto-mapping correctly —
+     * these are extra guesses, not the ONLY recognized phrasing (that
+     * exclusivity was the bug).
+     *
+     * @var array<string, array<int, string>>
+     */
+    private const FIELD_LEGACY_GUESSES = [
+        'telephone' => ['Contact Number'],
+        'mobile' => ['Mobile Number'],
+        'email' => ['Email Address'],
+        'address' => ['Full Location'],
+        'source' => ['Source Sheet'],
     ];
 
     /**
@@ -88,6 +115,23 @@ class ImportProspects extends Page
     public string $step = 'upload';
 
     public string $uploadError = '';
+
+    /**
+     * Raw sheet rows exactly as loaded from the workbook, before any row
+     * has been confirmed as the real header row. Kept around (rather than
+     * immediately shifting off row 1, as the previous implementation
+     * did) so the header-row confirmation step can preview several rows
+     * and the admin can pick whichever one actually holds the column
+     * names — the previous code always treated physical row 1 as headers
+     * unconditionally, with no detection or confirmation at all, which
+     * silently misread an instructional/title row above the real headers.
+     *
+     * @var array<int, array<int, string>>
+     */
+    public array $sheetRows = [];
+
+    /** @var int 0-based index into $sheetRows the admin has confirmed contains the real column headers */
+    public int $headerRowIndex = 0;
 
     /** @var array<int, string> */
     public array $headers = [];
@@ -216,11 +260,47 @@ class ImportProspects extends Page
             return;
         }
 
-        $headerRow = array_map(fn ($h) => trim((string) $h), array_shift($data));
+        $this->sheetRows = $data;
+        $this->headerRowIndex = 0;
+        $this->step = 'header-row';
+    }
+
+    /**
+     * Up to the first 3 raw rows, for the header-row confirmation step's
+     * preview — deliberately raw (un-trimmed, un-filtered, un-shifted) so
+     * what the admin sees matches exactly what's physically in the
+     * workbook, since the whole point of this step is letting them judge
+     * which row is the real header row before any cleanup happens.
+     *
+     * @return array<int, array<int, string>>
+     */
+    public function previewRows(): array
+    {
+        return array_slice($this->sheetRows, 0, 3);
+    }
+
+    /**
+     * Finishes what processUpload() used to do unconditionally against
+     * row 1 — trims/filters the confirmed header row, disambiguates
+     * duplicate header names, builds the row data and the auto-mapping
+     * suggestions — now parameterized on whichever row index the admin
+     * picked in the header-row confirmation step.
+     */
+    public function confirmHeaderRow(): void
+    {
+        $this->uploadError = '';
+
+        if (! array_key_exists($this->headerRowIndex, $this->sheetRows)) {
+            $this->uploadError = 'Choose which row contains your column headers.';
+
+            return;
+        }
+
+        $headerRow = array_map(fn ($h) => trim((string) $h), $this->sheetRows[$this->headerRowIndex]);
         $headerRow = array_values(array_filter($headerRow, fn ($h) => $h !== ''));
 
         if ($headerRow === []) {
-            $this->uploadError = 'No column headers were found in the first row.';
+            $this->uploadError = 'No column headers were found in the selected row.';
 
             return;
         }
@@ -236,10 +316,11 @@ class ImportProspects extends Page
             return $seenHeaders[$header] > 1 ? "{$header} (#{$seenHeaders[$header]})" : $header;
         }, $headerRow);
 
+        $data = array_slice($this->sheetRows, $this->headerRowIndex + 1);
         $dataRows = array_filter($data, fn ($row) => collect($row)->contains(fn ($v) => trim((string) $v) !== ''));
 
         if ($dataRows === []) {
-            $this->uploadError = 'This workbook has headers but no data rows.';
+            $this->uploadError = 'The rows below the selected header row have no data.';
 
             return;
         }
@@ -255,26 +336,113 @@ class ImportProspects extends Page
         })->all();
 
         $this->mapping = collect($headerRow)->mapWithKeys(function (string $header) {
-            $normalized = Str::lower(trim($header));
-
-            return [$header => self::FIELD_SUGGESTIONS[$normalized] ?? 'notes'];
+            return [$header => self::guessFieldFor($header) ?? 'notes'];
         })->all();
 
         // Tracked separately from the mapping itself so the UI can badge
         // "not auto-matched" columns without that badge disappearing the
         // moment the admin manually maps one to Notes on purpose.
         $this->autoMatchedHeaders = collect($headerRow)
-            ->filter(fn (string $header) => array_key_exists(Str::lower(trim($header)), self::FIELD_SUGGESTIONS))
+            ->filter(fn (string $header) => self::guessFieldFor($header) !== null)
             ->values()
             ->all();
 
         $this->step = 'mapping';
     }
 
+    /**
+     * Strips both the ASCII whitespace PHP's own trim() already handles
+     * AND Unicode "separator" space characters (\p{Z} — covers U+00A0
+     * no-break space, U+2000-200A, U+202F, U+3000, etc.) plus the
+     * zero-width / byte-order-mark characters that are equally invisible
+     * copy-paste artifacts despite not being classified as whitespace
+     * (U+200B zero-width space, U+FEFF BOM). A plain trim() only strips
+     * the classic " \t\n\r\0\x0B" set — this was the confirmed root
+     * cause of a seemingly-exact-match header (e.g. "Company Name" with a
+     * trailing non-breaking space, a common Word/web copy-paste artifact)
+     * silently failing to auto-map.
+     */
+    private static function normalizeHeader(string $header): string
+    {
+        $stripped = preg_replace('/^[\s\p{Z}\x{200B}\x{FEFF}]+|[\s\p{Z}\x{200B}\x{FEFF}]+$/u', '', $header);
+
+        return Str::lower($stripped ?? $header);
+    }
+
+    /**
+     * Filament-Importer-style guess list for one target field (mirrors
+     * Filament\Actions\Imports\ImportColumn::getGuesses()): its own
+     * technical name, its current UI label, and any legacy phrasing —
+     * each normalized and expanded with '-'/'_'/space treated as
+     * interchangeable, so "Contact Number", "contact_number" and
+     * "contact-number" are all recognized as equivalent guesses.
+     *
+     * @return array<int, string>
+     */
+    private static function guessesForField(string $field): array
+    {
+        $candidates = array_merge(
+            [$field, self::FIELD_LABELS[$field] ?? $field],
+            self::FIELD_LEGACY_GUESSES[$field] ?? [],
+        );
+
+        return array_reduce($candidates, function (array $carry, string $candidate): array {
+            $normalized = self::normalizeHeader($candidate);
+            $spaced = str_replace(['-', '_'], ' ', $normalized);
+
+            $carry[] = $normalized;
+            $carry[] = $spaced;
+
+            if (str_contains($spaced, ' ')) {
+                $carry[] = str_replace(' ', '-', $spaced);
+                $carry[] = str_replace(' ', '_', $spaced);
+            }
+
+            return $carry;
+        }, []);
+    }
+
+    /**
+     * @return string|null the Prospect field this spreadsheet header
+     * confidently auto-matches, or null to fall back to the Notes
+     * catch-all (existing behavior, unchanged).
+     */
+    private static function guessFieldFor(string $header): ?string
+    {
+        $normalizedHeader = self::normalizeHeader($header);
+
+        foreach (array_keys(self::FIELD_LABELS) as $field) {
+            if (in_array($normalizedHeader, self::guessesForField($field), true)) {
+                return $field;
+            }
+        }
+
+        return null;
+    }
+
     public function backToUpload(): void
     {
         $this->step = 'upload';
         $this->file = null;
+        $this->sheetRows = [];
+        $this->headerRowIndex = 0;
+        $this->headers = [];
+        $this->rows = [];
+        $this->mapping = [];
+        $this->autoMatchedHeaders = [];
+    }
+
+    /**
+     * Lets the admin return to the header-row confirmation step to pick a
+     * different row, without losing the uploaded workbook. Headers/rows/
+     * mapping are discarded since they must be rebuilt from whichever row
+     * the admin lands on next; sheetRows/headerRowIndex are deliberately
+     * kept so the previously-picked row stays selected rather than
+     * resetting back to row 1.
+     */
+    public function backToHeaderRow(): void
+    {
+        $this->step = 'header-row';
         $this->headers = [];
         $this->rows = [];
         $this->mapping = [];
@@ -515,6 +683,8 @@ class ImportProspects extends Page
     {
         $this->step = 'upload';
         $this->file = null;
+        $this->sheetRows = [];
+        $this->headerRowIndex = 0;
         $this->headers = [];
         $this->rows = [];
         $this->mapping = [];

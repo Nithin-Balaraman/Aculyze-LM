@@ -130,6 +130,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow()]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->assertSet('step', 'mapping')
             ->assertSet('mapping.Company Name', 'company_name')
             ->assertSet('mapping.Contact Number', 'telephone')
@@ -147,6 +148,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow()]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->set('mapping.Company Name', 'ignore')
             ->call('processMapping')
             ->assertSet('step', 'mapping')
@@ -163,6 +165,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow(['Company Name' => ''])]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('step', 'summary')
             ->assertSet('summary.imported', 0);
@@ -179,6 +182,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow()]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('step', 'summary')
             ->assertSet('summary.imported', 1);
@@ -208,6 +212,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => 'Nobody Real'])]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('summary.imported', 1);
 
@@ -228,6 +233,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow()]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('step', 'duplicates')
             ->assertSet('pendingDuplicates.0.existingId', $existing->id);
@@ -255,6 +261,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => 'Unmatched Name'])]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('step', 'duplicates')
             ->set('duplicateResolutions.0', 'update')
@@ -280,6 +287,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow()]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->set('duplicateResolutions.0', 'new')
             ->call('completeImport')
@@ -301,6 +309,7 @@ class ImportProspectsTest extends TestCase
                 $this->legacyRow(['Company Name' => 'Coastal Foods', 'Contact Number' => '+91 91111 22222']),
             ]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('step', 'duplicates');
 
@@ -326,6 +335,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow()]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('summary.imported', 1);
 
@@ -362,6 +372,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow()]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('step', 'duplicates')
             ->set('duplicateResolutions.0', 'update')
@@ -398,6 +409,7 @@ class ImportProspectsTest extends TestCase
         $test = Livewire::test(ImportProspects::class)
             ->set('file', $file)
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->assertSet('step', 'mapping');
 
         $headers = $test->get('headers');
@@ -429,6 +441,7 @@ class ImportProspectsTest extends TestCase
         $test = Livewire::test(ImportProspects::class)
             ->set('file', $file)
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->assertSet('step', 'mapping');
 
         $this->assertSame([], $test->instance()->duplicateMappingWarnings());
@@ -453,6 +466,7 @@ class ImportProspectsTest extends TestCase
         $test = Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow()]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('step', 'duplicates');
 
@@ -473,12 +487,233 @@ class ImportProspectsTest extends TestCase
 
         $test = Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow()]))
-            ->call('processUpload');
+            ->call('processUpload')
+            ->call('confirmHeaderRow');
 
         $this->assertTrue($test->instance()->isCompanyNameMapped());
 
         $test->set('mapping.Company Name', 'ignore');
         $this->assertFalse($test->instance()->isCompanyNameMapped());
+    }
+
+    // --- Field-mapping bug fix batch: invisible-whitespace normalization,
+    // label-vs-legacy-dictionary mismatch, and the header-row confirmation
+    // step. See the investigation report for the two confirmed root
+    // causes this batch fixes. ---
+
+    /**
+     * @param  array<int, string>  $headers
+     * @param  array<int, array<int, string>>  $rows
+     */
+    private function buildCustomXlsx(array $headers, array $rows): UploadedFile
+    {
+        $spreadsheet = new Spreadsheet;
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->fromArray($headers, null, 'A1');
+        $sheet->fromArray($rows, null, 'A2');
+
+        $tmpPath = tempnam(sys_get_temp_dir(), 'import').'.xlsx';
+        (new Xlsx($spreadsheet))->save($tmpPath);
+        $contents = file_get_contents($tmpPath);
+        unlink($tmpPath);
+
+        return UploadedFile::fake()->createWithContent('custom-sheet.xlsx', $contents);
+    }
+
+    /**
+     * The confirmed root cause: PHP's own trim() only strips the classic
+     * ASCII whitespace set, not Unicode "separator" characters like
+     * U+00A0 (non-breaking space) — a common Word/web copy-paste
+     * artifact. A header that LOOKS identical to "Company Name" but
+     * carries a trailing NBSP must still auto-map correctly now.
+     */
+    public function test_header_with_trailing_non_breaking_space_still_auto_maps(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildCustomXlsx(["Company Name\u{00A0}"], [['Acme Corp']]))
+            ->call('processUpload')
+            ->call('confirmHeaderRow')
+            ->assertSet('step', 'mapping')
+            ->assertSet("mapping.Company Name\u{00A0}", 'company_name');
+    }
+
+    /**
+     * Control: a genuinely clean, exact-match header must keep working
+     * exactly as before (proves the NBSP fix doesn't regress the plain
+     * case it's layered on top of).
+     */
+    public function test_clean_exact_match_header_still_auto_maps(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildCustomXlsx(['Company Name'], [['Acme Corp']]))
+            ->call('processUpload')
+            ->call('confirmHeaderRow')
+            ->assertSet('mapping.Company Name', 'company_name');
+    }
+
+    /**
+     * The second confirmed root cause: the old FIELD_SUGGESTIONS
+     * dictionary was keyed by the LEGACY sheet's own historical column
+     * phrasings ("Contact Number", "Mobile Number", "Email Address",
+     * "Full Location", "Source Sheet"), not this page's own current
+     * TARGET_OPTIONS labels ("Telephone", "Mobile", "Email", "Address",
+     * "Source"). A user typing the label they see in this very page's own
+     * dropdown got silently defaulted to Notes. All five must now
+     * auto-map to their real field.
+     */
+    public function test_current_ui_labels_typed_as_headers_now_auto_map_correctly(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $headers = ['Company Name', 'Telephone', 'Mobile', 'Email', 'Address', 'Source'];
+        $row = ['Acme Corp', '+91 90000 00001', '+91 90000 00002', 'acme@example.test', '123 Example Street', 'Referral'];
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildCustomXlsx($headers, [$row]))
+            ->call('processUpload')
+            ->call('confirmHeaderRow')
+            ->assertSet('step', 'mapping');
+
+        $test->assertSet('mapping.Company Name', 'company_name')
+            ->assertSet('mapping.Telephone', 'telephone')
+            ->assertSet('mapping.Mobile', 'mobile')
+            ->assertSet('mapping.Email', 'email')
+            ->assertSet('mapping.Address', 'address')
+            ->assertSet('mapping.Source', 'source');
+
+        // Confirm it isn't just mapping-preview correctness — the values
+        // actually reach their Prospect attributes end to end.
+        $test->call('processMapping')->assertSet('summary.imported', 1);
+
+        $prospect = Prospect::sole();
+        $this->assertSame('+91 90000 00001', $prospect->telephone);
+        $this->assertSame('+91 90000 00002', $prospect->mobile);
+        $this->assertSame('acme@example.test', $prospect->email);
+        $this->assertSame('123 Example Street', $prospect->address);
+        $this->assertSame('Referral', $prospect->source);
+    }
+
+    /**
+     * The legacy sheet's own historical phrasing must still auto-map too
+     * — the fix adds recognition, it doesn't replace one dictionary with
+     * another equally narrow one.
+     */
+    public function test_legacy_sheet_phrasing_still_auto_maps_alongside_current_labels(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow()]))
+            ->call('processUpload')
+            ->call('confirmHeaderRow');
+
+        $test->assertSet('mapping.Contact Number', 'telephone')
+            ->assertSet('mapping.Mobile Number', 'mobile')
+            ->assertSet('mapping.Email Address', 'email')
+            ->assertSet('mapping.Full Location', 'address')
+            ->assertSet('mapping.Source Sheet', 'source');
+    }
+
+    /**
+     * Case-insensitivity was already working before this fix and must
+     * keep working — separator (space/dash/underscore) and case variants
+     * of the same field should all resolve identically.
+     */
+    public function test_case_and_separator_variants_all_resolve_to_the_same_field(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildCustomXlsx(
+                ['company name', 'COMPANY NAME', 'Company_Name', 'company-name'],
+                [['A', 'B', 'C', 'D']],
+            ))
+            ->call('processUpload')
+            ->call('confirmHeaderRow');
+
+        $test->assertSet('mapping.company name', 'company_name')
+            ->assertSet('mapping.COMPANY NAME', 'company_name')
+            ->assertSet('mapping.Company_Name', 'company_name')
+            ->assertSet('mapping.company-name', 'company_name');
+    }
+
+    /**
+     * The confirmed header-row-detection gap: the previous implementation
+     * always treated physical row 1 as headers unconditionally, with no
+     * detection or confirmation — silently misreading an instructional
+     * row above the real headers. The new header-row confirmation step
+     * must show a genuine choice and let the admin pick correctly.
+     */
+    public function test_header_row_confirmation_step_lets_the_admin_correct_a_misdetected_first_row(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $spreadsheet = new Spreadsheet;
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->fromArray(['Please fill in the fields below'], null, 'A1');
+        $sheet->fromArray(['Company Name', 'Telephone'], null, 'A2');
+        $sheet->fromArray(['Acme Corp', '+91 90000 00003'], null, 'A3');
+        $tmpPath = tempnam(sys_get_temp_dir(), 'import').'.xlsx';
+        (new Xlsx($spreadsheet))->save($tmpPath);
+        $contents = file_get_contents($tmpPath);
+        unlink($tmpPath);
+        $file = UploadedFile::fake()->createWithContent('instructional-row.xlsx', $contents);
+
+        $test = Livewire::test(ImportProspects::class)
+            ->set('file', $file)
+            ->call('processUpload')
+            ->assertSet('step', 'header-row')
+            ->assertSet('headerRowIndex', 0);
+
+        // Confirming row 0 (the instructional row) as-is would be wrong —
+        // it has only one real cell (PhpSpreadsheet pads shorter rows with
+        // null out to the sheet's widest row) and no real headers.
+        $preview = $test->instance()->previewRows();
+        $this->assertSame(['Please fill in the fields below', null], $preview[0]);
+        $this->assertSame(['Company Name', 'Telephone'], $preview[1]);
+
+        $test->set('headerRowIndex', 1)
+            ->call('confirmHeaderRow')
+            ->assertSet('step', 'mapping')
+            ->assertSet('headers', ['Company Name', 'Telephone'])
+            ->assertSet('mapping.Company Name', 'company_name')
+            ->assertSet('mapping.Telephone', 'telephone');
+
+        $test->call('processMapping')->assertSet('summary.imported', 1);
+
+        $prospect = Prospect::sole();
+        $this->assertSame('Acme Corp', $prospect->company_name);
+        $this->assertSame('+91 90000 00003', $prospect->telephone);
+    }
+
+    /**
+     * Confirming row 0 unchanged (the default) must still work exactly as
+     * before for a normal, well-formed workbook — the new step adds a
+     * confirmation, not a mandatory extra click burden beyond that.
+     */
+    public function test_header_row_confirmation_defaults_to_row_one_for_a_normal_workbook(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        Livewire::test(ImportProspects::class)
+            ->set('file', $this->buildXlsx([$this->legacyRow()]))
+            ->call('processUpload')
+            ->assertSet('step', 'header-row')
+            ->assertSet('headerRowIndex', 0)
+            ->call('confirmHeaderRow')
+            ->assertSet('step', 'mapping')
+            ->assertSet('mapping.Company Name', 'company_name');
     }
 
     // --- Import Access + Export Approval batch: employee import ownership ---
@@ -491,6 +726,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => ''])]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('summary.imported', 1);
 
@@ -508,6 +744,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => 'Ilaya Bharathi'])]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('summary.imported', 1);
 
@@ -527,6 +764,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => 'Ilaya Bharathi'])]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('summary.imported', 1);
 
@@ -551,6 +789,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => ''])]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('step', 'duplicates')
             ->set('duplicateResolutions.0', 'update')
@@ -577,6 +816,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow()]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('step', 'duplicates');
 
@@ -595,6 +835,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => ''])]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('summary.imported', 1);
 
@@ -613,6 +854,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => ''])]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('summary.imported', 1);
 
@@ -633,6 +875,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => ''])]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('summary.imported', 1);
 
@@ -662,6 +905,7 @@ class ImportProspectsTest extends TestCase
         Livewire::test(ImportProspects::class)
             ->set('file', $this->buildXlsx([$this->legacyRow(['Assigned Owner' => ''])]))
             ->call('processUpload')
+            ->call('confirmHeaderRow')
             ->call('processMapping')
             ->assertSet('summary.imported', 1);
 

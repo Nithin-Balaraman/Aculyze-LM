@@ -4,7 +4,7 @@
 
 <x-filament-panels::page>
     <div class="mb-4 flex items-center gap-2">
-        @foreach (['upload' => 'Upload', 'mapping' => 'Map Columns', 'duplicates' => 'Resolve Duplicates', 'summary' => 'Summary'] as $key => $label)
+        @foreach (['upload' => 'Upload', 'header-row' => 'Confirm Headers', 'mapping' => 'Map Columns', 'duplicates' => 'Resolve Duplicates', 'summary' => 'Summary'] as $key => $label)
             <x-filament::badge :color="$step === $key ? 'primary' : 'gray'">{{ $label }}</x-filament::badge>
             @if (! $loop->last) <span class="text-gray-300 dark:text-gray-600">&rarr;</span> @endif
         @endforeach
@@ -20,12 +20,46 @@
     @if ($step === 'upload')
         <x-filament::section heading="Upload a spreadsheet">
             <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
-                Only .xlsx files are supported. The first row must contain column headers.
+                Only .xlsx files are supported. You'll be asked to confirm which row contains your column headers next.
             </p>
             <input type="file" wire:model="file" accept=".xlsx" class="{{ $inputClasses }}" />
             <div wire:loading wire:target="file" class="mt-2 text-sm text-gray-500">Uploading…</div>
             <div class="mt-4">
                 <x-filament::button wire:click="processUpload" wire:loading.attr="disabled" wire:target="processUpload">
+                    Continue
+                </x-filament::button>
+            </div>
+        </x-filament::section>
+    @endif
+
+    {{-- Step 1.5: Confirm which row holds the real column headers --}}
+    @if ($step === 'header-row')
+        <x-filament::section heading="Which row contains your column headers?">
+            <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
+                Some spreadsheets have an instructional or title row before the real column headers. Preview the first few rows below and pick the one that actually contains your column names.
+            </p>
+
+            <div class="space-y-2">
+                @foreach ($this->previewRows() as $index => $row)
+                    <label class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 {{ (int) $headerRowIndex === $index ? 'border-primary-500 bg-primary-50 dark:bg-primary-500/10' : 'border-gray-200 dark:border-white/10' }}">
+                        <input type="radio" wire:model.live="headerRowIndex" value="{{ $index }}" class="mt-1" />
+                        <div class="min-w-0 flex-1">
+                            <div class="text-xs font-semibold uppercase tracking-wide text-gray-400">Row {{ $index + 1 }}</div>
+                            <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-700 dark:text-gray-300">
+                                @forelse ($row as $cell)
+                                    <span class="truncate">{{ $cell !== '' && $cell !== null ? $cell : '—' }}</span>
+                                @empty
+                                    <span class="text-gray-400">(empty row)</span>
+                                @endforelse
+                            </div>
+                        </div>
+                    </label>
+                @endforeach
+            </div>
+
+            <div class="mt-4 flex gap-2">
+                <x-filament::button color="gray" wire:click="backToUpload">Back</x-filament::button>
+                <x-filament::button wire:click="confirmHeaderRow" wire:loading.attr="disabled" wire:target="confirmHeaderRow">
                     Continue
                 </x-filament::button>
             </div>
@@ -89,7 +123,7 @@
             </div>
 
             <div class="mt-4 flex gap-2">
-                <x-filament::button color="gray" wire:click="backToUpload">Back</x-filament::button>
+                <x-filament::button color="gray" wire:click="backToHeaderRow">Back</x-filament::button>
                 <x-filament::button wire:click="processMapping" wire:loading.attr="disabled" wire:target="processMapping">
                     Process Import
                 </x-filament::button>
