@@ -155,6 +155,25 @@ class CallRoutingService
                 'outcome' => $correctedOutcome,
                 'correction_reason' => $correctionReason,
                 'outcome_corrected_at' => now(),
+                // Bug fix: $data only carries next_action when the caller's
+                // form actually showed and submitted it (outcome === Others
+                // — see CallRecordResource::correctOutcomeAction()), so
+                // correcting AWAY from Others left whatever next_action the
+                // record already had completely untouched by the
+                // array_merge() above. CallRecord::booted()'s own guard
+                // then rejected the save outright ("next_action may only be
+                // set when outcome is Other") the moment a Call that once
+                // held a non-null next_action (from an earlier Others
+                // outcome, or from experimentally selecting Others in this
+                // same correction form before settling on a different
+                // outcome — Filament's own Select stays live/hidden, not
+                // reset, when visibility changes) was corrected to any
+                // other outcome. Explicit and unconditional here, keyed off
+                // $correctedOutcome specifically (not whatever stale value
+                // is on $locked or in $data), is the single source of
+                // truth fix: next_action is null for every corrected
+                // outcome except Others, full stop.
+                'next_action' => $correctedOutcome === CallOutcome::Others ? ($data['next_action'] ?? null) : null,
             ]))->save();
 
             $this->routeDownstream($locked);

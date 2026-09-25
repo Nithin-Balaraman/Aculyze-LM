@@ -75,6 +75,7 @@ class CallRecord extends Model
             'profile_sent_at' => 'datetime',
             'profile_sent_mode' => ProfileSentMode::class,
             'outcome_corrected_at' => 'datetime',
+            'flagged_incorrect_at' => 'datetime',
             'appointment_mode' => AppointmentMode::class,
             'follow_up_contact_mode' => ContactMode::class,
         ];
@@ -219,6 +220,29 @@ class CallRecord extends Model
             'Appointment' => (int) $this->appointment()->exists(),
             'Lead' => (int) $this->lead()->exists(),
         ];
+    }
+
+    /**
+     * The single downstream record this Call's outcome created, if any —
+     * at most one ever exists (no outcome routes to more than one
+     * destination), matching deletionBlockers()'s own three checks above.
+     * Used by the Flag-as-Incorrect review UI to show a reviewer exactly
+     * what would need to be dealt with before this Call could be deleted.
+     */
+    public function downstreamRecord(): Model|null
+    {
+        return $this->followUp ?? $this->appointment ?? $this->lead;
+    }
+
+    /** @return string|null "Follow-Up", "Appointment", or "Lead" — matching deletionBlockers()'s own labels. */
+    public function downstreamRecordLabel(): ?string
+    {
+        return match (true) {
+            $this->followUp()->exists() => 'Follow-Up',
+            $this->appointment()->exists() => 'Appointment',
+            $this->lead()->exists() => 'Lead',
+            default => null,
+        };
     }
 
     /**

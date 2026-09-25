@@ -31,6 +31,13 @@ class ListCallRecords extends ListRecords
             'all' => Tab::make('All'),
             'history' => Tab::make('History')
                 ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('outcome', self::noRouteOutcomes())),
+            // Flag-as-Incorrect: a Call whose outcome already created real
+            // downstream history can't be corrected automatically (see
+            // CallRecordResource::correctOutcomeAction()'s visibility), so
+            // it's flagged for Saji's manual review instead. This tab is
+            // that review queue.
+            'flagged' => Tab::make('Flagged')
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereNotNull('flagged_incorrect_at')),
         ];
     }
 

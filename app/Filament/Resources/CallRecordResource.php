@@ -506,6 +506,15 @@ class CallRecordResource extends Resource
             Tables\Columns\TextColumn::make('notes')
                 ->limit(40)
                 ->toggleable(isToggledHiddenByDefault: true),
+            // Flag-as-Incorrect: a simple yes/no indicator — the full
+            // reason and downstream-blocker detail live in the "Flag
+            // Details" row action/modal (viewFlagDetailsAction()) rather
+            // than being crammed into another table column.
+            Tables\Columns\IconColumn::make('flagged_incorrect_at')
+                ->label('Flagged')
+                ->boolean()
+                ->getStateUsing(fn (CallRecord $record) => filled($record->flagged_incorrect_at))
+                ->toggleable(isToggledHiddenByDefault: true),
         ];
     }
 
@@ -536,6 +545,8 @@ class CallRecordResource extends Resource
                     Tables\Actions\ViewAction::make(),
                     Tables\Actions\EditAction::make(),
                     self::correctOutcomeAction(),
+                    self::flagAsIncorrectAction(),
+                    self::viewFlagDetailsAction(),
                     Tables\Actions\DeleteAction::make()
                         ->visible(fn () => auth()->user()->isAdmin())
                         ->before(fn (CallRecord $record) => DeletionGuard::guardRecord($record, 'call record')),
@@ -571,6 +582,18 @@ class CallRecordResource extends Resource
      * executes routing exactly once. Authorization mirrors ordinary Call
      * edit (auth()->user()->can('update', $record)) — no stricter tier,
      * consistent with how Appointment/Demo outcome recording is gated.
+     *
+     * Flag-as-Incorrect follow-up: restricted to the "clean" case only —
+     * visible ONLY when array_filter($record->deletionBlockers()) is
+     * empty (no real downstream Follow-Up/Appointment/Lead yet). Once
+     * real history exists, CallRoutingService::correctOutcome() would
+     * already reject the write (the same deletionBlockers() check, deeper
+     * in the stack) — this just surfaces that same boundary at the UI
+     * level too, instead of letting the reviewer open the form, fill it
+     * in, and only THEN discover it's rejected. flagAsIncorrectAction()
+     * below is the mutually-exclusive counterpart shown in exactly the
+     * other case, so an authorized reviewer always sees exactly one of
+     * the two, never both, never neither.
      */
     private static function correctOutcomeAction(): Tables\Actions\Action
     {
@@ -578,7 +601,8 @@ class CallRecordResource extends Resource
             ->label('Correct Outcome')
             ->icon('heroicon-o-arrow-path')
             ->color('warning')
-            ->visible(fn (CallRecord $record) => auth()->user()->can('update', $record))
+            ->visible(fn (CallRecord $record) => auth()->user()->can('update', $record)
+                && array_filter($record->deletionBlockers()) === [])
             ->form(fn (CallRecord $record) => [
                 Forms\Components\Placeholder::make('current_outcome')
                     ->label('Current Outcome')
@@ -664,6 +688,81 @@ class CallRecordResource extends Resource
 
                 \Filament\Notifications\Notification::make()->title('Outcome corrected')->success()->send();
             });
+    }
+
+    /**
+     * The counterpart to correctOutcomeAction() above, shown in exactly
+     * the opposite case: once a Call's outcome already created real
+     * downstream history, its outcome can no longer be silently
+     * corrected (see CallRoutingService::correctOutcome()'s own
+     * rejection for that case) — instead this marks the Call for Saji's
+     * manual review, recording only WHEN and (optionally) WHY, mirroring
+     * the existing correction_reason/outcome_corrected_at shape rather
+     * than inventing a new one (see the migration adding these columns).
+     * Re-flagging (e.g. to update the reason) is allowed — it just
+     * re-stamps flagged_incorrect_at, not a special first-time-only
+     * action.
+     */
+    private static function flagAsIncorrectAction(): Tables\Actions\Action
+    {
+        return Tables\Actions\Action::make('flagAsIncorrect')
+            ->label('Flag as Incorrect')
+            ->icon('heroicon-o-flag')
+            ->color('danger')
+            ->modalSubmitActionLabel('Flag as Incorrect')
+            ->visible(fn (CallRecord $record) => auth()->user()->can('update', $record)
+                && array_filter($record->deletionBlockers()) !== [])
+            ->form(fn (CallRecord $record) => [
+                Forms\Components\Placeholder::make('downstream_notice')
+                    ->label('')
+                    ->content("This Call already created a real {$record->downstreamRecordLabel()} — its outcome can no longer be corrected automatically. Flagging it records that for Saji's manual review; it does not delete or change anything on its own."),
+                Forms\Components\Textarea::make('flag_reason')
+                    ->label('Reason (optional)')
+                    ->rows(3)
+                    ->helperText("Why do you believe this Call's outcome is incorrect?"),
+            ])
+            ->action(function (CallRecord $record, array $data) {
+                $record->forceFill([
+                    'flagged_incorrect_at' => now(),
+                    'flag_reason' => $data['flag_reason'] ?? null,
+                ])->save();
+
+                \Filament\Notifications\Notification::make()
+                    ->title('Call flagged as incorrect')
+                    ->body('Saji will review this manually.')
+                    ->success()
+                    ->send();
+            });
+    }
+
+    /**
+     * Read-only review info for a flagged Call — the piece the locked
+     * design specifically called for: surfacing the downstream record's
+     * OWN deletionBlockers() (not just that it exists), so a reviewer can
+     * tell at a glance whether a clean two-step delete (downstream
+     * record, then this Call) is still possible, or whether deeper
+     * history (e.g. a Lead that already has a Proposal, which per
+     * AGENTS.md section 59 can never itself be deleted once it has a
+     * commercial Version) makes deletion permanently impossible without
+     * exceptional intervention. No form, no mutation — purely
+     * informational, closed with "Close" rather than a submit action.
+     */
+    private static function viewFlagDetailsAction(): Tables\Actions\Action
+    {
+        return Tables\Actions\Action::make('viewFlagDetails')
+            ->label('Flag Details')
+            ->icon('heroicon-o-information-circle')
+            ->color('gray')
+            ->visible(fn (CallRecord $record) => filled($record->flagged_incorrect_at))
+            ->modalHeading('Flagged Call — Review Details')
+            ->modalContent(fn (CallRecord $record) => view('filament.infolists.call-flag-details', [
+                'record' => $record,
+                'downstream' => $record->downstreamRecord(),
+                'downstreamLabel' => $record->downstreamRecordLabel(),
+                'downstreamBlockers' => array_filter($record->downstreamRecord()?->deletionBlockers() ?? []),
+            ]))
+            ->modalSubmitAction(false)
+            ->modalCancelActionLabel('Close');
     }
 
     public static function getPages(): array

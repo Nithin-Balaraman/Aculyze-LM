@@ -260,4 +260,118 @@ class CorrectOutcomeTest extends TestCase
         $this->assertSame(0, Lead::count());
         $this->assertSame(0, Appointment::count());
     }
+
+    // --- next_action bug fix batch ---
+
+    /**
+     * The exact reported scenario: Filament's next_action Select stays
+     * live/populated even after its own ->visible() condition goes false
+     * (outcome no longer Others) — Livewire submits a form's full state
+     * regardless of a field's current visibility, so a stale next_action
+     * value can still ride along when correcting TO a different, non-
+     * Others outcome (here, No Answer -> Callback Requested). Before the
+     * fix, array_merge()'ing that stale value into forceFill() left it on
+     * the model, and CallRecord::booted()'s own guard ("next_action may
+     * only be set when outcome is Other") rejected the save outright —
+     * reproduced here by explicitly submitting a next_action alongside a
+     * non-Others corrected outcome, exactly as the live form would.
+     */
+    public function test_correcting_no_answer_to_callback_requested_succeeds_despite_a_stale_next_action_in_the_submitted_data(): void
+    {
+        $employee = User::factory()->create();
+        $call = $this->makeCall($employee, CallOutcome::NoAnswer);
+        $this->actingAs($employee);
+
+        Livewire::test(ListCallRecords::class)
+            ->callTableAction('correctOutcome', $call, data: [
+                'outcome' => CallOutcome::CallbackRequested->value,
+                'correction_reason' => 'Actually reached them.',
+                'follow_up_at' => now()->addDay()->format('Y-m-d H:i:s'),
+                'notes' => 'Asked to call back next week.',
+                // Stale value that a hidden-but-still-live Select would
+                // still submit — must be discarded, not merged in.
+                'next_action' => CallNextAction::CreateFollowUp->value,
+            ])
+            ->assertHasNoTableActionErrors();
+
+        $call->refresh();
+        $this->assertSame(CallOutcome::CallbackRequested, $call->outcome);
+        $this->assertNull($call->next_action);
+        $this->assertSame(1, FollowUp::count());
+    }
+
+    /** Same reproduction at the service layer directly, for symmetry with the rest of this file's style. */
+    public function test_correct_outcome_service_discards_a_stale_next_action_when_corrected_outcome_is_not_others(): void
+    {
+        $employee = User::factory()->create();
+        $call = $this->makeCall($employee, CallOutcome::NoAnswer);
+
+        app(CallRoutingService::class)->correctOutcome(
+            $call,
+            CallOutcome::CallbackRequested,
+            'Actually reached them.',
+            [
+                'follow_up_at' => now()->addDay(),
+                'notes' => 'x',
+                'next_action' => CallNextAction::CreateFollowUp,
+            ]
+        );
+
+        $call->refresh();
+        $this->assertSame(CallOutcome::CallbackRequested, $call->outcome);
+        $this->assertNull($call->next_action);
+    }
+
+    /** Correcting TO Others with a real next_action must be unaffected by the fix — confirmed through the UI path too, not just the direct service call above. */
+    public function test_correcting_to_others_with_a_real_next_action_still_works_through_the_ui(): void
+    {
+        $employee = User::factory()->create();
+        $call = $this->makeCall($employee, CallOutcome::SwitchedOff);
+        $this->actingAs($employee);
+
+        Livewire::test(ListCallRecords::class)
+            ->callTableAction('correctOutcome', $call, data: [
+                'outcome' => CallOutcome::Others->value,
+                'correction_reason' => 'Unusual situation.',
+                'notes' => 'Not a real business anymore.',
+                'next_action' => CallNextAction::NoFurtherAction->value,
+            ])
+            ->assertHasNoTableActionErrors();
+
+        $call->refresh();
+        $this->assertSame(CallOutcome::Others, $call->outcome);
+        $this->assertSame(CallNextAction::NoFurtherAction, $call->next_action);
+    }
+
+    // --- Restrict Correct Outcome to the "clean" case only ---
+
+    /**
+     * Correct Outcome must now be hidden entirely — not merely rejected
+     * on submit — the moment a Call's outcome has already created real
+     * downstream history. Reuses the exact same
+     * array_filter($record->deletionBlockers()) check CallRoutingService::
+     * correctOutcome() itself already enforces deeper in the stack, so
+     * this is a UI-level surfacing of that boundary, not a new rule.
+     */
+    public function test_correct_outcome_is_hidden_once_the_call_has_real_downstream_history(): void
+    {
+        $employee = User::factory()->create();
+        $call = $this->makeCall($employee, CallOutcome::CallbackRequested, ['notes' => 'x']);
+        $this->assertSame(1, FollowUp::count());
+        $this->actingAs($employee);
+
+        Livewire::test(ListCallRecords::class)
+            ->assertTableActionHidden('correctOutcome', $call);
+    }
+
+    /** Companion to the above: Correct Outcome must still be visible when there's genuinely nothing downstream yet. */
+    public function test_correct_outcome_remains_visible_with_no_downstream_history(): void
+    {
+        $employee = User::factory()->create();
+        $call = $this->makeCall($employee, CallOutcome::NoAnswer);
+        $this->actingAs($employee);
+
+        Livewire::test(ListCallRecords::class)
+            ->assertTableActionVisible('correctOutcome', $call);
+    }
 }
