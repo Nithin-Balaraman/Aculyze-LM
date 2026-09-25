@@ -1,31 +1,30 @@
 @php
-    $flaggedAt = $record->flagged_incorrect_at;
     $trueEnd = $chain === [] ? null : end($chain);
     $trueEndBlockers = $trueEnd ? $trueEnd['own_blockers'] : [];
 @endphp
 
 <div class="space-y-4 text-sm">
-    <dl class="grid grid-cols-2 gap-x-4 gap-y-3">
-        <div class="min-w-0">
-            <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Flagged At</dt>
-            <dd class="text-gray-950 dark:text-white">{{ $flaggedAt?->format('d M Y, h:i A') ?? '—' }}</dd>
-        </div>
-        <div class="min-w-0">
-            <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Chain Length</dt>
-            <dd class="text-gray-950 dark:text-white">{{ count($chain) }} record(s) downstream of this Call</dd>
-        </div>
-        <div class="col-span-2 min-w-0">
-            <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Reason</dt>
-            <dd class="break-words text-gray-950 dark:text-white">{{ $record->flag_reason ?: '—' }}</dd>
-        </div>
-    </dl>
+    @if ($isClean)
+        <p class="text-gray-700 dark:text-gray-300">
+            The following {{ count($chain) + 1 }} record(s) will be permanently deleted, deepest first, in a
+            single transaction:
+        </p>
 
-    <div>
-        <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Downstream Chain</div>
+        <ol class="list-inside list-decimal space-y-1 text-gray-700 dark:text-gray-300">
+            @foreach (array_reverse($chain) as $node)
+                <li>{{ $node['label'] }} (#{{ $node['record']->getKey() }})</li>
+            @endforeach
+            <li>This Call ({{ $record->prospect?->company_name }} — {{ $record->outcome->getLabel() }})</li>
+        </ol>
 
-        @if ($chain === [])
-            <p class="text-gray-500 dark:text-gray-400">No downstream record was found — it may have already been deleted separately.</p>
-        @else
+        <div class="rounded-lg bg-danger-50 p-3 text-danger-700 dark:bg-danger-500/10 dark:text-danger-400">
+            This cannot be undone. Confirm every record listed above is genuinely wrong before deleting.
+        </div>
+    @else
+        <p class="text-gray-700 dark:text-gray-300">This chain cannot be fully deleted yet.</p>
+
+        <div>
+            <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Downstream Chain</div>
             <ol class="space-y-2">
                 <li class="flex items-center gap-2 text-gray-700 dark:text-gray-300">
                     <span class="fi-badge inline-flex items-center rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 dark:bg-gray-500/20 dark:text-gray-300">Call</span>
@@ -58,22 +57,17 @@
                     </li>
                 @endforeach
             </ol>
-        @endif
-    </div>
+        </div>
 
-    <div class="rounded-lg p-3 {{ $trueEndBlockers === [] ? 'bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-400' : 'bg-danger-50 text-danger-700 dark:bg-danger-500/10 dark:text-danger-400' }}">
-        @if ($chain === [])
-            <p>No downstream record was found — it may have already been deleted separately.</p>
-        @elseif ($trueEndBlockers === [])
-            <p>The chain ends cleanly at {{ $trueEnd['label'] }}. A full-chain delete (deepest link first, then this Call) would work today.</p>
-        @else
-            <p class="font-medium">The chain is blocked at {{ $trueEnd['label'] }}:</p>
-            <ul class="mt-1 list-inside list-disc">
-                @foreach ($trueEndBlockers as $label => $count)
-                    <li>{{ $count }} {{ $label }}</li>
-                @endforeach
-            </ul>
-            <p class="mt-1">That history must be resolved first (or may be permanent — e.g. a Proposal with a commercial Version is never deleted) before this Call's full chain can be cleanly removed.</p>
-        @endif
-    </div>
+        <div class="rounded-lg bg-danger-50 p-3 text-danger-700 dark:bg-danger-500/10 dark:text-danger-400">
+            @if ($chain === [])
+                No downstream record was found — it may have already been deleted separately, but the Call
+                itself still could not be deleted cleanly. Check its own deletion blockers directly.
+            @else
+                Blocked at {{ $trueEnd['label'] }}: {{ collect($trueEndBlockers)->map(fn ($count, $label) => "{$count} {$label}")->implode(', ') }}.
+                Resolve that history first (it may be permanent — e.g. a Proposal with a commercial Version is
+                never deleted) before this Call's full chain can be removed.
+            @endif
+        </div>
+    @endif
 </div>

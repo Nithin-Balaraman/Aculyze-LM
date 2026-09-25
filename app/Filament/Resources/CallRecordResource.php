@@ -10,6 +10,7 @@ use App\Filament\Resources\CallRecordResource\Pages;
 use App\Models\CallRecord;
 use App\Models\Prospect;
 use App\Services\CallRoutingService;
+use App\Support\CallDownstreamChain;
 use App\Support\DeletionGuard;
 use App\Support\TableBulkActions;
 use Filament\Forms;
@@ -21,6 +22,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 
 /**
@@ -547,6 +549,7 @@ class CallRecordResource extends Resource
                     self::correctOutcomeAction(),
                     self::flagAsIncorrectAction(),
                     self::viewFlagDetailsAction(),
+                    self::deleteCallAndChainAction(),
                     Tables\Actions\DeleteAction::make()
                         ->visible(fn () => auth()->user()->isAdmin())
                         ->before(fn (CallRecord $record) => DeletionGuard::guardRecord($record, 'call record')),
@@ -737,15 +740,17 @@ class CallRecordResource extends Resource
 
     /**
      * Read-only review info for a flagged Call — the piece the locked
-     * design specifically called for: surfacing the downstream record's
-     * OWN deletionBlockers() (not just that it exists), so a reviewer can
-     * tell at a glance whether a clean two-step delete (downstream
-     * record, then this Call) is still possible, or whether deeper
-     * history (e.g. a Lead that already has a Proposal, which per
-     * AGENTS.md section 59 can never itself be deleted once it has a
-     * commercial Version) makes deletion permanently impossible without
-     * exceptional intervention. No form, no mutation — purely
-     * informational, closed with "Close" rather than a submit action.
+     * design specifically called for: surfacing the FULL downstream
+     * chain (not just the immediate record — see
+     * App\Support\CallDownstreamChain), each link's own
+     * deletionBlockers(), and which link is the true end, so a reviewer
+     * can tell at a glance whether a clean full-chain delete is still
+     * possible, or whether history anywhere along the chain (e.g. a Lead
+     * that already has a Proposal, which per AGENTS.md section 59 can
+     * never itself be deleted once it has a commercial Version) makes
+     * deletion permanently impossible without exceptional intervention.
+     * No form, no mutation — purely informational, closed with "Close"
+     * rather than a submit action.
      */
     private static function viewFlagDetailsAction(): Tables\Actions\Action
     {
@@ -757,12 +762,74 @@ class CallRecordResource extends Resource
             ->modalHeading('Flagged Call — Review Details')
             ->modalContent(fn (CallRecord $record) => view('filament.infolists.call-flag-details', [
                 'record' => $record,
-                'downstream' => $record->downstreamRecord(),
-                'downstreamLabel' => $record->downstreamRecordLabel(),
-                'downstreamBlockers' => array_filter($record->downstreamRecord()?->deletionBlockers() ?? []),
+                'chain' => CallDownstreamChain::walk($record),
             ]))
             ->modalSubmitAction(false)
             ->modalCancelActionLabel('Close');
+    }
+
+    /**
+     * Locked design Part 3: one-click cleanup for a flagged Call, so
+     * Saji doesn't have to manually navigate to a separate resource page
+     * per chain link. Admin-gated, same as every other Call/downstream
+     * Delete action (AGENTS.md section 37). Always visible on a flagged
+     * Call so the modal itself can show WHY it's blocked when it is
+     * (Part 3.4) — only the submit button is conditionally withheld
+     * (Filament's own ->modalSubmitAction(false) mechanism, evaluated
+     * per-record), never the whole action, so a reviewer can always open
+     * it to see the chain-position information from Part 2.
+     *
+     * Never bypasses DeletionGuard/deletionBlockers(): CallDownstreamChain::
+     * isClean() checks EVERY link's own deletionBlockers() (see that
+     * method's own docblock for why every link, not only the final one),
+     * exactly the same check DeletionGuard::guardRecord() already runs
+     * per record — this only orchestrates those same individually-
+     * permitted deletes in the correct (deepest-first) order, inside one
+     * transaction, instead of requiring Saji to do it one resource page
+     * at a time.
+     */
+    private static function deleteCallAndChainAction(): Tables\Actions\Action
+    {
+        return Tables\Actions\Action::make('deleteCallAndChain')
+            ->label('Delete Call + Downstream Chain')
+            ->icon('heroicon-o-trash')
+            ->color('danger')
+            ->visible(fn (CallRecord $record) => auth()->user()->isAdmin() && filled($record->flagged_incorrect_at))
+            ->modalHeading('Delete Call + Downstream Chain')
+            ->modalContent(fn (CallRecord $record) => view('filament.infolists.call-chain-delete', [
+                'record' => $record,
+                'chain' => CallDownstreamChain::walk($record),
+                'isClean' => CallDownstreamChain::isClean($record),
+            ]))
+            ->modalSubmitAction(fn (CallRecord $record) => CallDownstreamChain::isClean($record) ? null : false)
+            ->modalSubmitActionLabel('Delete Everything')
+            ->modalCancelActionLabel('Close')
+            ->action(function (CallRecord $record) {
+                if (! CallDownstreamChain::isClean($record)) {
+                    // Defensive only — the modal already withholds the
+                    // submit button in this case; this guards a direct
+                    // Livewire call bypassing the UI too.
+                    throw new \Filament\Support\Exceptions\Halt;
+                }
+
+                $chain = CallDownstreamChain::walk($record);
+
+                DB::transaction(function () use ($record, $chain) {
+                    // Deepest link first — the exact reverse of the RESTRICT
+                    // FK direction, so every delete in this sequence is
+                    // individually valid on its own terms at the moment it runs.
+                    foreach (array_reverse($chain) as $node) {
+                        $node['record']->delete();
+                    }
+
+                    $record->delete();
+                });
+
+                \Filament\Notifications\Notification::make()
+                    ->title('Call and its downstream chain deleted')
+                    ->success()
+                    ->send();
+            });
     }
 
     public static function getPages(): array

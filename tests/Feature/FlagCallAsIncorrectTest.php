@@ -5,12 +5,14 @@ namespace Tests\Feature;
 use App\Enums\CallOutcome;
 use App\Enums\ProposalStage;
 use App\Filament\Resources\CallRecordResource\Pages\ListCallRecords;
+use App\Models\Appointment;
 use App\Models\CallRecord;
 use App\Models\FollowUp;
 use App\Models\Lead;
 use App\Models\Prospect;
 use App\Models\Proposal;
 use App\Models\User;
+use App\Support\CallDownstreamChain;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -174,7 +176,8 @@ class FlagCallAsIncorrectTest extends TestCase
             ->assertTableActionVisible('viewFlagDetails', $call)
             ->mountTableAction('viewFlagDetails', $call)
             ->assertSee('Follow-Up')
-            ->assertSee('clean two-step delete would work today', false);
+            ->assertSee('Final link')
+            ->assertSee('chain ends cleanly', false);
     }
 
     /**
@@ -192,13 +195,21 @@ class FlagCallAsIncorrectTest extends TestCase
         $this->actingAs($employee);
 
         $lead = $call->fresh()->lead;
-        Proposal::create([
+        $proposal = Proposal::create([
             'lead_id' => $lead->id,
             'prospect_id' => $lead->prospect_id,
             'assigned_to' => $lead->assigned_to,
             'created_by' => $lead->created_by,
             'stage' => ProposalStage::BeingPrepared,
         ]);
+        // A real Proposal always has V1 created atomically (Phase 4A,
+        // ProposalCreationService) — giving it a genuine commercial
+        // Version here is what makes it PERMANENTLY undeletable (AGENTS.md
+        // section 59), not merely existing. Without one, the Lead's own
+        // "blocked by 1 Proposal" is entirely explained by this exact
+        // chain link (about to be deleted right after it) and the whole
+        // chain would in fact be cleanly deletable.
+        \App\Models\ProposalVersion::factory()->create(['proposal_id' => $proposal->id]);
 
         Livewire::test(ListCallRecords::class)
             ->callTableAction('flagAsIncorrect', $call, data: ['flag_reason' => 'Wrong outcome.']);
@@ -207,11 +218,14 @@ class FlagCallAsIncorrectTest extends TestCase
         $this->assertSame('Lead', $call->downstreamRecordLabel());
         $blockers = array_filter($call->downstreamRecord()->deletionBlockers());
         $this->assertSame(['Proposal' => 1], $blockers);
+        $this->assertFalse(CallDownstreamChain::isClean($call));
 
         Livewire::test(ListCallRecords::class)
             ->mountTableAction('viewFlagDetails', $call)
             ->assertSee('Lead')
-            ->assertSee('1 Proposal');
+            ->assertSee('Proposal')
+            ->assertSee('1 commercial Version', false)
+            ->assertSee('blocked at Proposal', false);
     }
 
     public function test_view_flag_details_is_hidden_for_an_unflagged_call(): void
@@ -222,5 +236,164 @@ class FlagCallAsIncorrectTest extends TestCase
 
         Livewire::test(ListCallRecords::class)
             ->assertTableActionHidden('viewFlagDetails', $call);
+    }
+
+    // --- Full downstream chain: real multi-level chain + one-click "Delete Call + Downstream Chain" ---
+
+    /**
+     * The real "Call -> Follow-Up -> Appointment" chain this codebase
+     * actually supports: completing a Pending Follow-Up
+     * (FollowUpResource's "Completed" action / FollowUp::completeWithCall())
+     * creates a brand-new Call Record (call_records.follow_up_id) that goes
+     * through the exact same CallRecordObserver -> CallRoutingService path
+     * any other logged call does — so an AppointmentSet outcome on THAT
+     * call creates a real Appointment. The reviewer must see all three
+     * hops (Follow-Up, the byproduct Call Record, then Appointment), with
+     * the Appointment correctly identified as the true final link.
+     */
+    public function test_flag_details_action_surfaces_a_real_multi_level_chain(): void
+    {
+        $employee = User::factory()->create();
+        $call = $this->makeCall($employee, CallOutcome::CallbackRequested, ['notes' => 'x']);
+        $this->actingAs($employee);
+
+        $followUp = $call->fresh()->followUp;
+        $this->assertNotNull($followUp);
+
+        $followUp->completeWithCall([
+            'outcome' => CallOutcome::AppointmentSet,
+            'notes' => 'Site visit confirmed.',
+            'appointment_at' => now()->addDays(2),
+        ]);
+        $this->assertSame(1, Appointment::count());
+
+        Livewire::test(ListCallRecords::class)
+            ->callTableAction('flagAsIncorrect', $call, data: ['flag_reason' => 'Wrong outcome.']);
+
+        $chain = CallDownstreamChain::walk($call->fresh());
+        $this->assertCount(3, $chain);
+        $this->assertSame(['Follow-Up', 'Call Record', 'Appointment'], array_column($chain, 'label'));
+        $this->assertInstanceOf(Appointment::class, $chain[2]['record']);
+        $this->assertTrue(CallDownstreamChain::isClean($call->fresh()));
+
+        Livewire::test(ListCallRecords::class)
+            ->mountTableAction('viewFlagDetails', $call)
+            ->assertSee('Follow-Up')
+            ->assertSee('Appointment')
+            ->assertSee('Final link')
+            ->assertSee('chain ends cleanly', false);
+    }
+
+    public function test_delete_call_and_chain_action_deletes_a_simple_one_level_chain_atomically(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $call = $this->makeCall($admin, CallOutcome::CallbackRequested, ['notes' => 'x']);
+        $this->actingAs($admin);
+
+        Livewire::test(ListCallRecords::class)
+            ->callTableAction('flagAsIncorrect', $call, data: ['flag_reason' => 'Wrong outcome.']);
+
+        $call->refresh();
+        $this->assertTrue(CallDownstreamChain::isClean($call));
+
+        Livewire::test(ListCallRecords::class)
+            ->assertTableActionVisible('deleteCallAndChain', $call)
+            ->callTableAction('deleteCallAndChain', $call);
+
+        $this->assertSame(0, CallRecord::count());
+        $this->assertSame(0, FollowUp::count());
+    }
+
+    /**
+     * The multi-level case: the delete action must require EVERY level
+     * (Follow-Up, the byproduct Call Record, and the Appointment) to be
+     * clean, and deletes deepest-first inside a single transaction.
+     */
+    public function test_delete_call_and_chain_action_deletes_a_clean_multi_level_chain_atomically(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $call = $this->makeCall($admin, CallOutcome::CallbackRequested, ['notes' => 'x']);
+        $this->actingAs($admin);
+
+        $followUp = $call->fresh()->followUp;
+        $followUp->completeWithCall([
+            'outcome' => CallOutcome::AppointmentSet,
+            'notes' => 'Site visit confirmed.',
+            'appointment_at' => now()->addDays(2),
+        ]);
+
+        Livewire::test(ListCallRecords::class)
+            ->callTableAction('flagAsIncorrect', $call, data: ['flag_reason' => 'Wrong outcome.']);
+
+        $call->refresh();
+        $this->assertTrue(CallDownstreamChain::isClean($call));
+
+        Livewire::test(ListCallRecords::class)
+            ->assertTableActionVisible('deleteCallAndChain', $call)
+            ->callTableAction('deleteCallAndChain', $call);
+
+        $this->assertSame(0, CallRecord::count());
+        $this->assertSame(0, FollowUp::count());
+        $this->assertSame(0, Appointment::count());
+    }
+
+    /**
+     * The critical case: a chain blocked at the DEEPEST level (a Lead
+     * that already has a Proposal, which per AGENTS.md section 59 can
+     * never be deleted once it has a commercial Version) must refuse the
+     * one-click delete — even though the immediate link (the Lead) would
+     * look "clean" if only its own isolated blockers were checked without
+     * discounting the very Proposal this chain is about to reach. No
+     * record may be partially deleted.
+     */
+    public function test_delete_call_and_chain_action_refuses_when_the_deepest_link_is_blocked(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $call = $this->makeCall($admin, CallOutcome::RequirementIdentified, ['notes' => 'Interested.']);
+        $this->actingAs($admin);
+
+        $lead = $call->fresh()->lead;
+        $proposal = Proposal::create([
+            'lead_id' => $lead->id,
+            'prospect_id' => $lead->prospect_id,
+            'assigned_to' => $lead->assigned_to,
+            'created_by' => $lead->created_by,
+            'stage' => ProposalStage::BeingPrepared,
+        ]);
+        // A real Proposal always has V1 (Phase 4A) — this is what makes it
+        // permanently undeletable, not merely existing (see the sibling
+        // test above for the full reasoning).
+        \App\Models\ProposalVersion::factory()->create(['proposal_id' => $proposal->id]);
+
+        Livewire::test(ListCallRecords::class)
+            ->callTableAction('flagAsIncorrect', $call, data: ['flag_reason' => 'Wrong outcome.']);
+
+        $call->refresh();
+        $this->assertFalse(CallDownstreamChain::isClean($call));
+
+        Livewire::test(ListCallRecords::class)
+            ->mountTableAction('deleteCallAndChain', $call)
+            ->assertSee('cannot be fully deleted')
+            ->assertSee('Blocked at Proposal', false);
+
+        Livewire::test(ListCallRecords::class)
+            ->callTableAction('deleteCallAndChain', $call);
+
+        $this->assertSame(1, Lead::count());
+        $this->assertSame(1, Proposal::count());
+        $this->assertSame(1, CallRecord::count());
+    }
+
+    public function test_delete_call_and_chain_action_requires_admin_authorization(): void
+    {
+        $employee = User::factory()->create();
+        $call = $this->makeCall($employee, CallOutcome::CallbackRequested, ['notes' => 'x']);
+        $this->actingAs($employee);
+
+        Livewire::test(ListCallRecords::class)
+            ->callTableAction('flagAsIncorrect', $call, data: ['flag_reason' => 'Wrong outcome.']);
+
+        Livewire::test(ListCallRecords::class)
+            ->assertTableActionHidden('deleteCallAndChain', $call);
     }
 }
