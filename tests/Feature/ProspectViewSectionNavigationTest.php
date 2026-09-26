@@ -69,7 +69,7 @@ class ProspectViewSectionNavigationTest extends TestCase
     {
         $admin = User::factory()->admin()->create();
         $prospect = Prospect::factory()->create(['assigned_to' => $admin->id, 'created_by' => $admin->id]);
-        CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $admin->id, 'called_at' => now(), 'outcome' => CallOutcome::AppointmentSet, 'notes' => 'Client confirmed a slot for next week.']);
+        CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $admin->id, 'called_at' => now(), 'outcome' => CallOutcome::AppointmentSet, 'notes' => 'Client confirmed a slot for next week.', 'contact_person_spoken_to' => 'Test Contact', 'designation' => 'Manager', 'phone_called' => '9999999999']);
 
         $response = $this->actingAs($admin)->get($this->url($prospect, 'prospect-view-tabs-call-records-tab'));
 

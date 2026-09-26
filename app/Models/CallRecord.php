@@ -100,6 +100,17 @@ class CallRecord extends Model
                 throw new \LogicException("A Call Record cannot be saved with outcome {$callRecord->outcome->getLabel()} without Notes.");
             }
 
+            // Mandatory Contact Person/Designation/Phone Called for outcomes
+            // that route to a real next step (CallOutcome::
+            // requiresContactDetails() — single source of truth also
+            // enforced interactively by CallRecordResource::form()). A new,
+            // additional rule alongside the Notes guard above, not a
+            // replacement for it.
+            if ($callRecord->outcome->requiresContactDetails()
+                && (blank($callRecord->contact_person_spoken_to) || blank($callRecord->designation) || blank($callRecord->phone_called))) {
+                throw new \LogicException("A Call Record cannot be saved with outcome {$callRecord->outcome->getLabel()} without Contact Person, Designation, and Phone Called.");
+            }
+
             $becomingOther = $callRecord->outcome === CallOutcome::Others
                 && (! $callRecord->exists || $callRecord->isDirty('outcome'));
 

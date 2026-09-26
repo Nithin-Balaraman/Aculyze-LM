@@ -98,6 +98,8 @@ class PipelineBoardCallToLeadDestinationModalTest extends TestCase
                     'called_at' => now(),
                     'lead_opportunity_title' => 'ERP Requirement',
                     'contact_person_spoken_to' => 'Ravi Kumar',
+                    'designation' => 'IT Head',
+                    'phone_called' => '9123456780',
                     'notes' => 'Wants a full ERP rollout across two branches.',
                 ],
             );
@@ -134,7 +136,7 @@ class PipelineBoardCallToLeadDestinationModalTest extends TestCase
             $this->invokePerformCrossDrop(
                 $board,
                 ['sourceResource' => 'call', 'sourceId' => $callA->id, 'destResource' => 'lead', 'destStage' => 'requirement_collection'],
-                ['called_at' => now(), 'lead_opportunity_title' => 'Inventory Automation', 'notes' => 'First requirement.'],
+                ['called_at' => now(), 'lead_opportunity_title' => 'Inventory Automation', 'notes' => 'First requirement.', 'contact_person_spoken_to' => 'Test Contact', 'designation' => 'Manager', 'phone_called' => '9999999999'],
             );
 
             $callB = $this->makeCall($user, $prospect);
@@ -142,7 +144,7 @@ class PipelineBoardCallToLeadDestinationModalTest extends TestCase
             $this->invokePerformCrossDrop(
                 $board,
                 ['sourceResource' => 'call', 'sourceId' => $callB->id, 'destResource' => 'lead', 'destStage' => 'requirement_collection'],
-                ['called_at' => now(), 'lead_opportunity_title' => 'Cybersecurity Assessment', 'notes' => 'Second, unrelated requirement.'],
+                ['called_at' => now(), 'lead_opportunity_title' => 'Cybersecurity Assessment', 'notes' => 'Second, unrelated requirement.', 'contact_person_spoken_to' => 'Test Contact', 'designation' => 'Manager', 'phone_called' => '9999999999'],
             );
 
             $this->assertSame(2, Lead::query()->where('prospect_id', $prospect->id)->count());

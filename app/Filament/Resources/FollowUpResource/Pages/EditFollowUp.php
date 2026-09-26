@@ -43,6 +43,9 @@ class EditFollowUp extends EditRecord
             $data['call_notes'] = $callRecord?->notes;
             $data['appointment_at'] = $callRecord?->appointment_at;
             $data['new_follow_up_at'] = $callRecord?->follow_up_at;
+            $data['contact_person_spoken_to'] = $callRecord?->contact_person_spoken_to;
+            $data['designation'] = $callRecord?->designation;
+            $data['phone_called'] = $callRecord?->phone_called;
         }
 
         return $data;
@@ -81,6 +84,9 @@ class EditFollowUp extends EditRecord
         $callNotes = Arr::pull($data, 'call_notes');
         $appointmentAt = Arr::pull($data, 'appointment_at');
         $newFollowUpAt = Arr::pull($data, 'new_follow_up_at');
+        $contactPersonSpokenTo = Arr::pull($data, 'contact_person_spoken_to');
+        $designation = Arr::pull($data, 'designation');
+        $phoneCalled = Arr::pull($data, 'phone_called');
 
         $isCompleting = $record->status === FollowUpStatus::Pending
             && FollowUpResource::resolveStatus($data['status'] ?? null) === FollowUpStatus::Completed;
@@ -91,6 +97,9 @@ class EditFollowUp extends EditRecord
                 'notes' => $callNotes,
                 'appointment_at' => $appointmentAt,
                 'follow_up_at' => $newFollowUpAt,
+                'contact_person_spoken_to' => $contactPersonSpokenTo,
+                'designation' => $designation,
+                'phone_called' => $phoneCalled,
             ]);
         }
 

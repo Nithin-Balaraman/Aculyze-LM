@@ -133,6 +133,9 @@ class CrossOrganizationRelationshipInjectionTest extends TestCase
                 'called_at' => now(),
                 'outcome' => 'requirement_identified',
                 'notes' => 'Interested.',
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
             ]);
 
             return [$prospect, $call];

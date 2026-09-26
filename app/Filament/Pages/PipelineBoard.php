@@ -571,6 +571,9 @@ class PipelineBoard extends Page implements HasActions, HasForms
             $data['call_notes'] = $callRecord?->notes;
             $data['appointment_at'] = $callRecord?->appointment_at;
             $data['new_follow_up_at'] = $callRecord?->follow_up_at;
+            $data['contact_person_spoken_to'] = $callRecord?->contact_person_spoken_to;
+            $data['designation'] = $callRecord?->designation;
+            $data['phone_called'] = $callRecord?->phone_called;
         }
 
         return $data;
@@ -592,6 +595,9 @@ class PipelineBoard extends Page implements HasActions, HasForms
             $callNotes = Arr::pull($data, 'call_notes');
             $appointmentAt = Arr::pull($data, 'appointment_at');
             $newFollowUpAt = Arr::pull($data, 'new_follow_up_at');
+            $contactPersonSpokenTo = Arr::pull($data, 'contact_person_spoken_to');
+            $designation = Arr::pull($data, 'designation');
+            $phoneCalled = Arr::pull($data, 'phone_called');
 
             $isCompleting = $record->status === FollowUpStatus::Pending
                 && FollowUpResource::resolveStatus($data['status'] ?? null) === FollowUpStatus::Completed;
@@ -602,6 +608,9 @@ class PipelineBoard extends Page implements HasActions, HasForms
                     'notes' => $callNotes,
                     'appointment_at' => $appointmentAt,
                     'follow_up_at' => $newFollowUpAt,
+                    'contact_person_spoken_to' => $contactPersonSpokenTo,
+                    'designation' => $designation,
+                    'phone_called' => $phoneCalled,
                 ]);
             }
 
@@ -1468,6 +1477,23 @@ class PipelineBoard extends Page implements HasActions, HasForms
                     ->seconds(false)
                     ->visible(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->routesToFollowUp() ?? false)
                     ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->routesToFollowUp() ?? false),
+                // Mandatory exactly when the outcome routes to a real next
+                // step (CallOutcome::requiresContactDetails()) — this Call
+                // Record goes through the exact same model guard as any
+                // other logged call.
+                Forms\Components\TextInput::make("{$prefix}contact_person_spoken_to")
+                    ->label('Contact Person')
+                    ->maxLength(255)
+                    ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->requiresContactDetails() ?? false),
+                Forms\Components\TextInput::make("{$prefix}designation")
+                    ->label('Designation')
+                    ->maxLength(255)
+                    ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->requiresContactDetails() ?? false),
+                Forms\Components\TextInput::make("{$prefix}phone_called")
+                    ->label('Phone Called')
+                    ->tel()
+                    ->maxLength(20)
+                    ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get("{$prefix}outcome"))?->requiresContactDetails() ?? false),
                 Forms\Components\Textarea::make("{$prefix}notes")
                     ->label('Notes')
                     ->rows(3)
@@ -1594,18 +1620,27 @@ class PipelineBoard extends Page implements HasActions, HasForms
             // pre-filled from the card's own Prospect — a starting point
             // only, never disabled/locked, so a genuinely different contact
             // this time can still be typed over it before submitting.
+            // Mandatory for every outcome offered by this dialog
+            // (CallbackRequested/ConcernedPersonNotAvailable/ProfileRequested
+            // are all CallOutcome::requiresContactDetails() outcomes) — kept
+            // reactive off the same single source of truth rather than
+            // hardcoded unconditionally, so this can never silently drift
+            // if the allowed-outcomes list above ever changes.
             Forms\Components\TextInput::make('contact_person_spoken_to')
                 ->label('Contact Person')
                 ->default($source?->contact_person_spoken_to)
-                ->maxLength(255),
+                ->maxLength(255)
+                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome'))?->requiresContactDetails() ?? false),
             Forms\Components\TextInput::make('designation')
                 ->default($source?->designation)
-                ->maxLength(255),
+                ->maxLength(255)
+                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome'))?->requiresContactDetails() ?? false),
             Forms\Components\TextInput::make('phone_called')
                 ->label('Phone')
                 ->tel()
                 ->default($source?->phone_called)
-                ->maxLength(20),
+                ->maxLength(20)
+                ->required(fn (Forms\Get $get) => CallOutcome::tryFrom((string) $get('outcome'))?->requiresContactDetails() ?? false),
             // Reused verbatim — its own ->visible() already keys off
             // $get('outcome') === ProfileRequested, matching this dialog's
             // 'outcome' field name exactly, so it activates only for that
@@ -1650,18 +1685,16 @@ class PipelineBoard extends Page implements HasActions, HasForms
      * @return array<int, Forms\Components\Component>
      */
     /**
-     * $source is accepted (unused below) only for call-site symmetry with
-     * callToFollowUpFormSchema()/callToLeadFormSchema() — see the "Pre-fill
-     * Contact Person/Designation/Phone" enhancement request's own report
-     * for why this modal has no such fields to pre-fill in the first
-     * place: it never had Contact Person/Designation/Phone fields at all
-     * (locked design section 4's field list is exactly Appointment Date &
-     * Time/Mode/Person Meeting/Location/Additional Notes), and
-     * `appointment_person_meeting` is a deliberately DIFFERENT concept from
-     * the Call's own contact_person_spoken_to (see this method's other
-     * docblock note: "Person Meeting is intentionally distinct... may
-     * differ from who was spoken to on this call" — pre-filling it from
-     * contact_person_spoken_to would collapse that explicit distinction).
+     * $source is accepted for the same pre-fill reasoning as
+     * callToFollowUpFormSchema()/callToLeadFormSchema() — this modal's
+     * outcome is force-set to AppointmentSet server-side (see
+     * performCrossDrop()), one of the six CallOutcome::
+     * requiresContactDetails() outcomes, so Contact Person/Designation/
+     * Phone Called are now collected here too (mandatory, urgent fix) —
+     * distinct fields from `appointment_person_meeting` below, which
+     * stays its own deliberately different concept (see that field's own
+     * docblock: "Person Meeting is intentionally distinct... may differ
+     * from who was spoken to on this call").
      */
     private function callToAppointmentFormSchema(?CallRecord $source): array
     {
@@ -1670,6 +1703,21 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 ->required()
                 ->default(now())
                 ->seconds(false),
+            Forms\Components\TextInput::make('contact_person_spoken_to')
+                ->label('Contact Person')
+                ->default($source?->contact_person_spoken_to)
+                ->maxLength(255)
+                ->required(),
+            Forms\Components\TextInput::make('designation')
+                ->default($source?->designation)
+                ->maxLength(255)
+                ->required(),
+            Forms\Components\TextInput::make('phone_called')
+                ->label('Phone')
+                ->tel()
+                ->default($source?->phone_called)
+                ->maxLength(20)
+                ->required(),
             Forms\Components\DateTimePicker::make('appointment_at')
                 ->label('Appointment Date & Time')
                 ->required()
@@ -1729,19 +1777,25 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 ->helperText('Identifies this specific opportunity — a company may have more than one.'),
             // Small usability fix: pre-filled from the exact Call being
             // dragged — see callToFollowUpFormSchema()'s own comment for
-            // the same reasoning. Still fully editable.
+            // the same reasoning. Still fully editable. Required
+            // unconditionally: this dialog's outcome is force-set to
+            // RequirementIdentified server-side, one of the six
+            // CallOutcome::requiresContactDetails() outcomes.
             Forms\Components\TextInput::make('contact_person_spoken_to')
                 ->label('Contact Person')
                 ->default($source?->contact_person_spoken_to)
-                ->maxLength(255),
+                ->maxLength(255)
+                ->required(),
             Forms\Components\TextInput::make('designation')
                 ->default($source?->designation)
-                ->maxLength(255),
+                ->maxLength(255)
+                ->required(),
             Forms\Components\TextInput::make('phone_called')
                 ->label('Phone')
                 ->tel()
                 ->default($source?->phone_called)
-                ->maxLength(20),
+                ->maxLength(20)
+                ->required(),
             Forms\Components\Textarea::make('notes')
                 ->label('Requirement Details')
                 ->rows(3)
@@ -2006,6 +2060,9 @@ class PipelineBoard extends Page implements HasActions, HasForms
                 'notes' => $data["{$prefix}notes"] ?? null,
                 'appointment_at' => $data["{$prefix}appointment_at"] ?? null,
                 'follow_up_at' => $data["{$prefix}new_follow_up_at"] ?? null,
+                'contact_person_spoken_to' => $data["{$prefix}contact_person_spoken_to"] ?? null,
+                'designation' => $data["{$prefix}designation"] ?? null,
+                'phone_called' => $data["{$prefix}phone_called"] ?? null,
             ]);
         } catch (\LogicException $e) {
             Notification::make()->title("Couldn't move to Completed")->body($e->getMessage())->danger()->send();

@@ -186,6 +186,26 @@ class FollowUpResource extends Resource
                             ->seconds(false)
                             ->visible(fn (Forms\Get $get) => self::statusIsCompleting($get('status')) && self::outcomeRoutesToFollowUp($get('outcome'), $get('next_action')))
                             ->required(fn (Forms\Get $get) => self::statusIsCompleting($get('status')) && self::followUpAtRequired($get('outcome'), $get('next_action'))),
+                        // Mandatory exactly when the outcome routes to a real
+                        // next step (CallOutcome::requiresContactDetails()) —
+                        // mirrors CallRecordResource::form()'s identical rule,
+                        // since Completing here creates a real Call Record
+                        // through the same model guard.
+                        Forms\Components\TextInput::make('contact_person_spoken_to')
+                            ->label('Contact Person')
+                            ->maxLength(255)
+                            ->visible(fn (Forms\Get $get) => self::statusIsCompleting($get('status')))
+                            ->required(fn (Forms\Get $get) => self::statusIsCompleting($get('status')) && (self::resolveOutcome($get('outcome'))?->requiresContactDetails() ?? false)),
+                        Forms\Components\TextInput::make('designation')
+                            ->maxLength(255)
+                            ->visible(fn (Forms\Get $get) => self::statusIsCompleting($get('status')))
+                            ->required(fn (Forms\Get $get) => self::statusIsCompleting($get('status')) && (self::resolveOutcome($get('outcome'))?->requiresContactDetails() ?? false)),
+                        Forms\Components\TextInput::make('phone_called')
+                            ->label('Phone Called')
+                            ->tel()
+                            ->maxLength(20)
+                            ->visible(fn (Forms\Get $get) => self::statusIsCompleting($get('status')))
+                            ->required(fn (Forms\Get $get) => self::statusIsCompleting($get('status')) && (self::resolveOutcome($get('outcome'))?->requiresContactDetails() ?? false)),
                         ...self::otherAndProfileSentFields(
                             outcomeGetter: fn (Forms\Get $get) => $get('outcome'),
                             activeWhen: fn (Forms\Get $get) => self::statusIsCompleting($get('status')),
@@ -619,6 +639,23 @@ class FollowUpResource extends Resource
                                 ->seconds(false)
                                 ->visible(fn (Forms\Get $get) => static::outcomeRoutesToFollowUp($get('outcome'), $get('next_action')))
                                 ->required(fn (Forms\Get $get) => static::followUpAtRequired($get('outcome'), $get('next_action'))),
+                            // Mandatory exactly when the outcome routes to a
+                            // real next step (CallOutcome::
+                            // requiresContactDetails()) — this Call Record
+                            // goes through the exact same model guard as any
+                            // other logged call.
+                            Forms\Components\TextInput::make('contact_person_spoken_to')
+                                ->label('Contact Person')
+                                ->maxLength(255)
+                                ->required(fn (Forms\Get $get) => static::resolveOutcome($get('outcome'))?->requiresContactDetails() ?? false),
+                            Forms\Components\TextInput::make('designation')
+                                ->maxLength(255)
+                                ->required(fn (Forms\Get $get) => static::resolveOutcome($get('outcome'))?->requiresContactDetails() ?? false),
+                            Forms\Components\TextInput::make('phone_called')
+                                ->label('Phone Called')
+                                ->tel()
+                                ->maxLength(20)
+                                ->required(fn (Forms\Get $get) => static::resolveOutcome($get('outcome'))?->requiresContactDetails() ?? false),
                             ...self::otherAndProfileSentFields(
                                 outcomeGetter: fn (Forms\Get $get) => $get('outcome'),
                                 activeWhen: fn (Forms\Get $get) => true,
@@ -633,6 +670,9 @@ class FollowUpResource extends Resource
                             'notes' => $data['notes'],
                             'appointment_at' => $data['appointment_at'] ?? null,
                             'follow_up_at' => $data['new_follow_up_at'] ?? null,
+                            'contact_person_spoken_to' => $data['contact_person_spoken_to'] ?? null,
+                            'designation' => $data['designation'] ?? null,
+                            'phone_called' => $data['phone_called'] ?? null,
                             'next_action' => $data['next_action'] ?? null,
                             'profile_sent_status' => $data['profile_sent_status'] ?? null,
                             'profile_sent_at' => $data['profile_sent_at'] ?? null,

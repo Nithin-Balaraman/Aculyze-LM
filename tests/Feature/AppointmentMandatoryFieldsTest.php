@@ -76,6 +76,9 @@ class AppointmentMandatoryFieldsTest extends TestCase
             'called_at' => now(),
             'outcome' => CallOutcome::AppointmentSet,
             'notes' => 'Agreed to a site visit.',
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
         ]);
         $appointment = $call->fresh()->appointment;
         $this->assertNull($appointment->appointment_at);
@@ -100,6 +103,9 @@ class AppointmentMandatoryFieldsTest extends TestCase
             'called_at' => now(),
             'outcome' => CallOutcome::AppointmentSet,
             'notes' => 'Agreed to a site visit.',
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
         ]);
 
         $appointment = $call->fresh()->appointment;
@@ -153,6 +159,9 @@ class AppointmentMandatoryFieldsTest extends TestCase
             'called_at' => now(),
             'outcome' => CallOutcome::AppointmentSet,
             'notes' => 'Agreed to a site visit.',
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
         ]);
         $appointment = $call->fresh()->appointment;
         $this->assertNull($appointment->appointment_at);
@@ -172,6 +181,9 @@ class AppointmentMandatoryFieldsTest extends TestCase
             'called_at' => now(),
             'outcome' => CallOutcome::AppointmentSet,
             'notes' => 'Agreed to a site visit.',
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
         ]);
         $appointment = $call->fresh()->appointment;
         $this->assertNull($appointment->appointment_at);

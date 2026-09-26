@@ -76,6 +76,9 @@ class PipelineBoardCallOtherAndProfileRequestedCrossDropTest extends TestCase
                     'lead_opportunity_title' => 'Inventory Automation',
                     'notes' => 'Interested in a full rollout.',
                     'called_at' => now(),
+                    'contact_person_spoken_to' => 'Test Contact',
+                    'designation' => 'Manager',
+                    'phone_called' => '9999999999',
                 ],
             );
 
@@ -152,6 +155,9 @@ class PipelineBoardCallOtherAndProfileRequestedCrossDropTest extends TestCase
                     'profile_sent_status' => ProfileSentStatus::Sent->value,
                     'profile_sent_at' => now(),
                     'profile_sent_mode' => ProfileSentMode::Email->value,
+                    'contact_person_spoken_to' => 'Test Contact',
+                    'designation' => 'Manager',
+                    'phone_called' => '9999999999',
                 ],
             );
 

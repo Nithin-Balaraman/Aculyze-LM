@@ -32,6 +32,9 @@ class CleanupFutureOpportunityAppointmentsTest extends TestCase
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
             'outcome' => CallOutcome::NoCurrentRequirement,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'notes' => 'No budget this year.',
             'processed_at' => now(),
         ]);
@@ -56,6 +59,9 @@ class CleanupFutureOpportunityAppointmentsTest extends TestCase
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
             'outcome' => CallOutcome::AppointmentSet,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'notes' => 'Agreed to a site visit.',
         ]);
 

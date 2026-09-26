@@ -54,6 +54,9 @@ class ProspectTrashedRelationsTest extends TestCase
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
             'outcome' => CallOutcome::CallbackRequested,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'notes' => 'Asked to call back later.',
         ]);
         $followUp = $call->fresh()->followUp;
@@ -72,6 +75,9 @@ class ProspectTrashedRelationsTest extends TestCase
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
             'outcome' => CallOutcome::AppointmentSet,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'notes' => 'Agreed to a site visit.',
         ]);
         $appointment = $call->fresh()->appointment;

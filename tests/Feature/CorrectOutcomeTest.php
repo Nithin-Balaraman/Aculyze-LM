@@ -39,7 +39,11 @@ class CorrectOutcomeTest extends TestCase
             'user_id' => $owner->id,
             'called_at' => now(),
             'outcome' => $outcome,
-        ], $attributes));
+        ], $outcome->requiresContactDetails() ? [
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
+        ] : [], $attributes));
     }
 
     public function test_correcting_no_answer_to_callback_requested_creates_exactly_one_follow_up(): void
@@ -51,7 +55,7 @@ class CorrectOutcomeTest extends TestCase
             $call,
             CallOutcome::CallbackRequested,
             'Actually reached them, they asked for a callback.',
-            ['follow_up_at' => now()->addDays(2), 'notes' => 'Asked to call back next week.']
+            ['follow_up_at' => now()->addDays(2), 'notes' => 'Asked to call back next week.', 'contact_person_spoken_to' => 'Test Contact', 'designation' => 'Manager', 'phone_called' => '9999999999']
         );
 
         $call->refresh();
@@ -67,7 +71,7 @@ class CorrectOutcomeTest extends TestCase
         $call = $this->makeCall($employee);
 
         app(CallRoutingService::class)->correctOutcome(
-            $call, CallOutcome::CallbackRequested, 'Reached them.', ['follow_up_at' => now()->addDays(2), 'notes' => 'x']
+            $call, CallOutcome::CallbackRequested, 'Reached them.', ['follow_up_at' => now()->addDays(2), 'notes' => 'x', 'contact_person_spoken_to' => 'Test Contact', 'designation' => 'Manager', 'phone_called' => '9999999999']
         );
         $this->assertSame(1, FollowUp::count());
 
@@ -84,7 +88,7 @@ class CorrectOutcomeTest extends TestCase
         $call = $this->makeCall($employee);
 
         app(CallRoutingService::class)->correctOutcome(
-            $call, CallOutcome::RequirementIdentified, 'Actually a real requirement.', ['notes' => 'Interested in full rollout.']
+            $call, CallOutcome::RequirementIdentified, 'Actually a real requirement.', ['notes' => 'Interested in full rollout.', 'contact_person_spoken_to' => 'Test Contact', 'designation' => 'Manager', 'phone_called' => '9999999999']
         );
 
         $this->assertSame(1, Lead::count());
@@ -97,7 +101,7 @@ class CorrectOutcomeTest extends TestCase
         $call = $this->makeCall($employee, CallOutcome::SwitchedOff);
 
         app(CallRoutingService::class)->correctOutcome(
-            $call, CallOutcome::NoCurrentRequirement, 'No requirement after all.', ['notes' => 'No budget this year.']
+            $call, CallOutcome::NoCurrentRequirement, 'No requirement after all.', ['notes' => 'No budget this year.', 'contact_person_spoken_to' => 'Test Contact', 'designation' => 'Manager', 'phone_called' => '9999999999']
         );
 
         $this->assertSame(0, FollowUp::count());
@@ -111,7 +115,7 @@ class CorrectOutcomeTest extends TestCase
         $call = $this->makeCall($employee, CallOutcome::NoAnswer);
 
         app(CallRoutingService::class)->correctOutcome($call, CallOutcome::SwitchedOff, 'Actually switched off.');
-        app(CallRoutingService::class)->correctOutcome($call->fresh(), CallOutcome::NoCurrentRequirement, 'No budget after all.', ['notes' => 'No budget this year.']);
+        app(CallRoutingService::class)->correctOutcome($call->fresh(), CallOutcome::NoCurrentRequirement, 'No budget after all.', ['notes' => 'No budget this year.', 'contact_person_spoken_to' => 'Test Contact', 'designation' => 'Manager', 'phone_called' => '9999999999']);
 
         $this->assertSame(CallOutcome::NoCurrentRequirement, $call->fresh()->outcome);
 
@@ -132,7 +136,7 @@ class CorrectOutcomeTest extends TestCase
         $call = $this->makeCall($employee, CallOutcome::NoAnswer);
 
         app(CallRoutingService::class)->correctOutcome(
-            $call, CallOutcome::CallbackRequested, 'Reached them.', ['follow_up_at' => now()->addDay(), 'notes' => 'x']
+            $call, CallOutcome::CallbackRequested, 'Reached them.', ['follow_up_at' => now()->addDay(), 'notes' => 'x', 'contact_person_spoken_to' => 'Test Contact', 'designation' => 'Manager', 'phone_called' => '9999999999']
         );
 
         $this->expectException(LogicException::class);
@@ -178,7 +182,7 @@ class CorrectOutcomeTest extends TestCase
 
         DB::transaction(function () use ($call) {
             app(CallRoutingService::class)->correctOutcome(
-                $call, CallOutcome::CallbackRequested, 'Reached them.', ['follow_up_at' => now()->addDay(), 'notes' => 'x']
+                $call, CallOutcome::CallbackRequested, 'Reached them.', ['follow_up_at' => now()->addDay(), 'notes' => 'x', 'contact_person_spoken_to' => 'Test Contact', 'designation' => 'Manager', 'phone_called' => '9999999999']
             );
         });
 
@@ -212,6 +216,9 @@ class CorrectOutcomeTest extends TestCase
         Livewire::test(ListCallRecords::class)
             ->callTableAction('correctOutcome', $call, data: [
                 'outcome' => CallOutcome::CallbackRequested->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'correction_reason' => 'Reached them after all.',
                 'follow_up_at' => now()->addDay()->format('Y-m-d H:i:s'),
                 'notes' => 'Call back next week.',
@@ -285,6 +292,9 @@ class CorrectOutcomeTest extends TestCase
         Livewire::test(ListCallRecords::class)
             ->callTableAction('correctOutcome', $call, data: [
                 'outcome' => CallOutcome::CallbackRequested->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'correction_reason' => 'Actually reached them.',
                 'follow_up_at' => now()->addDay()->format('Y-m-d H:i:s'),
                 'notes' => 'Asked to call back next week.',
@@ -314,6 +324,9 @@ class CorrectOutcomeTest extends TestCase
                 'follow_up_at' => now()->addDay(),
                 'notes' => 'x',
                 'next_action' => CallNextAction::CreateFollowUp,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
             ]
         );
 

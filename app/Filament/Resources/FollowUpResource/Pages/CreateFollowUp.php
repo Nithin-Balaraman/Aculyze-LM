@@ -55,6 +55,9 @@ class CreateFollowUp extends CreateRecord
         $callNotes = Arr::pull($data, 'call_notes');
         $appointmentAt = Arr::pull($data, 'appointment_at');
         $newFollowUpAt = Arr::pull($data, 'new_follow_up_at');
+        $contactPersonSpokenTo = Arr::pull($data, 'contact_person_spoken_to');
+        $designation = Arr::pull($data, 'designation');
+        $phoneCalled = Arr::pull($data, 'phone_called');
 
         $isCompletingAtCreation = FollowUpResource::resolveStatus($data['status'] ?? null) === FollowUpStatus::Completed;
 
@@ -62,7 +65,7 @@ class CreateFollowUp extends CreateRecord
             $data['status'] = FollowUpStatus::Pending->value;
         }
 
-        return DB::transaction(function () use ($data, $isCompletingAtCreation, $outcome, $callNotes, $appointmentAt, $newFollowUpAt) {
+        return DB::transaction(function () use ($data, $isCompletingAtCreation, $outcome, $callNotes, $appointmentAt, $newFollowUpAt, $contactPersonSpokenTo, $designation, $phoneCalled) {
             $record = new ($this->getModel())($data);
             $record->save();
 
@@ -72,6 +75,9 @@ class CreateFollowUp extends CreateRecord
                     'notes' => $callNotes,
                     'appointment_at' => $appointmentAt,
                     'follow_up_at' => $newFollowUpAt,
+                    'contact_person_spoken_to' => $contactPersonSpokenTo,
+                    'designation' => $designation,
+                    'phone_called' => $phoneCalled,
                 ]);
             }
 

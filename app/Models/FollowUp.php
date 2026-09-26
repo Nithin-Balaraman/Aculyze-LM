@@ -218,7 +218,7 @@ class FollowUp extends Model implements Reschedulable
      * markLost()'s shape (a named model method wrapping a small multi-step
      * write) above.
      *
-     * @param  array{outcome: mixed, notes?: ?string, appointment_at?: mixed, follow_up_at?: mixed}  $data
+     * @param  array{outcome: mixed, notes?: ?string, appointment_at?: mixed, follow_up_at?: mixed, contact_person_spoken_to?: ?string, designation?: ?string, phone_called?: ?string}  $data
      */
     public function completeWithCall(array $data): CallRecord
     {
@@ -231,6 +231,13 @@ class FollowUp extends Model implements Reschedulable
                 'notes' => $data['notes'] ?? null,
                 'appointment_at' => $data['appointment_at'] ?? null,
                 'follow_up_at' => $data['follow_up_at'] ?? null,
+                // Mandatory Contact Person/Designation/Phone Called rule
+                // (CallOutcome::requiresContactDetails()) applies here
+                // identically — this Call Record goes through the exact
+                // same model guard as any other.
+                'contact_person_spoken_to' => $data['contact_person_spoken_to'] ?? null,
+                'designation' => $data['designation'] ?? null,
+                'phone_called' => $data['phone_called'] ?? null,
                 // Phase 3: pass through the same fields a directly-logged
                 // call can carry (Other's next_action, Profile Requested's
                 // structured Profile Sent tracking) — this call goes

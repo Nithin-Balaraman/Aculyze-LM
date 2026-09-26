@@ -172,6 +172,9 @@ class FollowUpRescheduleTest extends TestCase
                 'called_at' => now(),
                 'outcome' => \App\Enums\CallOutcome::CallbackRequested,
                 'notes' => 'Asked to call back later.',
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
             ]);
             $followUp = $call->fresh()->followUp;
 

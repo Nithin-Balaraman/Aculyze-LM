@@ -125,7 +125,7 @@ class PipelineBoardCallCardContentTest extends TestCase
             CallRecord::create([
                 'prospect_id' => $prospect->id, 'user_id' => $user->id,
                 'called_at' => now(), 'outcome' => CallOutcome::ProfileRequested,
-                'contact_person_spoken_to' => 'Anita Rao', 'phone_called' => '9999900000',
+                'contact_person_spoken_to' => 'Anita Rao', 'designation' => 'Manager', 'phone_called' => '9999900000',
                 'profile_sent_status' => ProfileSentStatus::Sent,
                 'profile_sent_at' => now(),
                 'profile_sent_mode' => \App\Enums\ProfileSentMode::Email,

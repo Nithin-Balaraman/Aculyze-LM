@@ -48,6 +48,9 @@ class FollowUpSummaryTest extends TestCase
             'user_id' => $owner->id,
             'called_at' => $calledAt,
             'outcome' => CallOutcome::RequirementIdentified,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'notes' => $notes,
             'follow_up_id' => $followUp->id,
         ]);

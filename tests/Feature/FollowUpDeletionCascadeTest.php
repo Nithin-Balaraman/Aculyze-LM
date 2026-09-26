@@ -42,6 +42,9 @@ class FollowUpDeletionCascadeTest extends TestCase
             'user_id' => $owner->id,
             'called_at' => now(),
             'outcome' => CallOutcome::CallbackRequested,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'notes' => 'Asked to call back later.',
         ]);
 
@@ -58,14 +61,18 @@ class FollowUpDeletionCascadeTest extends TestCase
         $generated = null;
 
         DB::transaction(function () use ($followUp, $outcome, $notes, &$generated) {
-            $generated = CallRecord::create([
+            $generated = CallRecord::create(array_merge([
                 'prospect_id' => $followUp->prospect_id,
                 'user_id' => $followUp->user_id,
                 'called_at' => now(),
                 'outcome' => $outcome,
                 'notes' => $notes,
                 'follow_up_id' => $followUp->id,
-            ]);
+            ], $outcome->requiresContactDetails() ? [
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
+            ] : []));
 
             $followUp->update(['status' => FollowUpStatus::Completed]);
         });

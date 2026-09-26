@@ -94,6 +94,9 @@ class DatabaseSeeder extends Seeder
         $this->logCall($chennaiPrecision, $nithin, CallOutcome::CallbackRequested, Date::now()->subDays(2), [
             'follow_up_at' => Date::now()->addDays(2),
             'notes' => 'Asked to call back next week, tied up with an audit right now.',
+            'contact_person_spoken_to' => 'R. Suresh Kumar',
+            'designation' => 'Plant Manager',
+            'phone_called' => '+91 98400 11223',
         ]);
 
         // --- 2. Appointment Set -> auto-creates an Appointment. ---
@@ -108,6 +111,9 @@ class DatabaseSeeder extends Seeder
         $this->logCall($coimbatoreTextiles, $kural, CallOutcome::AppointmentSet, Date::now()->subDays(3), [
             'appointment_at' => Date::now()->addDays(3),
             'notes' => 'Agreed to a site visit to assess their current setup.',
+            'contact_person_spoken_to' => 'Meena Rangaswamy',
+            'designation' => 'Operations Head',
+            'phone_called' => '+91 98430 55667',
         ]);
 
         // --- 3. Requirement Identified -> auto-creates Appointment + Lead.
@@ -123,6 +129,9 @@ class DatabaseSeeder extends Seeder
         ]);
         $novaCall = $this->logCall($novaIndustrial, $ilaya, CallOutcome::RequirementIdentified, Date::now()->subDays(10), [
             'notes' => 'Interested in ERP + BI rollout across two plants.',
+            'contact_person_spoken_to' => 'Arvind Menon',
+            'designation' => 'Director',
+            'phone_called' => '+91 90000 12121',
         ]);
         $hotLead = $novaCall->lead;
         $hotLead->update(['stage' => LeadStage::DemoScheduledOrDone, 'temperature' => LeadTemperature::Hot]);
@@ -139,6 +148,9 @@ class DatabaseSeeder extends Seeder
         ]);
         $metroCall = $this->logCall($metroAuto, $nithin, CallOutcome::RequirementIdentified, Date::now()->subDays(15), [
             'notes' => 'Needs Microsoft 365 migration for 80 users.',
+            'contact_person_spoken_to' => 'Divya Prakash',
+            'designation' => 'Purchase Manager',
+            'phone_called' => '+91 98940 33445',
         ]);
         $warmLead = $metroCall->lead;
         $warmLead->update(['stage' => LeadStage::Validated, 'temperature' => LeadTemperature::Warm, 'notes' => 'Requirement confirmed directly with Divya Prakash; budget approved.']);
@@ -165,6 +177,9 @@ class DatabaseSeeder extends Seeder
         ]);
         $globalCall = $this->logCall($globalFasteners, $kural, CallOutcome::RequirementIdentified, Date::now()->subDays(20), [
             'notes' => 'Mentioned a possible cybersecurity audit next year, nothing urgent now.',
+            'contact_person_spoken_to' => 'K. Rajendran',
+            'designation' => 'Owner',
+            'phone_called' => '+91 98650 77889',
         ]);
         $globalCall->lead->update(['temperature' => LeadTemperature::Cold]);
 
@@ -179,6 +194,9 @@ class DatabaseSeeder extends Seeder
         ]);
         $sunriseCall = $this->logCall($sunrisePlastics, $ilaya, CallOutcome::RequirementIdentified, Date::now()->subDays(45), [
             'notes' => 'Wants a quote for a basic cloud backup solution.',
+            'contact_person_spoken_to' => 'Geetha Subramaniam',
+            'designation' => 'Admin Manager',
+            'phone_called' => '+91 90420 66778',
         ]);
         $staleLead = $sunriseCall->lead;
         Lead::withoutEvents(fn () => $staleLead->forceFill(['stage_changed_at' => Date::now()->subDays(45)])->save());
@@ -194,6 +212,9 @@ class DatabaseSeeder extends Seeder
         ]);
         $apexCall = $this->logCall($apexEngineering, $nithin, CallOutcome::RequirementIdentified, Date::now()->subDays(35), [
             'notes' => 'Wants a full workflow automation proposal for their quality inspection process.',
+            'contact_person_spoken_to' => 'Vignesh Iyer',
+            'designation' => 'General Manager',
+            'phone_called' => '+91 90470 22334',
         ]);
         $apexLead = $apexCall->lead;
         $apexLead->update(['stage' => LeadStage::Validated, 'temperature' => LeadTemperature::Hot, 'notes' => 'Requirement confirmed directly with Vignesh Iyer; proposal in progress.']);
@@ -223,6 +244,9 @@ class DatabaseSeeder extends Seeder
         ]);
         $this->logCall($millenniumSteel, $kural, CallOutcome::NoCurrentRequirement, Date::now()->subDays(1), [
             'notes' => 'No budget this year, revisit after their next financial year starts.',
+            'contact_person_spoken_to' => 'Bala Murugan',
+            'designation' => 'Proprietor',
+            'phone_called' => '+91 90930 44556',
         ]);
 
         $this->command?->info('Seeded 4 users and 8 prospects with a full spread of workflow states.');

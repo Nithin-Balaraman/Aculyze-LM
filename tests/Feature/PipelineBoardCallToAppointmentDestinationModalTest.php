@@ -49,14 +49,15 @@ class PipelineBoardCallToAppointmentDestinationModalTest extends TestCase
 
     /**
      * "Pre-fill Contact Person/Designation/Phone" enhancement request:
-     * this modal has no such fields — locked design section 4's field list
-     * is exactly Appointment Date & Time/Mode/Person Meeting/Location/
-     * Additional Notes, and `appointment_person_meeting` is deliberately a
-     * DIFFERENT concept from the Call's own contact_person_spoken_to (this
-     * class's own docblock: "may differ from who was spoken to on this
-     * call"). Guards against ever silently pre-filling Person Meeting from
-     * contact_person_spoken_to, which would collapse that explicit
-     * distinction.
+     * this modal now DOES have its own Contact Person/Designation/Phone
+     * Called fields (mandatory urgent fix — this dialog's outcome is
+     * always AppointmentSet, one of the six CallOutcome::
+     * requiresContactDetails() outcomes), but `appointment_person_meeting`
+     * remains a deliberately DIFFERENT concept from the Call's own
+     * contact_person_spoken_to (this class's own docblock: "may differ
+     * from who was spoken to on this call"). Guards against ever silently
+     * pre-filling Person Meeting from contact_person_spoken_to, which
+     * would collapse that explicit distinction.
      */
     public function test_the_live_modal_does_not_prefill_person_meeting_from_the_calls_contact_person(): void
     {
@@ -81,7 +82,10 @@ class PipelineBoardCallToAppointmentDestinationModalTest extends TestCase
                     'destResource' => 'appointment',
                     'destStage' => 'appointment_made',
                 ])
-                ->assertActionDataSet(['appointment_person_meeting' => null]);
+                ->assertActionDataSet([
+                    'appointment_person_meeting' => null,
+                    'contact_person_spoken_to' => 'Someone Else Entirely',
+                ]);
         });
     }
 
@@ -105,6 +109,9 @@ class PipelineBoardCallToAppointmentDestinationModalTest extends TestCase
                     'appointment_person_meeting' => 'Jane Procurement',
                     'appointment_location' => 'Head Office, 3rd Floor',
                     'notes' => 'Client wants a full product walkthrough.',
+                    'contact_person_spoken_to' => 'Test Contact',
+                    'designation' => 'Manager',
+                    'phone_called' => '9999999999',
                 ],
             );
 
@@ -142,6 +149,9 @@ class PipelineBoardCallToAppointmentDestinationModalTest extends TestCase
                     'appointment_mode' => AppointmentMode::Online->value,
                     'appointment_person_meeting' => 'Jane Procurement',
                     'notes' => 'Agreed to an online walkthrough.',
+                    'contact_person_spoken_to' => 'Test Contact',
+                    'designation' => 'Manager',
+                    'phone_called' => '9999999999',
                 ],
             );
 
@@ -207,7 +217,12 @@ class PipelineBoardCallToAppointmentDestinationModalTest extends TestCase
                     'destResource' => 'appointment',
                     'destStage' => 'appointment_made',
                 ])
-                ->setActionData(['appointment_at' => now()->addDay()->format('Y-m-d H:i:s')])
+                ->setActionData([
+                    'appointment_at' => now()->addDay()->format('Y-m-d H:i:s'),
+                    'contact_person_spoken_to' => 'Test Contact',
+                    'designation' => 'Manager',
+                    'phone_called' => '9999999999',
+                ])
                 ->callMountedAction()
                 ->assertHasActionErrors(['appointment_mode', 'appointment_person_meeting', 'notes']);
 
@@ -223,6 +238,9 @@ class PipelineBoardCallToAppointmentDestinationModalTest extends TestCase
                     'appointment_mode' => AppointmentMode::Online->value,
                     'appointment_person_meeting' => 'Jane Procurement',
                     'notes' => 'Online walkthrough agreed.',
+                    'contact_person_spoken_to' => 'Test Contact',
+                    'designation' => 'Manager',
+                    'phone_called' => '9999999999',
                 ])
                 ->callMountedAction()
                 ->assertHasNoActionErrors();
@@ -242,6 +260,9 @@ class PipelineBoardCallToAppointmentDestinationModalTest extends TestCase
                     'appointment_mode' => AppointmentMode::InPerson->value,
                     'appointment_person_meeting' => 'Jane Procurement',
                     'notes' => 'In-person visit agreed.',
+                    'contact_person_spoken_to' => 'Test Contact',
+                    'designation' => 'Manager',
+                    'phone_called' => '9999999999',
                 ])
                 ->callMountedAction()
                 ->assertHasActionErrors(['appointment_location']);

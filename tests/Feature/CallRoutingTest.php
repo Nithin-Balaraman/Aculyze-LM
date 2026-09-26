@@ -30,7 +30,11 @@ class CallRoutingTest extends TestCase
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
             'outcome' => $outcome,
-        ], $attributes));
+        ], $outcome->requiresContactDetails() ? [
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
+        ] : [], $attributes));
     }
 
     public function test_every_outcome_creates_a_call_record(): void

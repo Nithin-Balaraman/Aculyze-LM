@@ -63,6 +63,9 @@ class PipelineBoardCallCrossDropTest extends TestCase
                     'notes' => 'Asked to call back next week.',
                     'follow_up_at' => now()->addDays(3),
                     'called_at' => now(),
+                    'contact_person_spoken_to' => 'Test Contact',
+                    'designation' => 'Manager',
+                    'phone_called' => '9999999999',
                 ],
             );
 
@@ -100,6 +103,9 @@ class PipelineBoardCallCrossDropTest extends TestCase
                     'notes' => 'Agreed to a site visit.',
                     'appointment_at' => now()->addDays(3),
                     'called_at' => now(),
+                    'contact_person_spoken_to' => 'Test Contact',
+                    'designation' => 'Manager',
+                    'phone_called' => '9999999999',
                 ],
             );
 
@@ -131,6 +137,9 @@ class PipelineBoardCallCrossDropTest extends TestCase
                     'outcome' => CallOutcome::RequirementIdentified->value,
                     'notes' => 'Interested in a full rollout.',
                     'called_at' => now(),
+                    'contact_person_spoken_to' => 'Test Contact',
+                    'designation' => 'Manager',
+                    'phone_called' => '9999999999',
                 ],
             );
 
@@ -167,7 +176,7 @@ class PipelineBoardCallCrossDropTest extends TestCase
             $this->invokePerformCrossDrop(
                 app(PipelineBoard::class),
                 ['sourceResource' => 'call', 'sourceId' => $call->id, 'destResource' => 'lead', 'destStage' => 'requirement_collection'],
-                ['outcome' => CallOutcome::RequirementIdentified->value, 'notes' => 'Interested.', 'called_at' => now()],
+                ['outcome' => CallOutcome::RequirementIdentified->value, 'notes' => 'Interested.', 'called_at' => now(), 'contact_person_spoken_to' => 'Test Contact', 'designation' => 'Manager', 'phone_called' => '9999999999'],
             );
 
             $call->refresh();

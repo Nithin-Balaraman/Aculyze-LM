@@ -151,6 +151,29 @@ enum CallOutcome: string implements HasColor, HasLabel
     }
 
     /**
+     * Whether Contact Person, Designation, and Phone Called are mandatory
+     * for this outcome — the six outcomes where a real, meaningful next
+     * step actually results from the call, so knowing exactly who was
+     * spoken to matters. Stays optional for the three "never connected"
+     * outcomes (nothing to attribute) and for Others (a genuine catch-all
+     * with no defined routing). Single source of truth
+     * CallRecordResource::form()/formSchema() and CallRecord's own model
+     * guard both key off, same as every other routesTo*()/requiresNotes()
+     * classification here.
+     */
+    public function requiresContactDetails(): bool
+    {
+        return in_array($this, [
+            self::CallbackRequested,
+            self::ConcernedPersonNotAvailable,
+            self::ProfileRequested,
+            self::AppointmentSet,
+            self::RequirementIdentified,
+            self::NoCurrentRequirement,
+        ], true);
+    }
+
+    /**
      * @return array<string, string>
      */
     public static function options(): array

@@ -35,6 +35,9 @@ class FollowUpCompletedTest extends TestCase
             'user_id' => $owner->id,
             'called_at' => now(),
             'outcome' => CallOutcome::CallbackRequested,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'notes' => 'Asked to call back later.',
         ]);
 
@@ -51,6 +54,9 @@ class FollowUpCompletedTest extends TestCase
         Livewire::test(ListFollowUps::class)
             ->callTableAction('completed', $followUp, data: [
                 'outcome' => CallOutcome::RequirementIdentified->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'notes' => 'Spoke to the owner, ready to move forward.',
             ])
             ->assertHasNoTableActionErrors();
@@ -112,6 +118,9 @@ class FollowUpCompletedTest extends TestCase
         Livewire::test(ListFollowUps::class)
             ->callTableAction('completed', $followUp, data: [
                 'outcome' => CallOutcome::AppointmentSet->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'notes' => 'They agreed to a site visit.',
                 'appointment_at' => '',
             ])
@@ -130,6 +139,9 @@ class FollowUpCompletedTest extends TestCase
         Livewire::test(ListFollowUps::class)
             ->callTableAction('completed', $followUp, data: [
                 'outcome' => CallOutcome::CallbackRequested->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'notes' => 'Asked to call back next week.',
                 'new_follow_up_at' => '',
             ])
@@ -150,6 +162,9 @@ class FollowUpCompletedTest extends TestCase
         Livewire::test(ListFollowUps::class)
             ->callTableAction('completed', $followUp, data: [
                 'outcome' => CallOutcome::CallbackRequested->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'notes' => 'Asked to call back next week.',
                 'new_follow_up_at' => $nextFollowUpAt->format('Y-m-d H:i:s'),
             ])

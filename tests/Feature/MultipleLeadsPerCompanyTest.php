@@ -37,6 +37,9 @@ class MultipleLeadsPerCompanyTest extends TestCase
                 'user_id' => $user->id,
                 'called_at' => now(),
                 'outcome' => CallOutcome::RequirementIdentified,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'notes' => 'Requirement confirmed on call.',
             ]);
             CallRecord::create([
@@ -44,6 +47,9 @@ class MultipleLeadsPerCompanyTest extends TestCase
                 'user_id' => $user->id,
                 'called_at' => now(),
                 'outcome' => CallOutcome::RequirementIdentified,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'notes' => 'Requirement confirmed on call.',
             ]);
 
@@ -60,8 +66,8 @@ class MultipleLeadsPerCompanyTest extends TestCase
             $user = User::factory()->create(['organization_id' => $org->id]);
             $prospect = Prospect::factory()->create(['assigned_to' => $user->id, 'created_by' => $user->id]);
 
-            $callA = CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $user->id, 'called_at' => now(), 'outcome' => CallOutcome::RequirementIdentified, 'notes' => 'Requirement confirmed on call.']);
-            $callB = CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $user->id, 'called_at' => now(), 'outcome' => CallOutcome::RequirementIdentified, 'notes' => 'Requirement confirmed on call.']);
+            $callA = CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $user->id, 'called_at' => now(), 'outcome' => CallOutcome::RequirementIdentified, 'notes' => 'Requirement confirmed on call.', 'contact_person_spoken_to' => 'Test Contact', 'designation' => 'Manager', 'phone_called' => '9999999999']);
+            $callB = CallRecord::create(['prospect_id' => $prospect->id, 'user_id' => $user->id, 'called_at' => now(), 'outcome' => CallOutcome::RequirementIdentified, 'notes' => 'Requirement confirmed on call.', 'contact_person_spoken_to' => 'Test Contact', 'designation' => 'Manager', 'phone_called' => '9999999999']);
 
             $leadA = Lead::query()->where('call_record_id', $callA->id)->firstOrFail();
             $leadB = Lead::query()->where('call_record_id', $callB->id)->firstOrFail();

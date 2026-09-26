@@ -68,6 +68,9 @@ class CallRecordCreationAtomicityTest extends TestCase
                 'prospect_id' => $prospect->id,
                 'called_at' => now()->format('Y-m-d H:i:s'),
                 'outcome' => CallOutcome::AppointmentSet->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'appointment_at' => now()->addDay()->format('Y-m-d H:i:s'),
                 'notes' => 'Agreed to a site visit.',
             ])
@@ -94,6 +97,9 @@ class CallRecordCreationAtomicityTest extends TestCase
                     'prospect_id' => $prospect->id,
                     'called_at' => now()->format('Y-m-d H:i:s'),
                     'outcome' => CallOutcome::AppointmentSet->value,
+                    'contact_person_spoken_to' => 'Test Contact',
+                    'designation' => 'Manager',
+                    'phone_called' => '9999999999',
                     'appointment_at' => now()->addDay()->format('Y-m-d H:i:s'),
                     'notes' => 'Agreed to a site visit.',
                 ])
@@ -127,6 +133,9 @@ class CallRecordCreationAtomicityTest extends TestCase
             'prospect_id' => $prospect->id,
             'called_at' => now(),
             'outcome' => CallOutcome::RequirementIdentified->value,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'notes' => 'Interested in a full rollout.',
         ]);
 
@@ -149,6 +158,9 @@ class CallRecordCreationAtomicityTest extends TestCase
                 'prospect_id' => $prospect->id,
                 'called_at' => now(),
                 'outcome' => CallOutcome::RequirementIdentified->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'notes' => 'Interested in a full rollout.',
             ]);
 
@@ -196,7 +208,7 @@ class CallRecordCreationAtomicityTest extends TestCase
                 $this->invokePerformCrossDrop(
                     app(PipelineBoard::class),
                     ['sourceResource' => 'call', 'sourceId' => $originalCall->id, 'destResource' => 'lead', 'destStage' => 'requirement_collection'],
-                    ['outcome' => CallOutcome::RequirementIdentified->value, 'notes' => 'Interested.', 'called_at' => now()],
+                    ['outcome' => CallOutcome::RequirementIdentified->value, 'notes' => 'Interested.', 'called_at' => now(), 'contact_person_spoken_to' => 'Test Contact', 'designation' => 'Manager', 'phone_called' => '9999999999'],
                 );
 
                 $this->fail('Expected the forced routing failure to propagate.');

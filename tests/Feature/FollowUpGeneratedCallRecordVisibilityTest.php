@@ -49,6 +49,9 @@ class FollowUpGeneratedCallRecordVisibilityTest extends TestCase
             'user_id' => $owner->id,
             'called_at' => now(),
             'outcome' => CallOutcome::CallbackRequested,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'notes' => 'Asked to call back later.',
             'follow_up_at' => now()->addDay(),
         ]);
@@ -73,7 +76,11 @@ class FollowUpGeneratedCallRecordVisibilityTest extends TestCase
                 'outcome' => $outcome,
                 'notes' => $notes,
                 'follow_up_id' => $followUp->id,
-            ], $extra));
+            ], $outcome->requiresContactDetails() ? [
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
+            ] : [], $extra));
 
             $followUp->update(['status' => FollowUpStatus::Completed]);
         });

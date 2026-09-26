@@ -38,7 +38,11 @@ class FlagCallAsIncorrectTest extends TestCase
             'user_id' => $owner->id,
             'called_at' => now(),
             'outcome' => $outcome,
-        ], $attributes));
+        ], $outcome->requiresContactDetails() ? [
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
+        ] : [], $attributes));
     }
 
     public function test_flag_as_incorrect_is_hidden_when_there_is_no_downstream_history(): void
@@ -262,6 +266,9 @@ class FlagCallAsIncorrectTest extends TestCase
 
         $followUp->completeWithCall([
             'outcome' => CallOutcome::AppointmentSet,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'notes' => 'Site visit confirmed.',
             'appointment_at' => now()->addDays(2),
         ]);
@@ -318,6 +325,9 @@ class FlagCallAsIncorrectTest extends TestCase
         $followUp = $call->fresh()->followUp;
         $followUp->completeWithCall([
             'outcome' => CallOutcome::AppointmentSet,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'notes' => 'Site visit confirmed.',
             'appointment_at' => now()->addDays(2),
         ]);

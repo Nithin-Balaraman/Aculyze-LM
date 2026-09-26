@@ -44,6 +44,9 @@ class CallRecordRequiresNotesTest extends TestCase
         Livewire::test(CreateCallRecord::class)
             ->fillForm($this->baseFormData([
                 'outcome' => CallOutcome::AppointmentSet->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'appointment_at' => now()->addDay()->format('Y-m-d H:i:s'),
                 'notes' => null,
             ]))
@@ -61,6 +64,9 @@ class CallRecordRequiresNotesTest extends TestCase
         Livewire::test(CreateCallRecord::class)
             ->fillForm($this->baseFormData([
                 'outcome' => CallOutcome::AppointmentSet->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'appointment_at' => now()->addDay()->format('Y-m-d H:i:s'),
                 'notes' => 'Agreed to a site visit next week.',
             ]))
@@ -78,6 +84,9 @@ class CallRecordRequiresNotesTest extends TestCase
         Livewire::test(CreateCallRecord::class)
             ->fillForm($this->baseFormData([
                 'outcome' => CallOutcome::RequirementIdentified->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'appointment_at' => now()->addDay()->format('Y-m-d H:i:s'),
                 'notes' => null,
             ]))
@@ -95,6 +104,9 @@ class CallRecordRequiresNotesTest extends TestCase
         Livewire::test(CreateCallRecord::class)
             ->fillForm($this->baseFormData([
                 'outcome' => CallOutcome::RequirementIdentified->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'appointment_at' => now()->addDay()->format('Y-m-d H:i:s'),
                 'notes' => 'Interested in a full plant rollout.',
             ]))
@@ -147,6 +159,9 @@ class CallRecordRequiresNotesTest extends TestCase
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
             'outcome' => CallOutcome::AppointmentSet,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'appointment_at' => now()->addDay(),
         ]);
     }

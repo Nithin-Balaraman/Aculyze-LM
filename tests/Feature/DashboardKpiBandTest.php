@@ -237,6 +237,9 @@ class DashboardKpiBandTest extends TestCase
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
             'outcome' => CallOutcome::RequirementIdentified,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'notes' => 'Ready to move forward.',
             'follow_up_id' => $followUp->id,
         ]);
@@ -296,6 +299,9 @@ class DashboardKpiBandTest extends TestCase
             'user_id' => $prospect->assigned_to,
             'called_at' => now(),
             'outcome' => CallOutcome::RequirementIdentified,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'notes' => 'Ready to move forward.',
             'follow_up_id' => $completedViaRowAction->id,
         ]);

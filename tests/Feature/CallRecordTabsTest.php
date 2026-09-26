@@ -33,7 +33,11 @@ class CallRecordTabsTest extends TestCase
             'user_id' => $owner->id,
             'called_at' => now(),
             'outcome' => $outcome,
-        ], $attributes));
+        ], $outcome->requiresContactDetails() ? [
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
+        ] : [], $attributes));
     }
 
     public function test_all_tab_shows_every_call_regardless_of_outcome(): void

@@ -254,15 +254,28 @@ class CallRecordResource extends Resource
                     ->required()
                     ->live()
                     ->helperText('Determines what happens next — see the Follow-Ups, Appointments, and Leads panels.'),
+                // Mandatory exactly when the outcome routes to a real next
+                // step (CallOutcome::requiresContactDetails() — single
+                // source of truth, also enforced model-side by
+                // CallRecord::booted()) — you need to know who you
+                // actually spoke to when something meaningful results from
+                // the call. Reactive off the same live `outcome` field the
+                // Follow-Up/Appointment/Profile Sent sections already key
+                // off.
                 Forms\Components\TextInput::make('contact_person_spoken_to')
-                    ->maxLength(255),
+                    ->label('Contact Person')
+                    ->maxLength(255)
+                    ->required(fn (Get $get) => self::resolveOutcome($get('outcome'))?->requiresContactDetails() ?? false),
                 Forms\Components\TextInput::make('designation')
                     ->label('Designation')
                     ->placeholder('e.g. Manager, Owner, Procurement Head')
-                    ->maxLength(255),
+                    ->maxLength(255)
+                    ->required(fn (Get $get) => self::resolveOutcome($get('outcome'))?->requiresContactDetails() ?? false),
                 Forms\Components\TextInput::make('phone_called')
+                    ->label('Phone Called')
                     ->tel()
-                    ->maxLength(20),
+                    ->maxLength(20)
+                    ->required(fn (Get $get) => self::resolveOutcome($get('outcome'))?->requiresContactDetails() ?? false),
                 // Visibility is driven by the outcome's own routing
                 // rules (CallOutcome::routesToFollowUp()/
                 // routesToAppointment()) rather than a manual
@@ -630,6 +643,26 @@ class CallRecordResource extends Resource
                     ->seconds(false)
                     ->visible(fn (Forms\Get $get) => self::appointmentAtVisible($get('outcome'), $get('next_action')))
                     ->required(fn (Forms\Get $get) => self::appointmentAtVisible($get('outcome'), $get('next_action'))),
+                // Mandatory exactly when the corrected outcome routes to a
+                // real next step (CallOutcome::requiresContactDetails()) —
+                // pre-filled from this Call's own existing values (it may
+                // already have been logged with the right contact but the
+                // wrong outcome), still fully editable.
+                Forms\Components\TextInput::make('contact_person_spoken_to')
+                    ->label('Contact Person')
+                    ->default(fn () => $record->contact_person_spoken_to)
+                    ->maxLength(255)
+                    ->required(fn (Forms\Get $get) => self::resolveOutcome($get('outcome'))?->requiresContactDetails() ?? false),
+                Forms\Components\TextInput::make('designation')
+                    ->default(fn () => $record->designation)
+                    ->maxLength(255)
+                    ->required(fn (Forms\Get $get) => self::resolveOutcome($get('outcome'))?->requiresContactDetails() ?? false),
+                Forms\Components\TextInput::make('phone_called')
+                    ->label('Phone Called')
+                    ->tel()
+                    ->default(fn () => $record->phone_called)
+                    ->maxLength(20)
+                    ->required(fn (Forms\Get $get) => self::resolveOutcome($get('outcome'))?->requiresContactDetails() ?? false),
                 Forms\Components\Select::make('next_action')
                     ->label('Next Action')
                     ->options(CallNextAction::class)
@@ -672,6 +705,9 @@ class CallRecordResource extends Resource
                         array_filter([
                             'follow_up_at' => $data['follow_up_at'] ?? null,
                             'appointment_at' => $data['appointment_at'] ?? null,
+                            'contact_person_spoken_to' => $data['contact_person_spoken_to'] ?? null,
+                            'designation' => $data['designation'] ?? null,
+                            'phone_called' => $data['phone_called'] ?? null,
                             'next_action' => filled($data['next_action'] ?? null) ? CallNextAction::from($data['next_action']) : null,
                             'profile_sent_status' => filled($data['profile_sent_status'] ?? null) ? ProfileSentStatus::from($data['profile_sent_status']) : null,
                             'profile_sent_mode' => filled($data['profile_sent_mode'] ?? null) ? ProfileSentMode::from($data['profile_sent_mode']) : null,

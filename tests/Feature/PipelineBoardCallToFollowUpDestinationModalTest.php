@@ -105,6 +105,9 @@ class PipelineBoardCallToFollowUpDestinationModalTest extends TestCase
                     'follow_up_at' => now()->addDays(2),
                     'follow_up_contact_mode' => ContactMode::Mail->value,
                     'notes' => 'Asked to call back next week.',
+                    'contact_person_spoken_to' => 'Test Contact',
+                    'designation' => 'Manager',
+                    'phone_called' => '9999999999',
                 ],
             );
 
@@ -161,6 +164,9 @@ class PipelineBoardCallToFollowUpDestinationModalTest extends TestCase
                     'profile_sent_status' => \App\Enums\ProfileSentStatus::Pending->value,
                     'follow_up_at' => now()->addDays(5),
                     'notes' => 'Sent the profile, will follow up.',
+                    'contact_person_spoken_to' => 'Test Contact',
+                    'designation' => 'Manager',
+                    'phone_called' => '9999999999',
                 ],
             );
 
@@ -186,6 +192,9 @@ class PipelineBoardCallToFollowUpDestinationModalTest extends TestCase
                     'called_at' => now(),
                     'profile_sent_status' => \App\Enums\ProfileSentStatus::Pending->value,
                     'notes' => 'Sent nothing yet, no follow-up scheduled.',
+                    'contact_person_spoken_to' => 'Test Contact',
+                    'designation' => 'Manager',
+                    'phone_called' => '9999999999',
                 ],
             );
 

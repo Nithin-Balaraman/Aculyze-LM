@@ -39,6 +39,9 @@ class CreateFollowUpCompletionAtomicityTest extends TestCase
             'reason' => 'Call back next week',
             'status' => FollowUpStatus::Completed->value,
             'outcome' => CallOutcome::NoCurrentRequirement->value,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'call_notes' => 'Customer said not interested right now.',
         ], $overrides);
     }

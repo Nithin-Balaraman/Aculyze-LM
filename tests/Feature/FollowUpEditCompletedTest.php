@@ -56,6 +56,9 @@ class FollowUpEditCompletedTest extends TestCase
             'user_id' => $owner->id,
             'called_at' => now(),
             'outcome' => CallOutcome::CallbackRequested,
+            'contact_person_spoken_to' => 'Test Contact',
+            'designation' => 'Manager',
+            'phone_called' => '9999999999',
             'notes' => 'Asked to call back later.',
         ]);
 
@@ -95,6 +98,9 @@ class FollowUpEditCompletedTest extends TestCase
             ->fillForm([
                 'status' => FollowUpStatus::Completed->value,
                 'outcome' => CallOutcome::RequirementIdentified->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'call_notes' => null,
                 'appointment_at' => now()->addDay()->format('Y-m-d H:i:s'),
             ])
@@ -130,6 +136,9 @@ class FollowUpEditCompletedTest extends TestCase
             ->fillForm([
                 'status' => FollowUpStatus::Completed->value,
                 'outcome' => CallOutcome::RequirementIdentified->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'call_notes' => 'Spoke to the owner, ready to move forward.',
             ])
             ->call('save')
@@ -171,6 +180,9 @@ class FollowUpEditCompletedTest extends TestCase
             ->fillForm([
                 'status' => FollowUpStatus::Completed->value,
                 'outcome' => CallOutcome::AppointmentSet->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'call_notes' => 'They agreed to a site visit.',
                 'appointment_at' => $appointmentAt->format('Y-m-d H:i:s'),
             ])
@@ -203,6 +215,9 @@ class FollowUpEditCompletedTest extends TestCase
             ->fillForm([
                 'status' => FollowUpStatus::Completed->value,
                 'outcome' => CallOutcome::CallbackRequested->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'call_notes' => 'Asked to call back next week.',
                 'new_follow_up_at' => null,
             ])
@@ -215,6 +230,9 @@ class FollowUpEditCompletedTest extends TestCase
             ->fillForm([
                 'status' => FollowUpStatus::Completed->value,
                 'outcome' => CallOutcome::CallbackRequested->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'call_notes' => 'Asked to call back next week.',
                 'new_follow_up_at' => $nextFollowUpAt->format('Y-m-d H:i:s'),
             ])
@@ -256,6 +274,9 @@ class FollowUpEditCompletedTest extends TestCase
             ->fillForm([
                 'status' => FollowUpStatus::Completed->value,
                 'outcome' => CallOutcome::RequirementIdentified->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'call_notes' => 'Spoke to the owner, ready to move forward.',
             ])
             ->call('save')
@@ -266,6 +287,9 @@ class FollowUpEditCompletedTest extends TestCase
         Livewire::test(EditFollowUp::class, ['record' => $followUp->fresh()->getRouteKey()])
             ->assertFormSet([
                 'outcome' => CallOutcome::RequirementIdentified->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'call_notes' => 'Spoke to the owner, ready to move forward.',
             ])
             ->fillForm(['reason' => 'Corrected reason text'])
@@ -312,6 +336,9 @@ class FollowUpEditCompletedTest extends TestCase
                 'reason' => 'Manually logging a completed call',
                 'status' => FollowUpStatus::Completed->value,
                 'outcome' => CallOutcome::RequirementIdentified->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'call_notes' => 'Backfilled from a call taken outside the system.',
             ])
             ->call('create')

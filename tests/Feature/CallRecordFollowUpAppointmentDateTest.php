@@ -129,6 +129,9 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
         Livewire::test(CreateCallRecord::class)
             ->fillForm($this->baseFormData([
                 'outcome' => CallOutcome::CallbackRequested->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'follow_up_at' => $followUpAt->format('Y-m-d H:i:s'),
                 'notes' => 'Asked to call back in a couple of days.',
             ]))
@@ -149,6 +152,9 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
         Livewire::test(CreateCallRecord::class)
             ->fillForm($this->baseFormData([
                 'outcome' => CallOutcome::AppointmentSet->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'appointment_at' => $appointmentAt->format('Y-m-d H:i:s'),
                 'notes' => 'Agreed to a site visit.',
             ]))
@@ -167,6 +173,9 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
         Livewire::test(CreateCallRecord::class)
             ->fillForm($this->baseFormData([
                 'outcome' => CallOutcome::CallbackRequested->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'notes' => 'Asked to call back next week.',
                 'follow_up_at' => null,
             ]))
@@ -189,6 +198,9 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
         Livewire::test(CreateCallRecord::class)
             ->fillForm($this->baseFormData([
                 'outcome' => CallOutcome::ConcernedPersonNotAvailable->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'notes' => 'Decision-maker was out of office.',
                 'follow_up_at' => null,
             ]))
@@ -224,6 +236,9 @@ class CallRecordFollowUpAppointmentDateTest extends TestCase
         Livewire::test(CreateCallRecord::class)
             ->fillForm($this->baseFormData([
                 'outcome' => CallOutcome::RequirementIdentified->value,
+                'contact_person_spoken_to' => 'Test Contact',
+                'designation' => 'Manager',
+                'phone_called' => '9999999999',
                 'notes' => 'Interested in a full rollout.',
             ]))
             ->assertDontSee('Appointment At')
