@@ -2,14 +2,22 @@
 
 namespace App\Filament\Resources\ProspectResource\Pages;
 
+use App\Filament\Concerns\HasEditFormActionColors;
 use App\Filament\Resources\ProspectResource;
 use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
 
 class EditProspect extends EditRecord
 {
+    use HasEditFormActionColors;
+
     protected static string $resource = ProspectResource::class;
 
+    /**
+     * View's color: see HasEditFormActionColors::VIEW_ACTION_COLOR's own
+     * docblock — matches the Edit button's own (unset -> primary) color on
+     * the twin View page, so the two read as a pair.
+     */
     protected function getHeaderActions(): array
     {
         return [
@@ -23,7 +31,8 @@ class EditProspect extends EditRecord
                 ->color(ProspectResource::BACK_BUTTON_COLOR)
                 ->url(fn () => ProspectResource::getBackFallbackUrl())
                 ->extraAttributes(['x-on:click' => ProspectResource::BACK_BUTTON_CLICK_HANDLER]),
-            Actions\ViewAction::make(),
+            Actions\ViewAction::make()
+                ->color(self::VIEW_ACTION_COLOR),
             Actions\DeleteAction::make(),
         ];
     }

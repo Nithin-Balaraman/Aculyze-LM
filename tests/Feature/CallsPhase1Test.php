@@ -9,7 +9,9 @@ use App\Filament\Resources\CallRecordResource\Pages\ListCallRecords;
 use App\Filament\Resources\CallRecordResource\Pages\ViewCallRecord;
 use App\Filament\Resources\ProspectResource;
 use App\Filament\Resources\ProspectResource\Pages\CreateProspect;
+use App\Filament\Resources\ProspectResource\Pages\EditProspect;
 use App\Filament\Resources\ProspectResource\Pages\ListProspects;
+use App\Filament\Resources\ProspectResource\Pages\ViewProspect;
 use App\Models\CallRecord;
 use App\Models\Prospect;
 use App\Models\User;
@@ -234,6 +236,119 @@ class CallsPhase1Test extends TestCase
         $this->assertSame(ExportActions::COLOR, $exportColor);
         $this->assertSame(ExportActions::COLOR, $requestExportColor);
         $this->assertSame($exportColor, $requestExportColor);
+    }
+
+    // --- Edit page button colors --------------------------------------------
+
+    public function test_calls_edit_page_save_and_cancel_use_the_same_colors_as_create(): void
+    {
+        $this->actingAdmin();
+        $prospect = Prospect::factory()->create();
+        $call = CallRecord::create([
+            'prospect_id' => $prospect->id,
+            'user_id' => $prospect->assigned_to,
+            'called_at' => now(),
+            'outcome' => 'no_answer',
+        ]);
+
+        $page = Livewire::test(EditCallRecord::class, ['record' => $call->getRouteKey()])->instance();
+
+        $this->assertSame(EditCallRecord::SAVE_ACTION_COLOR, $this->saveFormAction($page)->getColor());
+        $this->assertSame(EditCallRecord::CANCEL_ACTION_COLOR, $this->cancelFormAction($page)->getColor());
+        $this->assertSame(CreateCallRecord::CREATE_ACTION_COLOR, EditCallRecord::SAVE_ACTION_COLOR);
+        $this->assertSame(CreateCallRecord::CANCEL_ACTION_COLOR, EditCallRecord::CANCEL_ACTION_COLOR);
+    }
+
+    public function test_prospect_edit_page_save_and_cancel_use_the_same_colors_as_create(): void
+    {
+        $this->actingAdmin();
+        $prospect = Prospect::factory()->create();
+
+        $page = Livewire::test(EditProspect::class, ['record' => $prospect->getRouteKey()])->instance();
+
+        $this->assertSame(EditProspect::SAVE_ACTION_COLOR, $this->saveFormAction($page)->getColor());
+        $this->assertSame(EditProspect::CANCEL_ACTION_COLOR, $this->cancelFormAction($page)->getColor());
+        $this->assertSame(CreateProspect::CREATE_ACTION_COLOR, EditProspect::SAVE_ACTION_COLOR);
+        $this->assertSame(CreateProspect::CANCEL_ACTION_COLOR, EditProspect::CANCEL_ACTION_COLOR);
+    }
+
+    /**
+     * The twin View page's own Edit button is genuinely left unset
+     * (->getColor() === null — confirmed directly: Filament's HasColor
+     * never resolves null to a named color at the PHP level, only Blade's
+     * button component falls it through to 'primary' at render time), so
+     * a direct getColor()-to-getColor() equality check against it isn't
+     * meaningful. What's actually checked: View-on-Edit-page resolves to
+     * the explicit 'primary' token, AND Edit-on-View-page really is still
+     * the untouched null this task didn't ask to change — together those
+     * two facts are what make the pair render identically.
+     */
+    public function test_calls_edit_pages_view_button_matches_view_pages_edit_button_color(): void
+    {
+        $this->actingAdmin();
+        $prospect = Prospect::factory()->create();
+        $call = CallRecord::create([
+            'prospect_id' => $prospect->id,
+            'user_id' => $prospect->assigned_to,
+            'called_at' => now(),
+            'outcome' => 'no_answer',
+        ]);
+
+        $viewColorOnEditPage = Livewire::test(EditCallRecord::class, ['record' => $call->getRouteKey()])
+            ->instance()->getAction('view')->getColor();
+        $editColorOnViewPage = Livewire::test(ViewCallRecord::class, ['record' => $call->getRouteKey()])
+            ->instance()->getAction('edit')->getColor();
+
+        $this->assertSame(EditCallRecord::VIEW_ACTION_COLOR, $viewColorOnEditPage);
+        $this->assertSame('primary', $viewColorOnEditPage);
+        $this->assertNull($editColorOnViewPage);
+    }
+
+    public function test_prospect_edit_pages_view_button_matches_view_pages_edit_button_color(): void
+    {
+        $this->actingAdmin();
+        $prospect = Prospect::factory()->create();
+
+        $viewColorOnEditPage = Livewire::test(EditProspect::class, ['record' => $prospect->getRouteKey()])
+            ->instance()->getAction('view')->getColor();
+        $editColorOnViewPage = Livewire::test(ViewProspect::class, ['record' => $prospect->getRouteKey()])
+            ->instance()->getAction('edit')->getColor();
+
+        $this->assertSame(EditProspect::VIEW_ACTION_COLOR, $viewColorOnEditPage);
+        $this->assertSame('primary', $viewColorOnEditPage);
+        $this->assertNull($editColorOnViewPage);
+    }
+
+    /**
+     * Item 3: Delete stays exactly as it was — DeleteAction's own baked-in
+     * 'danger' default, never touched by this task.
+     */
+    public function test_calls_and_prospect_edit_pages_delete_action_is_unchanged(): void
+    {
+        $this->actingAdmin();
+        $prospect = Prospect::factory()->create();
+        $call = CallRecord::create([
+            'prospect_id' => $prospect->id,
+            'user_id' => $prospect->assigned_to,
+            'called_at' => now(),
+            'outcome' => 'no_answer',
+        ]);
+
+        $callDeleteColor = Livewire::test(EditCallRecord::class, ['record' => $call->getRouteKey()])
+            ->instance()->getAction('delete')->getColor();
+        $prospectDeleteColor = Livewire::test(EditProspect::class, ['record' => $prospect->getRouteKey()])
+            ->instance()->getAction('delete')->getColor();
+
+        $this->assertSame('danger', $callDeleteColor);
+        $this->assertSame('danger', $prospectDeleteColor);
+    }
+
+    private function saveFormAction(object $page): object
+    {
+        $method = new \ReflectionMethod($page, 'getSaveFormAction');
+        $method->setAccessible(true);
+
+        return $method->invoke($page);
     }
 
     private function createFormAction(object $page): object
