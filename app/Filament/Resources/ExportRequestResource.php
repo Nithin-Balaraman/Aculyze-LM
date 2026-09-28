@@ -7,6 +7,7 @@ use App\Enums\ExportRequestStatus;
 use App\Filament\Resources\ExportRequestResource\Pages;
 use App\Models\ExportRequest;
 use App\Models\User;
+use App\Support\Tenancy\TenantContext;
 use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
@@ -156,8 +157,27 @@ class ExportRequestResource extends Resource
         return false;
     }
 
+    /**
+     * Guarded against TenantContextMissingException (production log,
+     * 2026-09-22 and 2026-09-28): Filament computes navigation badges for
+     * every resource as part of building the login-redirect response for
+     * an already-authenticated user hitting /login, and that route runs
+     * outside authMiddleware (see EstablishTenantContext's own docblock),
+     * so TenantContext may genuinely not be set yet at that point even
+     * though a real user is authenticated. Returning null here for that
+     * one moment is safe and correct: no navigation badge is actually
+     * rendered on the page the user is about to be redirected away from
+     * anyway. The underlying query itself is untouched — organization
+     * isolation still fails closed exactly as before whenever a context
+     * IS present; this only avoids running the query when there is
+     * genuinely nothing to scope it to.
+     */
     public static function getNavigationBadge(): ?string
     {
+        if (! TenantContext::hasContext()) {
+            return null;
+        }
+
         $pending = static::getModel()::query()->where('status', ExportRequestStatus::Pending)->count();
 
         return $pending > 0 ? (string) $pending : null;
