@@ -180,4 +180,37 @@ enum CallOutcome: string implements HasColor, HasLabel
     {
         return collect(self::cases())->mapWithKeys(fn (self $case) => [$case->value => $case->getLabel()])->all();
     }
+
+    /**
+     * Calls Phase 2: a short, human-readable indicator of where this
+     * outcome sends the call — shown as a badge in the Outcome dropdown
+     * (see CallRecordResource::outcomeSelectOptions()). Derived entirely
+     * from the routesTo*() predicates above — this does NOT duplicate the
+     * outcome->destination mapping; that mapping still lives solely in
+     * those methods (and, ultimately, in CallRoutingService::
+     * routeDownstream(), which calls them).
+     *
+     * Others is special-cased first: its real routing is driven by
+     * whichever CallNextAction the user separately picks, not by the
+     * outcome alone, so "Stays at Call" would be misleading for it. Every
+     * other outcome that matches none of the four routesTo*() predicates
+     * below falls through to "Stays at Call" — deliberately NOT keyed off
+     * routesNowhere() (whose own definition is narrower: only
+     * NoCurrentRequirement and Others), since No Answer/Switched Off/Not
+     * Reachable never match ANY routesTo*() predicate either and belong
+     * in the exact same "stays" bucket. This is still fully derived from
+     * the existing predicates, just used as an elimination set rather
+     * than routesNowhere()'s own narrower list.
+     */
+    public function routingBadge(): string
+    {
+        return match (true) {
+            $this === self::Others => 'You choose next action',
+            $this->routesToFollowUp() => '→ Follow-Up',
+            $this->routesToConditionalFollowUp() => '→ Follow-Up (if date set)',
+            $this->routesToAppointment() => '→ Appointment',
+            $this->routesToLead() => '→ Lead',
+            default => 'Stays at Call',
+        };
+    }
 }

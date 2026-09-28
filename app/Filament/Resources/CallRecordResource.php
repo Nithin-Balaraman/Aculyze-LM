@@ -22,6 +22,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 
@@ -137,10 +138,36 @@ class CallRecordResource extends Resource
                             ->searchable()
                             ->preload()
                             ->live()
+                            // Same blended ranking as the Calls list/
+                            // ProspectResource::table() (commit 2c4a8ff):
+                            // starts-with matches ranked before contains-
+                            // elsewhere ones. Unlike the list's own version,
+                            // no ->modifyQueryUsing() workaround is needed
+                            // here — this is a plain, freestanding
+                            // Prospect::query() built fresh inside this
+                            // closure, never merged into a Filament table's
+                            // own ->where(function () {...}) nested search
+                            // group (the thing that discards ->orderByRaw()
+                            // there), so ordering it directly works as
+                            // expected. Conditioned on a non-empty $search
+                            // so the initial ->preload() call (which passes
+                            // an empty string) isn't affected — every
+                            // company_name LIKE '%' at that point regardless,
+                            // making the CASE WHEN a no-op anyway, but this
+                            // keeps the SQL itself clean for that case.
+                            // "+ Create new company…" is a plain PHP array
+                            // entry ahead of the query results (the `+`
+                            // union keeps the left array's keys first), so
+                            // it always stays pinned first regardless of
+                            // this ranking.
                             ->getSearchResultsUsing(fn (string $search) => [self::CREATE_NEW_PROSPECT => '+ Create new company…']
                                 + Prospect::query()
                                     ->visibleTo(auth()->user())
                                     ->where('company_name', 'like', "%{$search}%")
+                                    ->when(
+                                        filled($search),
+                                        fn ($query) => $query->orderByRaw('case when company_name like ? then 0 else 1 end', ["{$search}%"]),
+                                    )
                                     ->limit(50)
                                     ->pluck('company_name', 'id')
                                     ->all())
@@ -277,7 +304,9 @@ class CallRecordResource extends Resource
                     ->default(now())
                     ->seconds(false),
                 Forms\Components\Select::make('outcome')
-                    ->options(CallOutcome::class)
+                    ->options(self::outcomeSelectOptions())
+                    ->allowHtml()
+                    ->native(false)
                     ->required()
                     ->live()
                     ->helperText('Determines what happens next — see the Follow-Ups, Appointments, and Leads panels.'),
@@ -349,6 +378,59 @@ class CallRecordResource extends Resource
                     ->visible(fn (Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::Others)
                     ->required(fn (Get $get) => self::resolveOutcome($get('outcome')) === CallOutcome::Others),
         ];
+    }
+
+    /**
+     * Calls Phase 2, item 3: the Outcome dropdown's own routing-badge
+     * options — label plus a small badge at the far right indicating
+     * where that outcome sends the call (CallOutcome::routingBadge(),
+     * which derives it from the existing routesTo*() predicates; nothing
+     * here re-maps outcome -> destination itself). Shared by every place
+     * this exact Outcome Select appears: this method's own
+     * callDetailsFieldsSchema() (reused verbatim by both the main Create/
+     * Edit/View form and, via CallRecordResource::formSchema(),
+     * PipelineBoard's "+ Log a call"/"Record New Call" dialog) and
+     * correctOutcomeAction()'s own "Corrected Outcome" Select.
+     *
+     * Built as a plain array of pre-rendered HTML labels (`->allowHtml()`)
+     * rather than the usual `->options(CallOutcome::class)`, since a
+     * label needs its own inline markup to place the badge — the actual
+     * badge markup is the real <x-filament::badge> component (via
+     * Blade::render(), the same mechanism FollowUpResource::
+     * renderCompanyWithOriginTypeBadge() already uses elsewhere in this
+     * app), not a hand-rolled substitute, so it uses Filament's own
+     * already-shipped classes/color system rather than anything needing
+     * a new Tailwind class compiled into this app's own theme.css.
+     * ->native(false) is required alongside ->allowHtml(): Select
+     * defaults to native=true when not ->searchable() (confirmed
+     * directly — Concerns\CanBeNative's own $isNative default), and a
+     * real native <option> element never interprets HTML in its own
+     * text content regardless of Blade's {!! !!}; only the Alpine/
+     * choices.js-backed custom dropdown (forced by ->native(false))
+     * actually honors allowHTML, for both the open list AND the closed/
+     * selected single-value display (confirmed directly in resources/js/
+     * components/select.js: `allowHTML: isHtmlAllowed` is passed straight
+     * into the choices.js config, and its own `.choices__list--single`
+     * closed-state element is later written via `.innerHTML`, not
+     * `.textContent`) — this is also why the selected value keeps
+     * reading cleanly once collapsed: it shows the exact same label +
+     * badge, not a stripped/escaped version of it.
+     *
+     * @return array<string, \Illuminate\Support\HtmlString>
+     */
+    public static function outcomeSelectOptions(): array
+    {
+        return collect(CallOutcome::cases())->mapWithKeys(fn (CallOutcome $case) => [
+            $case->value => new HtmlString(Blade::render(
+                <<<'BLADE'
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;">
+                        <span>{{ $label }}</span>
+                        <x-filament::badge color="gray" size="xs">{{ $badge }}</x-filament::badge>
+                    </div>
+                    BLADE,
+                ['label' => $case->getLabel(), 'badge' => $case->routingBadge()],
+            )),
+        ])->all();
     }
 
     /**
@@ -560,9 +642,51 @@ class CallRecordResource extends Resource
         ];
     }
 
+    /**
+     * Same blended-ranking mechanism as ProspectResource::table() (see
+     * that method's own docblock, commit 2c4a8ff) — starts-with matches
+     * ranked before contains-elsewhere matches, in one result set, with
+     * the table's own sort (defaultSort('called_at', 'desc') or whatever
+     * a user has actively clicked) surviving as the tie-breaker. Company
+     * Name here is a RELATIONSHIP column (prospect.company_name), not a
+     * plain column on this table, so the ranking can't be a bare
+     * `company_name LIKE ...` CASE WHEN the way Prospects' own version
+     * is — there is no such column on call_records. It's a scalar
+     * correlated subquery against prospects instead, correlated on
+     * call_records.prospect_id = prospects.id, which resolves to exactly
+     * the same 0-or-1 CASE WHEN per row without needing a JOIN (and
+     * without the column-ambiguity/aliasing concerns a JOIN would add on
+     * top of this query's own OrganizationScope/visibleTo() wheres).
+     *
+     * Same reason as Prospects' own version for WHY this can't live
+     * inside the column's own ->searchable() (Filament invokes column
+     * search from inside a ->where(function ($query) {...}) nested
+     * group; Laravel's Query\Builder::whereNested()/forNestedWhere()
+     * build that group with a separate, throwaway Builder whose
+     * ->orders never gets copied back onto the real query — confirmed
+     * directly again here, not assumed, the same way it was for
+     * Prospects) — this lives in ->modifyQueryUsing() instead, which
+     * Concerns\HasRecords runs before ->applySortingToTableQuery(), so
+     * this order-by always ends up primary with defaultSort/a user's
+     * active sort surviving as the tie-breaker, and is a no-op with an
+     * empty search (confirmed via ->toSql(): no CASE WHEN/subquery
+     * appears in the generated SQL at all when the search box is empty).
+     */
     public static function table(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(function (Builder $query, $livewire): Builder {
+                $search = $livewire->getTableSearch();
+
+                if (filled($search)) {
+                    $query->orderByRaw(
+                        '(select case when company_name like ? then 0 else 1 end from prospects where prospects.id = call_records.prospect_id) asc',
+                        ["{$search}%"],
+                    );
+                }
+
+                return $query;
+            })
             ->columns(static::columns())
             ->filters([
                 Tables\Filters\SelectFilter::make('outcome')
@@ -658,7 +782,9 @@ class CallRecordResource extends Resource
                     ->content(fn () => $record->outcome->getLabel()),
                 Forms\Components\Select::make('outcome')
                     ->label('Corrected Outcome')
-                    ->options(CallOutcome::class)
+                    ->options(self::outcomeSelectOptions())
+                    ->allowHtml()
+                    ->native(false)
                     ->required()
                     ->live(),
                 Forms\Components\Textarea::make('correction_reason')
