@@ -5,6 +5,7 @@ namespace App\Filament\Resources\ProspectResource\Pages;
 use App\Filament\Pages\ImportProspects;
 use App\Filament\Resources\ProspectResource;
 use App\Models\ProspectTableColumnPreference;
+use App\Support\Exports\ExportActions;
 use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Support\Arr;
@@ -14,20 +15,25 @@ class ListProspects extends ListRecords
     protected static string $resource = ProspectResource::class;
 
     /**
-     * 'slateblue' — a deliberate, distinct color rather than the previous
-     * plain 'gray': registered in AdminPanelProvider::colors(), and its
-     * only other use anywhere in this app is a passive Lead Temperature
-     * badge ("Cold"), never an action/button color, so it collides with no
-     * existing "this button means X" expectation. 'navy' and 'accent' were
-     * ruled out — both are load-bearing theme chrome (the sidebar's own
-     * background hue and its active-item glow/dashboard-greeting/KPI badge
-     * accent respectively — see resources/css/filament/admin/theme.css),
-     * not free action colors. Same reasoning HasCreateFormActionColors'
-     * own docblock used for Create & Create Another's color.
+     * ExportActions::COLOR — a deliberate, distinct color rather than the
+     * previous plain 'gray', and the SAME token Export CSV/Request Export
+     * use everywhere else (see ExportActions::COLOR's own docblock: import
+     * and export are the same family of list-header data-transfer action
+     * and must read as one, so this references that one shared constant
+     * rather than a second literal that could drift from it). Registered
+     * in AdminPanelProvider::colors() ('slateblue'), and its only other use
+     * anywhere in this app is a passive Lead Temperature badge ("Cold"),
+     * never an action/button color, so it collides with no existing "this
+     * button means X" expectation. 'navy' and 'accent' were ruled out —
+     * both are load-bearing theme chrome (the sidebar's own background hue
+     * and its active-item glow/dashboard-greeting/KPI badge accent
+     * respectively — see resources/css/filament/admin/theme.css), not free
+     * action colors. Same reasoning HasCreateFormActionColors' own
+     * docblock used for Create & Create Another's color.
      *
-     * No "Export" action exists for Prospects today (ExportableResource/
-     * ExportActions covers Leads/Appointments/Proposals/Follow-Ups/Call
-     * Records only) — nothing to color there.
+     * No "Export" action exists for Prospects today (ExportableResource
+     * covers Leads/Appointments/Proposals/Follow-Ups/Call Records only) —
+     * only Import needs coloring here.
      */
     protected function getHeaderActions(): array
     {
@@ -35,7 +41,7 @@ class ListProspects extends ListRecords
             Actions\Action::make('importExcel')
                 ->label('Import from Excel')
                 ->icon('heroicon-o-arrow-up-tray')
-                ->color('slateblue')
+                ->color(ExportActions::COLOR)
                 ->url(fn () => ImportProspects::getUrl()),
             Actions\CreateAction::make(),
         ];

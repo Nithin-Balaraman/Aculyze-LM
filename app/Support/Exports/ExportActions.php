@@ -23,6 +23,21 @@ use Filament\Support\Exceptions\Halt;
  */
 class ExportActions
 {
+    /**
+     * Calls Phase 1 follow-up: import and export are the same family of
+     * list-header data-transfer action and must read as one — shared with
+     * ProspectResource's own "Import from Excel" button (see
+     * ListProspects::getHeaderActions()), the single other place this
+     * exact color is used, so the two can never drift apart into two
+     * different "this button moves data" colors. Neither this class nor
+     * ProspectResource owns the other; this constant is the one shared
+     * source both reference, rather than either hard-coding its own
+     * literal. See HasCreateFormActionColors' own docblock for why
+     * 'slateblue' specifically (the only registered brand color not
+     * already claimed by theme chrome or an existing action semantic).
+     */
+    public const COLOR = 'slateblue';
+
     public static function immediate(ExportableResource $resource): Action
     {
         $exporter = $resource->exporter();
@@ -30,7 +45,7 @@ class ExportActions
         return Action::make('exportCsv')
             ->label('Export CSV')
             ->icon('heroicon-o-arrow-down-tray')
-            ->color('gray')
+            ->color(self::COLOR)
             ->visible(fn () => auth()->user()?->isAdmin() ?? false)
             ->form($exporter->criteriaFormSchema())
             ->action(function (array $data) use ($exporter) {
@@ -49,7 +64,7 @@ class ExportActions
         return Action::make('requestExport')
             ->label('Request Export')
             ->icon('heroicon-o-clock')
-            ->color('gray')
+            ->color(self::COLOR)
             ->visible(fn () => ! (auth()->user()?->isAdmin() ?? true))
             ->form($exporter->criteriaFormSchema())
             ->action(function (array $data) use ($resource, $exporter) {

@@ -13,6 +13,7 @@ use App\Filament\Resources\ProspectResource\Pages\ListProspects;
 use App\Models\CallRecord;
 use App\Models\Prospect;
 use App\Models\User;
+use App\Support\Exports\ExportActions;
 use Filament\Forms\Components\Section;
 use Filament\Tables\Actions\ActionGroup;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -209,8 +210,30 @@ class CallsPhase1Test extends TestCase
         $importColor = $test->instance()->getAction('importExcel')->getColor();
         $createColor = $test->instance()->getAction('create')->getColor();
 
-        $this->assertSame('slateblue', $importColor);
+        $this->assertSame(ExportActions::COLOR, $importColor);
         $this->assertNotSame($createColor, $importColor);
+    }
+
+    /**
+     * Calls Phase 1 follow-up: Export CSV (admin) and Request Export
+     * (everyone else) must match Import from Excel's own color — one
+     * shared constant (ExportActions::COLOR), not two colors that happen
+     * to look alike today and could drift apart tomorrow. Both variants
+     * checked directly rather than only the one visible to whichever role
+     * is acting, since ->getColor() reads the action's configured color
+     * regardless of its current visibility.
+     */
+    public function test_calls_export_actions_match_import_from_excels_color(): void
+    {
+        $this->actingAdmin();
+
+        $test = Livewire::test(ListCallRecords::class);
+        $exportColor = $test->instance()->getAction('exportCsv')->getColor();
+        $requestExportColor = $test->instance()->getAction('requestExport')->getColor();
+
+        $this->assertSame(ExportActions::COLOR, $exportColor);
+        $this->assertSame(ExportActions::COLOR, $requestExportColor);
+        $this->assertSame($exportColor, $requestExportColor);
     }
 
     private function createFormAction(object $page): object
