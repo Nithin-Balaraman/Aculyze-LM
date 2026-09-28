@@ -95,6 +95,54 @@ class CallOutcomeRoutingBadgeTest extends TestCase
         $this->assertStringContainsString(CallOutcome::AppointmentSet->routingBadge(), (string) $options[CallOutcome::AppointmentSet->value]);
     }
 
+    /**
+     * Regression test for a real bug caught only by browser QA, not by any
+     * PHP-side assertion above: the ->native(false) dropdown this Select
+     * forces sends its option list to the browser as JSON
+     * (Select::getOptionsForJs(), rendered via Blade's @js() directive,
+     * i.e. json_encode()). Illuminate\Support\HtmlString does not
+     * implement JsonSerializable and stores its content in a protected
+     * property, so json_encode()ing one silently produces "{}" — which
+     * the browser then renders as the literal text "[object Object]" for
+     * every option. outcomeSelectOptions() must therefore return plain
+     * strings, not HtmlString instances, and this must be verified against
+     * the exact JSON Filament actually sends to the browser, not merely
+     * against the PHP-side option array (which looks fine either way).
+     */
+    public function test_outcome_select_options_survive_the_actual_json_serialization_sent_to_the_browser(): void
+    {
+        $admin = $this->admin();
+        $prospect = Prospect::factory()->create(['assigned_to' => $admin->id, 'created_by' => $admin->id]);
+        $call = CallRecord::create([
+            'prospect_id' => $prospect->id,
+            'user_id' => $admin->id,
+            'called_at' => now(),
+            'outcome' => CallOutcome::NoAnswer->value,
+        ]);
+
+        // getOptionsForJs() requires the component to be mounted inside a
+        // real ComponentContainer (it is not usable standalone off the
+        // schema array, unlike getOptions()) — reuse the same verified
+        // mounted-form path as test_correct_outcome_actions_select_uses_
+        // the_badge_options() above.
+        $livewireTest = Livewire::test(\App\Filament\Resources\CallRecordResource\Pages\ListCallRecords::class);
+        $livewireTest->mountTableAction('correctOutcome', $call);
+        $outcomeSelect = $livewireTest->instance()->getMountedTableActionForm()->getFlatFields()['outcome'];
+
+        $forJs = $outcomeSelect->getOptionsForJs();
+        $json = json_encode($forJs);
+
+        $this->assertStringNotContainsString('{}', $json, 'An option label serialized to an empty JSON object — the browser will render it as "[object Object]".');
+
+        foreach (CallOutcome::cases() as $outcome) {
+            $entry = collect($forJs)->firstWhere('value', $outcome->value);
+            $this->assertNotNull($entry, "No JS option entry found for outcome {$outcome->value}.");
+            $this->assertIsString($entry['label'], "Outcome {$outcome->value}'s label did not survive JSON round-tripping as a plain string.");
+            $this->assertStringContainsString($outcome->getLabel(), $entry['label']);
+            $this->assertStringContainsString($outcome->routingBadge(), $entry['label']);
+        }
+    }
+
     public function test_correct_outcome_actions_select_uses_the_badge_options(): void
     {
         $admin = $this->admin();

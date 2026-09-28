@@ -416,12 +416,24 @@ class CallRecordResource extends Resource
      * reading cleanly once collapsed: it shows the exact same label +
      * badge, not a stripped/escaped version of it.
      *
-     * @return array<string, \Illuminate\Support\HtmlString>
+     * The options must be returned as plain strings, NOT wrapped in
+     * Illuminate\Support\HtmlString: the non-native/searchable dropdown
+     * this Select forces (->native(false)) sends its option list to the
+     * browser as JSON (Select::getOptionsForJs(), rendered via the @js()
+     * Blade directive), and HtmlString does not implement JsonSerializable
+     * and stores its content in a protected property — json_encode()ing
+     * one therefore silently produces an empty object ("{}"), which the
+     * browser then stringifies as the literal text "[object Object]" for
+     * every option. Blade::render() already returns a plain string, so no
+     * wrapping is needed for {!! !!} (used by the native-select branch) or
+     * ->allowHtml()'s choices.js rendering to both work correctly.
+     *
+     * @return array<string, string>
      */
     public static function outcomeSelectOptions(): array
     {
         return collect(CallOutcome::cases())->mapWithKeys(fn (CallOutcome $case) => [
-            $case->value => new HtmlString(Blade::render(
+            $case->value => Blade::render(
                 <<<'BLADE'
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;">
                         <span>{{ $label }}</span>
@@ -429,7 +441,7 @@ class CallRecordResource extends Resource
                     </div>
                     BLADE,
                 ['label' => $case->getLabel(), 'badge' => $case->routingBadge()],
-            )),
+            ),
         ])->all();
     }
 
