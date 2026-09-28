@@ -58,20 +58,27 @@ class CallRecordResource extends Resource
     }
 
     /**
-     * Extracted so PipelineBoard's "+ Create company" flow (which needs
-     * this exact prospect_id search/select/create-inline field, not a
-     * simplified copy) can reuse it directly — matches the
-     * ProspectResource::formSchema() precedent.
+     * Extracted so PipelineBoard's "+ Log a call" / "Record New Call" flow
+     * (which needs this exact form, Company selector included) can reuse
+     * it directly.
+     *
+     * Section order: Company (selector + inline create) first — the one
+     * decision every other field on this form depends on — then Call
+     * Details (including Contact Person/Designation/Phone Called; see
+     * callDetailsFieldsSchema()'s own docblock for why they live there
+     * rather than in a section of their own), then Profile Sent (only
+     * meaningful once an outcome is picked in Call Details), Notes last.
+     * "Company Details" (the read-only already-saved-info placeholder)
+     * stays immediately under the Company selector it's contextual to,
+     * rather than drifting further down the form.
      *
      * @return array<int, Forms\Components\Component>
      */
     public static function formSchema(): array
     {
         return [
-            Forms\Components\Section::make('Call Details')
-                ->columns(2)
-                ->schema(self::callDetailsFieldsSchema()),
-            ...self::profileSentFieldsSchema(),
+            Forms\Components\Section::make('Company')
+                ->schema(self::companyFieldSchema()),
             // Phase 2 item #5: once a company is selected, show its
             // already-saved Database details inline so the caller doesn't
             // have to leave this screen to look them up. Only meaningful
@@ -91,28 +98,27 @@ class CallRecordResource extends Resource
                         ->columnSpanFull(),
                 ])
                 ->visible(fn (Get $get) => filled($get('prospect_id')) && $get('prospect_id') !== self::CREATE_NEW_PROSPECT),
+            Forms\Components\Section::make('Call Details')
+                ->columns(2)
+                ->schema(self::callDetailsFieldsSchema(includeCompanyField: false)),
+            ...self::profileSentFieldsSchema(),
             ...self::notesFieldSchema(),
         ];
     }
 
     /**
-     * The "Call Details" section's own fields — extracted so
-     * PipelineBoard's cross-drop "Log a New Call" dialog (see
-     * PipelineBoard::callLogFormSchema()) can reuse the EXACT same fields,
-     * validation, and outcome-driven conditional visibility (including
-     * `next_action`, required whenever outcome is Other — see
-     * followUpAtVisible()/appointmentAtVisible() and CallRecord's own
-     * `booted()` guard) rather than a hand-copied subset that can silently
-     * drift out of sync with this one. `$includeCompanyField` is false only
-     * for that reuse, since the Company is already implied by whichever
-     * card was dragged.
+     * The Company selector (search/select an existing Prospect, or the
+     * always-present "+ Create new company…" inline-create row) — its own
+     * method so formSchema()'s dedicated "Company" section and
+     * callDetailsFieldsSchema()'s own $includeCompanyField=true path (kept
+     * for any caller that still wants Company folded into Call Details)
+     * share the exact same field rather than two copies that could drift.
      *
      * @return array<int, Forms\Components\Component>
      */
-    public static function callDetailsFieldsSchema(bool $includeCompanyField = true): array
+    public static function companyFieldSchema(): array
     {
         return [
-                ...($includeCompanyField ? [
                         Forms\Components\Select::make('prospect_id')
                             ->label('Company')
                             ->required()
@@ -244,7 +250,28 @@ class CallRecordResource extends Resource
                                         $set('prospect_id', $prospect->getKey());
                                     }),
                             ]),
-                    ] : []),
+        ];
+    }
+
+    /**
+     * The "Call Details" section's own fields (Company excluded by
+     * default — see formSchema()'s dedicated "Company" section above and
+     * $includeCompanyField below) — extracted so this exact fields/
+     * validation/outcome-driven-visibility set (including `next_action`,
+     * required whenever outcome is Other — see followUpAtVisible()/
+     * appointmentAtVisible() and CallRecord's own `booted()` guard) is
+     * available to any caller that needs it, rather than a hand-copied
+     * subset that can silently drift out of sync with this one.
+     * $includeCompanyField folds companyFieldSchema() in as the section's
+     * first field instead, for a caller that wants Company and Call
+     * Details combined into one section.
+     *
+     * @return array<int, Forms\Components\Component>
+     */
+    public static function callDetailsFieldsSchema(bool $includeCompanyField = true): array
+    {
+        return [
+                ...($includeCompanyField ? self::companyFieldSchema() : []),
                 Forms\Components\DateTimePicker::make('called_at')
                     ->required()
                     ->default(now())
@@ -568,17 +595,23 @@ class CallRecordResource extends Resource
                         ->before(fn (CallRecord $record) => DeletionGuard::guardRecord($record, 'call record')),
                 ]),
             ])
+            // Delete/Deselect as standalone toolbar buttons, not nested in a
+            // "Bulk actions" dropdown — same placement-only change as
+            // ProspectResource::table() (see that method's own comment): a
+            // plain array (no BulkActionGroup wrapper) is what makes
+            // Filament render each one as its own directly-visible button.
+            // Neither action's own config (visibility, confirmation dialog,
+            // dehydration, etc.) changes — only how they're grouped for
+            // display.
             ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    TableBulkActions::deselectAll(),
-                    Tables\Actions\DeleteBulkAction::make()
-                        ->visible(fn () => auth()->user()->isAdmin())
-                        ->before(fn (Collection $records) => DeletionGuard::guardRecords(
-                            $records,
-                            'call records',
-                            fn (CallRecord $call) => $call->called_at->format('d M Y').' — '.$call->prospect->company_name,
-                        )),
-                ]),
+                TableBulkActions::deselectAll(),
+                Tables\Actions\DeleteBulkAction::make()
+                    ->visible(fn () => auth()->user()->isAdmin())
+                    ->before(fn (Collection $records) => DeletionGuard::guardRecords(
+                        $records,
+                        'call records',
+                        fn (CallRecord $call) => $call->called_at->format('d M Y').' — '.$call->prospect->company_name,
+                    )),
             ])
             ->defaultSort('called_at', 'desc')
             ->emptyStateHeading('No calls logged yet.')
@@ -881,5 +914,22 @@ class CallRecordResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()->visibleTo(auth()->user());
+    }
+
+    /**
+     * The fallback destination for View/Edit/Create Call Record's own
+     * "Back" header action — used only when there's no real browser
+     * history to go back to (a fresh tab/bookmark) or JavaScript is
+     * unavailable. Same mechanism as ProspectResource::getBackFallbackUrl()
+     * (see ProspectResource::BACK_BUTTON_CLICK_HANDLER's own docblock for
+     * why history.back() is the *primary* mechanism) — reused verbatim via
+     * ProspectResource::BACK_BUTTON_COLOR/BACK_BUTTON_CLICK_HANDLER in each
+     * Call Record page, not a second implementation. Only the fallback
+     * destination is resource-specific, by definition — here, the Calls
+     * list rather than the Prospects list.
+     */
+    public static function getBackFallbackUrl(): string
+    {
+        return static::getUrl('index');
     }
 }

@@ -2,12 +2,15 @@
 
 namespace App\Filament\Resources\ProspectResource\Pages;
 
+use App\Filament\Concerns\HasCreateFormActionColors;
 use App\Filament\Resources\ProspectResource;
 use Filament\Actions;
 use Filament\Resources\Pages\CreateRecord;
 
 class CreateProspect extends CreateRecord
 {
+    use HasCreateFormActionColors;
+
     protected static string $resource = ProspectResource::class;
 
     /**

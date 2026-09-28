@@ -13,13 +13,29 @@ class ListProspects extends ListRecords
 {
     protected static string $resource = ProspectResource::class;
 
+    /**
+     * 'slateblue' — a deliberate, distinct color rather than the previous
+     * plain 'gray': registered in AdminPanelProvider::colors(), and its
+     * only other use anywhere in this app is a passive Lead Temperature
+     * badge ("Cold"), never an action/button color, so it collides with no
+     * existing "this button means X" expectation. 'navy' and 'accent' were
+     * ruled out — both are load-bearing theme chrome (the sidebar's own
+     * background hue and its active-item glow/dashboard-greeting/KPI badge
+     * accent respectively — see resources/css/filament/admin/theme.css),
+     * not free action colors. Same reasoning HasCreateFormActionColors'
+     * own docblock used for Create & Create Another's color.
+     *
+     * No "Export" action exists for Prospects today (ExportableResource/
+     * ExportActions covers Leads/Appointments/Proposals/Follow-Ups/Call
+     * Records only) — nothing to color there.
+     */
     protected function getHeaderActions(): array
     {
         return [
             Actions\Action::make('importExcel')
                 ->label('Import from Excel')
                 ->icon('heroicon-o-arrow-up-tray')
-                ->color('gray')
+                ->color('slateblue')
                 ->url(fn () => ImportProspects::getUrl()),
             Actions\CreateAction::make(),
         ];

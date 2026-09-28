@@ -2,14 +2,39 @@
 
 namespace App\Filament\Resources\CallRecordResource\Pages;
 
+use App\Filament\Concerns\HasCreateFormActionColors;
 use App\Filament\Resources\CallRecordResource;
+use App\Filament\Resources\ProspectResource;
+use Filament\Actions;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
 class CreateCallRecord extends CreateRecord
 {
+    use HasCreateFormActionColors;
+
     protected static string $resource = CallRecordResource::class;
+
+    /**
+     * Sole real entry point: the "Log a call" button on the Activity Log
+     * (Call Record) list. Same mechanism as Prospects' own Back action
+     * (see ProspectResource::BACK_BUTTON_CLICK_HANDLER's docblock) — reused
+     * verbatim (color + click handler), not a second implementation; only
+     * the fallback destination is resource-specific (CallRecordResource::
+     * getBackFallbackUrl() -> the Calls list, not the Prospects list).
+     */
+    protected function getHeaderActions(): array
+    {
+        return [
+            Actions\Action::make('back')
+                ->label('Back')
+                ->icon('heroicon-o-arrow-uturn-left')
+                ->color(ProspectResource::BACK_BUTTON_COLOR)
+                ->url(fn () => CallRecordResource::getBackFallbackUrl())
+                ->extraAttributes(['x-on:click' => ProspectResource::BACK_BUTTON_CLICK_HANDLER]),
+        ];
+    }
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
