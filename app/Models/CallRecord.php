@@ -2,10 +2,8 @@
 
 namespace App\Models;
 
-use App\Enums\AppointmentMode;
 use App\Enums\CallNextAction;
 use App\Enums\CallOutcome;
-use App\Enums\ContactMode;
 use App\Enums\ProfileSentMode;
 use App\Enums\ProfileSentStatus;
 use App\Models\Concerns\BelongsToOrganization;
@@ -48,18 +46,6 @@ class CallRecord extends Model
         'profile_sent_at',
         'profile_sent_mode',
         'profile_sent_notes',
-        // Pipeline Board V2 (Calls column): staging fields for the
-        // destination-specific Calls -> Appointment/Follow-Up/Lead modals —
-        // never set by the real CallRecordResource form or the legacy
-        // Others + next_action path, only by PipelineBoard's own
-        // destination-specific dialogs. See CallRoutingService::
-        // createAppointment()/createFollowUp()/createLead(), which copy
-        // these into the resulting record.
-        'appointment_mode',
-        'appointment_person_meeting',
-        'appointment_location',
-        'follow_up_contact_mode',
-        'lead_opportunity_title',
     ];
 
     protected function casts(): array
@@ -76,8 +62,6 @@ class CallRecord extends Model
             'profile_sent_mode' => ProfileSentMode::class,
             'outcome_corrected_at' => 'datetime',
             'flagged_incorrect_at' => 'datetime',
-            'appointment_mode' => AppointmentMode::class,
-            'follow_up_contact_mode' => ContactMode::class,
         ];
     }
 
