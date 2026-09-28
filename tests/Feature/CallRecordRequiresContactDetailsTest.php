@@ -258,20 +258,23 @@ class CallRecordRequiresContactDetailsTest extends TestCase
 
         $this->actingAs($admin);
 
-        // CallRecordResource has no dedicated infolist(), so ViewRecord
-        // renders the shared formSchema() disabled — a disabled TextInput's
-        // value is hydrated client-side by Alpine/Livewire from the
-        // component's wire:snapshot state rather than a static HTML
-        // `value=""` attribute, so this asserts against the FULL response
-        // (stripInitialData: false) rather than the visible-text-only view
-        // assertSee() normally checks — verified independently via a real
-        // browser screenshot that these values do genuinely render.
+        // Calls Phase 3: ViewCallRecord now has its own real infolist
+        // (see ViewCallRecord::infolist()) instead of Filament's old
+        // fallback of rendering the shared formSchema() disabled — these
+        // values are now plain visible TextEntry text, not a disabled
+        // TextInput's client-side-hydrated wire:snapshot state, so a
+        // normal assertSee() (visible text only) is sufficient; the
+        // stripInitialData: false workaround this test used to need is no
+        // longer necessary, though harmless to leave as a stricter
+        // superset check. Full field-order/conditional-visibility/
+        // placeholder coverage for the new infolist lives in
+        // CallRecordViewPageInfolistTest, not duplicated here.
         Livewire::test(ViewCallRecord::class, ['record' => $call->getRouteKey()])
             ->assertSee('Contact Person')
             ->assertSee('Designation')
             ->assertSee('Phone Called')
-            ->assertSee('Jane Q. Contact', escape: true, stripInitialData: false)
-            ->assertSee('Procurement Head', escape: true, stripInitialData: false)
-            ->assertSee('+1-555-0100', escape: true, stripInitialData: false);
+            ->assertSee('Jane Q. Contact')
+            ->assertSee('Procurement Head')
+            ->assertSee('+1-555-0100');
     }
 }
